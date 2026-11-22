@@ -262,7 +262,7 @@ async function nativePreferenceTests(strings) {
                         const button = document.querySelector(`[data-action="${action}"]`);
                         check(button.getAttribute('aria-label') === 'Keep on top', 'Describe what the window does, not the browser API.');
                         const help = document.getElementById(button.getAttribute('aria-describedby'));
-                        check(help?.textContent === strings.popOutHelp, 'Let the native Button associate the plain explanation.');
+                        check(help?.textContent === 'Open the preview in a separate Picture-in-Picture window.', 'Name the browser feature in the associated help while keeping the action label plain.');
                     }
                     const pip = document.querySelector('[data-action="pip"]');
                     check(pip.textContent.trim() === 'Keep on top', 'Keep the action label short.');

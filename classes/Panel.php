@@ -189,7 +189,7 @@ final class Panel
             'display' => __('Preview window', 'meet-the-frontend-live-preview-panel'),
             'popOut' => __('Keep on top', 'meet-the-frontend-live-preview-panel'),
             'popOutHelp' => __(
-                'Open the preview in a window that stays on top.',
+                'Open the preview in a separate Picture-in-Picture window.',
                 'meet-the-frontend-live-preview-panel'
             ),
             'fullscreen' => __('Use full screen', 'meet-the-frontend-live-preview-panel'),

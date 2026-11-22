@@ -3,7 +3,7 @@ Contributors: timohubois
 Tags: preview, editor
 Requires at least: 6.9
 Tested up to: 7.1
-Stable tag: 1.0.0
+Stable tag: 1.0.1
 Requires PHP: 8.3
 License: GPLv3 or later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
@@ -19,7 +19,7 @@ Meet the Frontend – Live Preview Panel shows unsaved changes in a movable, res
 * Move, resize or dock the panel without leaving the editor, using a mouse or keyboard.
 * Inspect Computer, Tablet and Phone viewports with rotation and zoom.
 * Follow detected content changes automatically, or keep your own scroll position.
-* Remember panel preferences across posts and editors. Use fullscreen or **Keep on top** where supported.
+* Remember panel preferences across posts and editors. Use fullscreen or **Keep on top** (Picture-in-Picture) where supported.
 
 Save new posts as drafts first. Live updates require revisions to be enabled. Previewing does not save or publish your edits; use WordPress's normal save controls.
 
@@ -104,6 +104,9 @@ Report issues or contribute on [GitHub](https://github.com/timohubois/meet-the-f
 7. Keep the preview in a separate Picture-in-Picture window where supported.
 
 == Changelog ==
+
+= 1.0.1 =
+* Clarify the Picture-in-Picture tooltip and documentation for Keep on top.
 
 = 1.0.0 =
 * Initial commit
