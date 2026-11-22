@@ -93,11 +93,21 @@ Deactivation keeps preview data and preferences. Deleting the plugin through Wor
 
 Report issues or contribute on [GitHub](https://github.com/timohubois/meet-the-frontend-live-preview-panel/). Include the relevant versions and steps to reproduce, without credentials or private site data.
 
+== Screenshots ==
+
+1. Preview unsaved changes alongside the Block Editor.
+2. Preview unsaved changes alongside the classic editor.
+3. Preview saved revisions without restoring them.
+4. Preview changes to supported ACF PRO Flexible Content fields.
+5. Check responsive layouts with device viewport presets.
+6. Enlarge the preview while keeping the editor in view.
+7. Keep the preview in a separate Picture-in-Picture window where supported.
+
 == Changelog ==
 
 = 1.0.0 =
 * Initial commit
 
-== License ==
+== Credits ==
 
-GPLv3 or later. Bundled icons are an unchanged subset of [Gutenberg's @wordpress/icons 20.0.0](https://github.com/WordPress/gutenberg/tree/55ab503b80b1561f48414b2eb209c25b793a9e8a/packages/icons) by the WordPress Contributors, licensed GPL-2.0-or-later.
+Icons from [WordPress Gutenberg](https://github.com/WordPress/gutenberg), by the WordPress Contributors, licensed GPL-2.0-or-later.
