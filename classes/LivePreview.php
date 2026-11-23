@@ -606,10 +606,11 @@ final class LivePreview
             }
             $payload = wp_slash($payload);
             $seed = function (int $revisionId) use ($postId, $fields, &$context): void {
-                // Remember the owned source before initialization or later save callbacks can throw.
-                if ($this->ownsRevision($postId, $revisionId)) {
-                    $context['source'] = ['id' => $revisionId];
+                // A native save callback can update this revision again. Seed only once per preview request.
+                if ($context['source'] !== null || !$this->ownsRevision($postId, $revisionId)) {
+                    return;
                 }
+                $context['source'] = ['id' => $revisionId];
                 $this->seedPreviewMeta($postId, $revisionId);
                 if (!$this->ownsRevision($postId, $revisionId)) {
                     return;
@@ -740,9 +741,6 @@ final class LivePreview
     /** Start from saved metadata before save hooks overlay submitted fields, including on reused previews. */
     private function seedPreviewMeta(int $postId, int $revisionId): void
     {
-        if (!$this->ownsRevision($postId, $revisionId)) {
-            return;
-        }
         $source = get_post_meta($postId);
         unset($source['_edit_lock'], $source['_edit_last']);
         $preview = get_post_meta($revisionId);
