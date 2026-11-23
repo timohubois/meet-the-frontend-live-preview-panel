@@ -12,7 +12,7 @@ async function browserTests(source) {
         '[role="navigation"]', '[aria-live]', 'input[type="hidden"]', 'table.xdebug-error'];
     async function check(name, run, excludedSelectors = defaults) {
         const frames = [];
-        const documentFor = async (content, { captured = false, script = '', offset = 0 } = {}) => {
+        const documentFor = async (content, { captured = false, script = '', offset = 0, reducedMotion = true } = {}) => {
             const frame = document.createElement('iframe');
             frame.style.cssText = 'width:640px;height:320px;border:0';
             frames.push(frame);
@@ -33,6 +33,11 @@ async function browserTests(source) {
             frame.srcdoc = html;
             document.body.append(frame);
             await loaded;
+            // Keep positioning assertions synchronous; motion-specific tests set their preference explicitly.
+            const win = frame.contentWindow;
+            const matchMedia = win.matchMedia.bind(win);
+            win.matchMedia = (query) => query === '(prefers-reduced-motion: reduce)'
+                ? { matches: reducedMotion } : matchMedia(query);
             return frame.contentDocument;
         };
         const comparison = createPreviewComparison(excludedSelectors), scrolling = createPreviewScroll();
@@ -90,15 +95,16 @@ async function browserTests(source) {
     });
     await check('deletions reveal surviving content and unchanged documents preserve their position', async (scrolling, doc) => {
         const previous = await doc(content());
-        const next = await doc(content());
+        const next = await doc(content(), { reducedMotion: false });
         equal(scrolling.findTarget(previous, next), null, 'Unchanged output must not invent a target.');
         // Use a fresh document because snapshots are intentionally cached at load.
         const deleted = await doc(content().replace('<p id="edited">Original paragraph</p>', ''));
         equal(scrolling.findTarget(previous, deleted), deleted.querySelector('p:last-child'), 'Deletion lands on the next surviving content.');
         previous.defaultView.scrollTo(0, 60);
         scrolling.remember(previous);
+        next.documentElement.style.scrollBehavior = 'smooth';
         await scrolling.restore(next);
-        equal(next.defaultView.scrollY, 60, 'No target means retaining the last scroll position.');
+        equal(next.defaultView.scrollY, 60, 'Without a target, restore the last position instantly despite author smooth scrolling.');
     });
     const section = (heading, text = 'Repeated paragraph') => `<section><h2>${heading}</h2><p>${text}</p></section>`;
     await check('nested section insertion follows the new section, not a reused wrapper', async (scrolling, doc) => {
@@ -999,10 +1005,19 @@ async function browserTests(source) {
         equal(after.querySelector('[hidden]').getAttribute('hidden'), 'until-found', 'Stop mutation when the owner cancels following.');
         equal(after.querySelector('details').open, false, 'Do not continue opening ancestors after cancellation.');
     });
+    await check('following requests smooth scrolling even when the theme does not', async (frame, doc) => {
+        const after = await doc(content(), { reducedMotion: false });
+        after.documentElement.style.scrollBehavior = 'auto';
+        const target = after.querySelector('#edited');
+        let behavior;
+        const scroll = target.scrollIntoView;
+        target.scrollIntoView = function (options) { behavior = options.behavior; return scroll.call(this, options); };
+        await frame.scrolling.restore(after, target);
+        equal(behavior, 'smooth', 'Request native smooth following rather than inheriting the theme setting.');
+    });
     await check('reduced-motion following does not inherit author smooth scrolling', async (frame, doc) => {
-        const after = await doc(content());
+        const after = await doc(content(), { reducedMotion: true });
         after.documentElement.style.scrollBehavior = 'smooth';
-        after.defaultView.matchMedia = () => ({ matches: true });
         const target = after.querySelector('#edited');
         let behavior;
         const scroll = target.scrollIntoView;
@@ -1018,5 +1033,5 @@ test('preview scrolling matches changed sections conservatively in Chromium', as
     const comparison = await readFile(new URL('../src/preview/comparison.js', import.meta.url), 'utf8');
     const scrolling = await readFile(new URL('../src/preview/scroll.js', import.meta.url), 'utf8');
     const source = `${comparison.replace('export function', 'function')}\n${scrolling.replace(/^import .*;\n/, '')}`;
-    await runChromiumTests(t, { script: `(${browserTests.toString()})(${JSON.stringify(source)})`, count: 184 });
+    await runChromiumTests(t, { script: `(${browserTests.toString()})(${JSON.stringify(source)})`, count: 185 });
 });
