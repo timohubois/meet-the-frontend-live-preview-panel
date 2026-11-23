@@ -6,7 +6,7 @@ Meet the Frontend – Live Preview Panel adds a movable, resizable frontend prev
 
 - WordPress 6.9 or later.
 - PHP 8.3 or later.
-- Permission to edit the post or term. Post live previews require a saved post in a frontend-viewable post type with revisions enabled; term previews require an existing term with a public archive.
+- Permission to edit the post or term. Post live previews require a saved post in a frontend-viewable post type; term previews require an existing term with a public archive. Live previews don’t require WordPress revision history.
 - The editor and frontend on the same origin: matching protocol, domain and port. A browser with ES modules is required; live editing also needs authenticated WordPress REST requests and Web Locks in a secure context (HTTPS or a trusted local development address).
 
 ACF, Timber and Yoast SEO integrations are available when those plugins or libraries are present; they are not required for basic use.

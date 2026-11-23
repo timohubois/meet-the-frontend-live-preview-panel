@@ -189,7 +189,7 @@ final class Panel
             ),
             'unavailableTitle' => __('Live preview isn’t available yet', 'meet-the-frontend-live-preview-panel'),
             'unavailable' => __(
-                'Save a draft first. If the preview still won’t open, ask your site admin to check that revisions are turned on.', // phpcs:ignore Generic.Files.LineLength.TooLong -- Keep the translatable message intact.
+                'If this is a new post, save it as a draft first.',
                 'meet-the-frontend-live-preview-panel'
             ),
             'browserTitle' => __('Live preview can’t run here', 'meet-the-frontend-live-preview-panel'),

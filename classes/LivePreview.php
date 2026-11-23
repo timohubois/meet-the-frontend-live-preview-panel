@@ -248,8 +248,8 @@ final class LivePreview
 
     public function isAvailable(WP_Post $post): bool
     {
-        return in_array($post->post_status, ['draft', 'pending', 'publish', 'private', 'future'], true)
-            && wp_revisions_enabled($post);
+        // Preview snapshots are separate from WordPress's saved revision history.
+        return in_array($post->post_status, ['draft', 'pending', 'publish', 'private', 'future'], true);
     }
 
     private function stateAction(int $postId, int $revisionId): string
@@ -440,7 +440,7 @@ final class LivePreview
             return new WP_Error(
                 'aflpp_preview_conflict',
                 __(
-                    'The saved post has changed, or WordPress can’t save versions of it.',
+                    'The saved post has changed or is no longer available for live preview.',
                     'meet-the-frontend-live-preview-panel'
                 ),
                 ['status' => 409]

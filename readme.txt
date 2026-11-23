@@ -82,7 +82,7 @@ Choose **Use preview here** to move live preview to that tab. Each tab keeps its
 
 = Why is the preview unavailable, blank or not updating? =
 
-For posts, save the post first and check that you can edit it, its post type has a frontend preview, and revisions are enabled. For terms, open the full **Edit** screen (not Quick Edit) and check that the term has a public archive.
+For posts, save the post first and check that you can edit it and its post type has a frontend preview. Live post previews store a separate internal snapshot even when WordPress revision history is disabled. For terms, open the full **Edit** screen (not Quick Edit) and check that the term has a public archive.
 
 Live updates need HTTPS (or a trusted local development address), a browser with ES module and Web Locks support, and access to WordPress's REST API while signed in. The editor and frontend must use the same protocol, domain and port.
 

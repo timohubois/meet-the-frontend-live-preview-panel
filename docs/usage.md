@@ -75,6 +75,7 @@ browser. Embedding and theme-specific output limitations below also apply.
 
 Live post updates write a separate internal preview revision per user and post, not the
 saved parent post or WordPress's recovery autosave, and do not publish changes.
+Live previews can write these snapshots even when normal revision history is disabled.
 Preview revisions stay out of the normal revision history and do not trigger the
 newer-autosave notice. They are reused on refresh and deleted when the parent post
 is updated or permanently deleted. Existing recovery autosaves are left untouched.

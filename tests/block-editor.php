@@ -17,6 +17,7 @@ $check = static function (bool $condition, string $message): void {
 $originalUser = get_current_user_id();
 $users = [];
 $posts = [];
+$disableHistory = null;
 $live = new LivePreview();
 register_post_meta('post', '_aflpp_rejected_meta', [
     'single' => true, 'type' => 'string', 'show_in_rest' => true,
@@ -56,6 +57,8 @@ try {
     }
     [$admin, $subscriber] = $users;
     wp_set_current_user($admin);
+    $disableHistory = static fn (int $limit, WP_Post $post): int => (int) $post->post_author === $admin ? 0 : $limit;
+    add_filter('wp_post_revisions_to_keep', $disableHistory, 10, 2);
     foreach (['draft', 'publish', 'auto-draft'] as $status) {
         $id = wp_insert_post([
             'post_type' => 'post', 'post_status' => $status, 'post_author' => $admin,
@@ -66,6 +69,8 @@ try {
         $posts[] = $id;
     }
     [$draft, $published, $new] = $posts;
+    $check(!wp_revisions_enabled(get_post($draft)), 'The fixture must disable core revision history.');
+    $check(!$live->isAvailable(get_post($new)), 'Live previews must still require a first save.');
     $route = rest_get_route_for_post($draft);
     update_post_meta($draft, '_aflpp_test', '1');
     $base = $live->fingerprint($draft);
@@ -75,7 +80,7 @@ try {
     ], null);
     $check(
         $preview->get_status() === 200,
-        'Serialized block content must be accepted by the existing preview contract.'
+        'Serialized block content must preview even when core revision history is disabled.'
     );
     $check($live->fingerprint($draft) === $base, 'Preview writes must leave the saved parent untouched.');
     $check(!wp_get_post_autosave($draft, $admin), 'Preview writes must not create a recovery autosave.');
@@ -207,6 +212,10 @@ try {
     );
     $check(($receipt['available'] ?? false) === true, 'Saved eligible posts must remain available.');
     $check(!get_post($revision->ID), 'Native saves must discard the old internal preview revision.');
+    $check(
+        wp_get_post_revisions($draft, ['check_enabled' => false]) === [],
+        'Previewing and saving must not create native history when revisions are disabled.'
+    );
 
     $base = $live->fingerprint($draft);
     $response = $send($route, ['status' => 'not-a-valid-status'], $base, 'PUT');
@@ -309,6 +318,14 @@ try {
         && $recovery->post_title === 'Published recovery autosave',
         'Core must retain its recovery autosave.'
     );
+    $recoveryBase = $live->fingerprint($recovery->ID);
+    $response = $send('/a-floating-live-preview-panel/v1/posts/' . $published . '/preview', [
+        'base' => $base, 'post_title' => 'Unsaved changes after recovery autosave',
+    ], null);
+    $check(
+        $response->get_status() === 200 && $live->fingerprint($recovery->ID) === $recoveryBase,
+        'Live previews with revisions disabled must leave a genuine recovery autosave intact.'
+    );
 
     $response = $send(
         rest_get_route_for_post($new),
@@ -330,6 +347,9 @@ try {
     );
     WP_CLI::success('Block-editor receipts, autosaves, first saves and isolated block previews passed.');
 } finally {
+    if ($disableHistory !== null) {
+        remove_filter('wp_post_revisions_to_keep', $disableHistory);
+    }
     unregister_post_meta('post', '_aflpp_rejected_meta');
     remove_action('rest_after_insert_post', $lateMeta);
     wp_set_current_user($users[0] ?? $originalUser);
