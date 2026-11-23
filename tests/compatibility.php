@@ -270,16 +270,36 @@ try {
         $events[] = 'finished';
         $finishedContexts[] = $args[0];
     }, 10, 2);
-    $response = $send($input);
+    // A save integration can write fields and then update the same revision through WordPress.
+    $nativeSaves = 0;
+    $updateRevision = static function (int $id) use ($check, $coreId, &$nativeSaves): void {
+        if ($id !== $coreId || ++$nativeSaves !== 1) {
+            return;
+        }
+        update_metadata('post', $id, 'mtflpp_compatibility_seed', 'Unsaved metadata');
+        $check(wp_update_post(['ID' => $id], true) === $id, 'The nested native revision update must succeed.');
+    };
+    add_action('save_post', $updateRevision, 20);
+    try {
+        $response = $send($input);
+    } finally {
+        remove_action('save_post', $updateRevision, 20);
+    }
     $check($response->get_status() === 200, 'A compatible payload extension must succeed.');
     $id = $revisionId($response);
+    $check($nativeSaves === 2, 'The fixture must exercise both the outer and nested native revision saves.');
+    $check(
+        get_post_meta($id, 'mtflpp_compatibility_seed', true) === 'Unsaved metadata'
+        && $live->fingerprint($postId) === $base,
+        'A nested native update must not overwrite preview metadata with the saved parent values.'
+    );
     $check(
         $id === $coreId && $events === ['payload', 'seeded', 'verified', 'finished']
         && $lastSave === [null, ['post' => ['id' => $postId], 'source' => ['id' => $id]]]
         // phpcs:ignore WordPress.Security.NonceVerification.Missing -- Assert restored CLI globals.
         && $finishedContexts === [$lastSave[1]] && $_FILES === $fixtureFiles
         && get_post($id)->post_content === '<p>Adapted editor content</p>',
-        'Preview lifecycle hooks must run in order when updating the existing isolated source.'
+        'Preview lifecycle hooks must run in order once when updating the existing isolated source.'
     );
 
     $before = $events;
