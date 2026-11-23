@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import vm from 'node:vm';
 import { previewSourceForVm } from './helpers/modules.mjs';
+import { panelStrings } from './helpers/panel-strings.mjs';
 
 const source = await previewSourceForVm(new URL('../src/screens/revision-browser.js', import.meta.url));
 const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
@@ -54,7 +55,7 @@ function fixture({ visible = true, selected = revision(11), isolated = false, ex
     const strings = {
         title: 'Revision preview', revisionLabel: '%1$s — %2$s', currentVersion: 'Current version',
         updating: 'Updating', current: 'Loaded', stale: 'Pending', unavailable: 'Unavailable',
-        failed: 'Failed', browser: 'Same-origin required',
+        failed: 'Failed', originMismatch: panelStrings.originMismatch,
     };
     context.imports = {
         '../panel/window.js': { createPreviewPanel: (strings, callbacks) => {
@@ -370,12 +371,52 @@ test('only the actual parent entry uses the current saved-post URL', async () =>
     assert.equal(h.last.hasPreview, false);
 });
 
-test('cross-origin URLs are rejected without creating a frame', async () => {
-    const h = fixture({ selected: revision(11, 'https://other.example/?aflpp_token=token') }); await flush();
-    assert.equal(h.allFrames.length, 0);
-    assert.equal(h.last.reason, 'browser');
-    assert.equal(h.last.canRetry, false);
+for (const [address, origin] of [
+    ['http://name:secret@other.example/private-path?aflpp_token=private-token#private-fragment', 'http://other.example'],
+    ['https://site.local/?aflpp_token=token', 'https://site.local'],
+    ['http://site.local:8080/?aflpp_token=token', 'http://site.local:8080'],
+]) {
+    test(`revision preview explains a different address (${origin}) without creating a frame`, async () => {
+        const h = fixture({ selected: revision(11, address) }); await flush();
+        assert.equal(h.allFrames.length, 0);
+        assert.equal(h.last.state, 'error');
+        assert.equal(h.last.reason, 'origin-mismatch');
+        assert.equal(h.last.text, `WordPress provided a preview URL at ${origin}. It must use the same website address as the editor.`);
+        assert.equal(h.last.canRetry, false);
+        assert.equal(h.last.canRefresh, false);
+    });
+}
+
+test('a revision from a different address leaves the last preview and its title intact', async () => {
+    const h = fixture(); await h.load();
+    const lastFrame = h.children[0];
+    h.select(revision(12, 'https://other.example/?aflpp_token=token')); await h.runTimers();
+    assert.equal(h.allFrames.length, 1);
+    assert.equal(h.children[0], lastFrame);
+    assert.equal(h.title, 'Date 11 — Author 11');
+    assert.equal(h.last.hasPreview, true);
+    assert.equal(h.last.reason, 'origin-mismatch');
+    h.select(revision(13)); await h.runTimers(); await h.load();
+    assert.equal(h.last.state, 'ready');
+    assert.equal(h.title, 'Date 13 — Author 13');
 });
+
+for (const [address, reason] of [
+    ['not-a-url', ''],
+    ['data:text/html,preview', 'unsupported-url'],
+    ['file:///page.html', 'unsupported-url'],
+    ['blob:http://site.local/preview?aflpp_token=token', 'unsupported-url'],
+]) {
+    test(`an invalid revision preview URL does not claim an address mismatch (${address.split(':')[0]})`, async () => {
+        const h = fixture({ selected: revision(11, address) }); await flush();
+        assert.equal(h.allFrames.length, 0);
+        assert.equal(h.last.state, 'error');
+        assert.equal(h.last.reason, reason);
+        assert.equal(h.last.text, 'Failed');
+        assert.equal(h.last.canRetry, !reason);
+        assert.equal(h.last.canRefresh, !reason);
+    });
+}
 
 test('PiP adoption reloads the selected source and does not reopen a closed panel', async () => {
     const h = fixture(); await h.load();

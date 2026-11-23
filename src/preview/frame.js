@@ -26,7 +26,14 @@ export function createPreviewFrame(view, scrolling, strings, report, excludedSel
 
     function load(nextAddress, isCurrent, followChanges = () => false, comparisonValues) {
         const url = new URL(nextAddress);
-        if (url.origin === 'null' || url.origin !== window.location.origin) throw new Error(strings.browser);
+        if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+            throw Object.assign(new Error(strings.failed), { code: 'aflpp_preview_unsupported_url' });
+        }
+        if (url.origin !== window.location.origin) {
+            // Report only the origin; the URL can contain preview state and other private values.
+            const message = strings.originMismatch.replace('%s', () => url.origin);
+            throw Object.assign(new Error(message), { code: 'aflpp_preview_origin_mismatch' });
+        }
         const token = url.searchParams.get('aflpp_token');
         if (!token) throw new Error(strings.failed);
         // Isolated editors cannot inspect otherwise same-origin, non-isolated preview documents.

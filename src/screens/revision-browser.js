@@ -56,9 +56,12 @@ export function initRevisionPreview(config, model) {
                 { revision: { type: 'value', value: selected.id } });
         } catch (error) {
             if (view.visible && version === generation) {
-                const browser = error.message === strings.browser;
-                report(browser ? strings.browser : strings.failed, 'error', {
-                    canRetry: !browser, canRefresh: !browser, reason: browser ? 'browser' : '',
+                const reason = {
+                    aflpp_preview_origin_mismatch: 'origin-mismatch',
+                    aflpp_preview_unsupported_url: 'unsupported-url',
+                }[error?.code] || '';
+                report(reason === 'origin-mismatch' ? error.message : strings.failed, 'error', {
+                    canRetry: !reason, canRefresh: !reason, reason,
                 });
             }
         }

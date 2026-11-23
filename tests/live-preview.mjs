@@ -4,6 +4,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 import { BroadcastChannel, locks } from 'node:worker_threads';
 import { sourceForVm } from './helpers/modules.mjs';
+import { panelStrings } from './helpers/panel-strings.mjs';
 
 const source = await sourceForVm(new URL('../src/preview/live-preview.js', import.meta.url));
 const settle = () => new Promise(setImmediate);
@@ -12,11 +13,19 @@ let nextSite = 0;
 // Use native lock queues and cross-context messages; only the panel and frame are fakes.
 function fixture(t) {
     const endpoint = `/ownership-test-${process.pid}-${++nextSite}`;
-    return ({ site = endpoint, userId = 1, broadcast = true, pending = false, error, hasPreview = false, followChanges = true, excludedSelectors = [], prepare } = {}) => {
+    return ({
+        site = endpoint, userId = 1, broadcast = true, pending = false, error, hasPreview = false, followChanges = true,
+        excludedSelectors = [], prepare, frameError, secureContext = true,
+    } = {}) => {
         const write = Promise.withResolvers(), started = Promise.withResolvers();
         const reports = [], timers = new Map();
         const frames = { loads: 0, cancels: 0, clears: 0, hasPreview,
-            load(...args) { this.loads++; this.lastLoad = args; }, cancel() { this.cancels++; }, clear() { this.clears++; },
+            load(...args) {
+                this.loads++;
+                this.lastLoad = args;
+                if (frameError) throw frameError;
+            },
+            cancel() { this.cancels++; }, clear() { this.clears++; },
         };
         let callbacks, channel, exit, comparisonSelectors, frameReport, writes = 0;
         const view = { visible: true, followChanges, setTitle() {}, returnToEditor() {},
@@ -25,7 +34,7 @@ function fixture(t) {
         };
         const session = vm.runInNewContext(`"use strict";\n${source}\ncreateLivePreview`, {
             AbortController, navigator: { locks },
-            window: { isSecureContext: true, addEventListener: (name, callback) => { exit = callback; },
+            window: { isSecureContext: secureContext, addEventListener: (name, callback) => { exit = callback; },
                 BroadcastChannel: broadcast ? class extends BroadcastChannel {
                     constructor(name) { super(name); channel = this; }
                 } : undefined,
@@ -39,7 +48,7 @@ function fixture(t) {
                     comparisonSelectors = selectors; frameReport = report; return frames;
                 } },
             },
-        })({ endpoint: site, postId: 12, userId, available: true, strings: {}, comparisonExcludedSelectors: excludedSelectors }, {
+        })({ endpoint: site, postId: 12, userId, available: true, strings: panelStrings, comparisonExcludedSelectors: excludedSelectors }, {
             idle: Promise.resolve(), saving: false,
             preparePreview() {
                 writes++; started.resolve();
@@ -164,6 +173,38 @@ for (const hasPreview of [false, true]) {
         assert.equal(h.writes, 1, 'The previous locked session must remain stopped.');
     });
 }
+
+for (const [code, reason, detail] of [
+    ['aflpp_preview_origin_mismatch', 'origin-mismatch', panelStrings.originMismatch.replace('%s', 'https://other.example')],
+    ['aflpp_preview_unsupported_url', 'unsupported-url', panelStrings.failed],
+]) {
+    test(`a blocked preview URL stops live updates without clearing the last preview (${reason})`, { timeout: 5000 }, async (t) => {
+        const open = fixture(t);
+        const frameError = Object.assign(new Error(detail), { code });
+        const h = open({ frameError, hasPreview: true });
+        h.session.start(); await h.started; await h.session.pending; await settle();
+        const report = h.reports.at(-1);
+        assert.equal(report.state, 'error');
+        assert.equal(report.reason, reason);
+        assert.equal(report.text, detail);
+        assert.equal(report.canRetry, false);
+        assert.equal(report.canRefresh, false);
+        assert.equal(report.hasPreview, true);
+        assert.equal(h.frames.clears, 0);
+        h.session.changed();
+        assert.equal(h.timers.size, 0);
+        const next = open(); next.session.start(); await next.started;
+        assert.equal(next.writes, 1, 'The blocked preview must release preview ownership.');
+    });
+}
+
+test('an insecure editor still receives browser guidance rather than an address mismatch', (t) => {
+    const h = fixture(t)({ secureContext: false });
+    h.session.start();
+    assert.equal(h.reports.at(-1).reason, 'browser');
+    assert.equal(h.reports.at(-1).text, panelStrings.browser);
+    assert.equal(h.writes, 0);
+});
 
 for (const broadcast of [false, true]) {
     test(`a refused lock never starts writes, with messaging=${broadcast}`, { timeout: 5000 }, async (t) => {

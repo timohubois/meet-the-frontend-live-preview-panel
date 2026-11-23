@@ -70,7 +70,8 @@ export function createLivePreview(config, nativeEditor) {
             'aflpp_source_changed', 'aflpp_acf_unavailable', 'aflpp_integration_failed',
         ].includes(code)) return 'reload';
         if (['aflpp_cannot_preview', 'rest_forbidden', 'rest_cannot_edit'].includes(code)) return 'permission';
-        if (error?.message === strings.browser) return 'browser';
+        if (code === 'aflpp_preview_origin_mismatch') return 'origin-mismatch';
+        if (code === 'aflpp_preview_unsupported_url') return 'unsupported-url';
         return '';
     }
 
@@ -84,7 +85,7 @@ export function createLivePreview(config, nativeEditor) {
             frames.cancel();
             requestStop?.();
         }
-        const text = typeof code === 'string' || error?.message === strings.browser ? error.message : strings.failed;
+        const text = typeof code === 'string' ? error.message : strings.failed;
         // WordPress's Take over action reloads the editor, which starts a fresh preview session.
         report(text, reason === 'post-locked' ? 'paused' : 'error', { reason, canRetry: !reason });
     }

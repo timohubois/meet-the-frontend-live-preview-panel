@@ -194,7 +194,7 @@ final class Panel
             ),
             'browserTitle' => __('Live preview can’t run here', 'meet-the-frontend-live-preview-panel'),
             'browser' => __(
-                'Try an up-to-date browser. If the preview still won’t open, ask your site admin to check that the editor and preview use the same secure website address.', // phpcs:ignore Generic.Files.LineLength.TooLong -- Keep the translatable message intact.
+                'Use an up-to-date browser and open the editor over a secure connection.',
                 'meet-the-frontend-live-preview-panel'
             ),
             'saving' => __('Saving in WordPress…', 'meet-the-frontend-live-preview-panel'),
@@ -285,6 +285,15 @@ final class Panel
             'failedHelp' => __('Try loading the preview again.', 'meet-the-frontend-live-preview-panel'),
             'refreshFailed' => __('Couldn’t update preview', 'meet-the-frontend-live-preview-panel'),
             'previousPreview' => __('Showing the last preview.', 'meet-the-frontend-live-preview-panel'),
+            'originMismatchTitle' => __(
+                'Preview uses a different website address',
+                'meet-the-frontend-live-preview-panel'
+            ),
+            /* translators: %s: Preview website address, without the path, e.g. https://example.org. */
+            'originMismatch' => __(
+                'WordPress provided a preview URL at %s. It must use the same website address as the editor.',
+                'meet-the-frontend-live-preview-panel'
+            ),
         ];
     }
 }

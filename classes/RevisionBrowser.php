@@ -65,11 +65,6 @@ final class RevisionBrowser
                     'We can’t show this saved version. Choose another version, or reload this page.',
                     'meet-the-frontend-live-preview-panel'
                 ),
-                'browserTitle' => __('Revision preview can’t run here', 'meet-the-frontend-live-preview-panel'),
-                'browser' => __(
-                    'Ask your site admin to make WordPress and the preview use the same website address.',
-                    'meet-the-frontend-live-preview-panel'
-                ),
                 /* translators: 1: Revision date, 2: Revision author. */
                 'revisionLabel' => __('%1$s — %2$s', 'meet-the-frontend-live-preview-panel'),
                 'currentVersion' => __('Current version', 'meet-the-frontend-live-preview-panel'),

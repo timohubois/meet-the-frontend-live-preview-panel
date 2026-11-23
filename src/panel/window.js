@@ -117,13 +117,21 @@ export function createPreviewPanel(strings, {
     }
 
     function errorPresentation() {
-        const { text, hasPreview, reason } = current;
+        const { text, hasPreview, canRetry, reason } = current;
+        if (reason === 'origin-mismatch') {
+            return {
+                heading: strings.originMismatchTitle,
+                description: hasPreview ? `${text} ${strings.previousPreview}` : text,
+                note: '',
+            };
+        }
         if (reason === 'unavailable' || reason === 'browser') {
             const heading = reason === 'unavailable' ? strings.unavailableTitle : strings.browserTitle;
             return { heading, description: text, note: '' };
         }
         if (!hasPreview) {
-            let description = text === strings.failed ? strings.failedHelp : text;
+            let description = text;
+            if (text === strings.failed) description = canRetry ? strings.failedHelp : '';
             if (reason === 'reload') description += ` ${strings.reviewBeforeReload}`;
             return { heading: strings.failed, description, note: '' };
         }
@@ -344,7 +352,7 @@ export function createPreviewPanel(strings, {
             busy: current.hasPreview && ['stale', 'loading', 'handover'].includes(current.state) && current.text !== strings.saving,
             empty: current.hasPreview ? null : {
                 ...presentation(), busy: ['loading', 'stale', 'ready', 'handover'].includes(current.state),
-                icon: ['paused', 'conflict'].includes(current.state) || ['unavailable', 'browser'].includes(current.reason) ? 'info' : 'warning',
+                icon: ['paused', 'conflict'].includes(current.state) || ['unavailable', 'browser', 'origin-mismatch'].includes(current.reason) ? 'info' : 'warning',
                 retry, disabled: current.state === 'handover', close: current.state === 'error' && !retry,
                 action: retryLabel(),
             },
