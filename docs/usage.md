@@ -35,17 +35,18 @@ the panel never guesses a new baseline or prevents WordPress from saving.
 ### Taxonomy terms
 
 Open the full **Edit** screen for an existing category, tag or public custom
-taxonomy term, then open **Live preview**. Edit **Name** or **Description** to see
-the change on the term archive as your theme renders it. The public archive stays
-unchanged until you click WordPress's **Update** button.
+taxonomy term, then open **Live preview**. Edit **Name**, **Description** or a
+supported **ACF field** to see the change on the term archive as your theme renders
+it. The public archive stays unchanged until you click WordPress's **Update** button.
 
 The panel is not available in Quick Edit or when adding a new term. It uses the
-saved archive URL, slug, parent, post assignments and term metadata (including
-ACF fields). Native archive headings, Term Name and Term Description blocks, and
-standard Timber term objects show the matching term edits. Yoast’s default archive
-breadcrumb shows the updated name; custom breadcrumb titles stay saved. Theme code
-reading raw term data directly may still show saved values. Term previews don’t
-require post revisions and their temporary data expires after 15 minutes.
+saved archive URL, slug, parent and post assignments. Native archive headings,
+Term Name and Term Description blocks, and standard Timber term objects show the
+matching term edits. Yoast’s default archive breadcrumb shows the updated name;
+custom breadcrumb titles stay saved. ACF fields preview through ACF’s normal reads
+(such as `get_field()` or Timber’s `term.meta()`). Raw `get_term_meta()` reads,
+third-party ACF field types and behavior that runs on save aren’t previewed. Term
+previews don’t require post revisions and their temporary data expires after 15 minutes.
 
 ### Revision browser
 

@@ -31,6 +31,7 @@ final class Panel
                 'term' => ['id' => (int) $config['termId'], 'taxonomy' => $config['taxonomy']],
                 'source' => null,
             ];
+            $config = apply_filters('aflpp_term_editor_preview_config', $config, $context);
             /**
              * Filter comparison exclusions for term previews. Return an empty array for no exclusions.
              *
@@ -70,7 +71,13 @@ final class Panel
             $selectors,
             static fn ($selector): bool => !is_string($selector) || trim($selector) === ''
         ) ? array_values($selectors) : self::COMPARISON_EXCLUDED_SELECTORS;
-        if ($screen !== null) {
+        if ($screen === null) {
+            $dependencies = apply_filters(
+                'aflpp_term_editor_preview_script_dependencies',
+                $dependencies,
+                $context + ['config' => $config]
+            );
+        } else {
             /**
              * Register integration scripts and add their handles so setup runs before the panel entry.
              *

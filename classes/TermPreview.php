@@ -114,6 +114,13 @@ final class TermPreview
                 'db'
             )),
         ];
+        // Internal integrations can contribute request-local display data, never a destination or token.
+        $input = $request->get_json_params() ?? $request->get_body_params();
+        $data = apply_filters('aflpp_term_preview_data', [], $term, $input);
+        if (is_wp_error($data)) {
+            return $data;
+        }
+        $fields['data'] = $data;
         $key = bin2hex(random_bytes(16));
         $token = $key . '-' . wp_create_nonce($this->nonceAction($term, $key));
         if (!set_transient($this->storageKey($term), $fields + ['token' => $token], 15 * MINUTE_IN_SECONDS)) {
@@ -215,7 +222,11 @@ final class TermPreview
         }
         $wp_query->queried_object = $preview;
         // Internal adapters receive detached display and routing terms only after the authorized archive matches.
-        do_action('aflpp_frontend_term_preview_source_selected', ['term' => clone $preview, 'saved' => clone $queried]);
+        do_action('aflpp_frontend_term_preview_source_selected', [
+            'term' => clone $preview,
+            'saved' => clone $queried,
+            'data' => $source['data'] ?? [],
+        ]);
         (new PreviewDocument($this->file, $source['token']))->enhance($isolated, $capture);
     }
 }

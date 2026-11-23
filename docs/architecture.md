@@ -86,7 +86,8 @@ Compatibility setup is imported by the browser entry points, not the core screen
 ## Taxonomy term archives
 
 WordPress does not provide term revisions or native term previews. The term editor
-captures only the existing Name and Description controls. The REST endpoint requires
+reads the existing Name and Description controls; the optional ACF adapter captures
+its own form values. The REST endpoint requires
 the standard `wp_rest` nonce and actual HTTP POST for browser requests. It checks the
 term's edit capability and publicly queryable taxonomy, applies core's term-field
 sanitization and stores one 15-minute transient per user and term. A new refresh
@@ -98,7 +99,7 @@ After WordPress resolves the matching archive, the preview overlays a copy of it
 queried term and the two term-field display filters. Native archive titles and
 descriptions retain their formatting; the slug, parent, archive query and raw term
 reads remain saved. No preview values are written to the term cache. Creation,
-Quick Edit, term metadata and term history are out of scope.
+Quick Edit, arbitrary term metadata and term history are out of scope.
 
 Once the archive matches, core gives the built-in read adapters detached copies of
 the saved term and the preview term. `CoreBlocks` supplies a private term to the
@@ -108,8 +109,19 @@ use the current archive as a fallback. `Timber` adapts only matching standard te
 imports through Timber's class filter. Its link filters see the saved name and
 formatted description, and custom term classes are untouched. `Yoast` updates the native current archive
 breadcrumb when it uses the default name;
-custom breadcrumb labels and indexables stay untouched. ACF keeps reading saved
-term metadata and does not need a term display adapter.
+custom breadcrumb labels and indexables stay untouched.
+
+`AcfTerm` validates the native taxonomy form nonce and field scope, then uses ACF's
+built-in field handlers against a synthetic in-memory source. This keeps nested
+field names, cleared values and paginated repeater deltas consistent with ACF
+without firing the native save hooks, making assignments, writing bidirectional
+relationships or persisting choices. The transient carries only the resulting
+metadata overlay and the draft Save Terms selections, not a copy of unrelated term
+metadata. After the archive matches, ACF reads for that site and term use the overlay
+and keep their native formatting. ACF's Load Terms uses the combined draft selection,
+without changing the saved assignments or the archive query. Other ACF sources and
+raw WordPress metadata reads stay saved. Third-party field types and custom save
+callbacks are not simulated.
 
 ## Core Post Excerpt read adaptation
 

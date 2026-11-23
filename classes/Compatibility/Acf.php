@@ -26,6 +26,7 @@ final class Acf
 
     public function __construct()
     {
+        new AcfTerm();
         add_filter('aflpp_classic_editor_preview_config', [$this, 'configureEditor']);
         add_filter('aflpp_block_editor_preview_config', [$this, 'configureEditor']);
         add_filter('aflpp_classic_editor_preview_script_dependencies', [$this, 'addEditorDependencies']);
@@ -80,6 +81,12 @@ final class Acf
     public function isAvailable(): bool
     {
         return function_exists('acf');
+    }
+
+    public static function supportsChoiceSaveVeto(): bool
+    {
+        return function_exists('acf_get_setting')
+            && version_compare((string) acf_get_setting('version'), '6.8.11', '>=');
     }
 
     /** Extend an authorized, unslashed REST payload using ACF's normal form context. */
@@ -147,6 +154,11 @@ final class Acf
             // Older ACF has no origin-aware veto. Give native field handlers a local field copy
             // instead of changing a setting that other writes in the same save use.
             $types = ['taxonomy', 'relationship', 'post_object', 'user'];
+        }
+        if (self::supportsChoiceSaveVeto()) {
+            add_filter('acf/fields/allow_append_choices', [$this, 'allowChoiceAppend'], PHP_INT_MAX, 3);
+        } else {
+            $types = array_merge($types, ['select', 'checkbox', 'radio']);
         }
         foreach ($types as $type) {
             $restore = $this->wrapFieldCallback(
@@ -218,6 +230,11 @@ final class Acf
         return $this->isWriteTarget($postId) ? false : $allowed;
     }
 
+    public function allowChoiceAppend($allowed, $field, $postId)
+    {
+        return $this->isWriteTarget($postId) ? false : $allowed;
+    }
+
     private function isWriteTarget($postId): bool
     {
         return $this->writeId && $this->decodedPostId($postId) === $this->writeId;
@@ -233,6 +250,9 @@ final class Acf
     {
         if ($this->isWriteTarget($postId)) {
             $field['bidirectional'] = 0;
+            if (!self::supportsChoiceSaveVeto()) {
+                $field['save_options'] = $field['save_custom'] = $field['save_other_choice'] = 0;
+            }
             if ($field['type'] === 'taxonomy' && !empty($field['save_terms'])) {
                 // Match ACF's per-save combination without enqueueing real term assignments.
                 $taxonomy = $field['taxonomy'];
@@ -281,6 +301,7 @@ final class Acf
         if ($this->writeId) {
             remove_filter('acf/bidirectional/can_update_target', [$this, 'allowBidirectionalTarget'], PHP_INT_MAX);
             remove_filter('acf/connect_attachment_to_post', [$this, 'allowAttachmentParent'], PHP_INT_MAX);
+            remove_filter('acf/fields/allow_append_choices', [$this, 'allowChoiceAppend'], PHP_INT_MAX);
             remove_action('acf/save_post', [$this, 'recordSave'], PHP_INT_MAX);
         }
         foreach (array_reverse($this->restoreSaveHooks) as $restore) {
@@ -396,6 +417,13 @@ final class Acf
             // Native Load Terms reads the saved assignments, ordering by the preview field's value.
             return $native($value, $this->previewPostId, $field);
         }
+        return self::loadTermSelection($selection, $value, $field);
+    }
+
+    /** Read a simulated Save Terms selection with ACF's native Load Terms ordering and field shape. */
+    public static function loadTermSelection(array $selection, $value, array $field)
+    {
+        $taxonomy = $field['taxonomy'];
         $ids = $selection ? get_terms([
             'taxonomy' => $taxonomy, 'include' => $selection, 'fields' => 'ids',
             'hide_empty' => false, 'orderby' => 'none',

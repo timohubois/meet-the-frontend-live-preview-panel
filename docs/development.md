@@ -62,6 +62,8 @@ wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/block-editor.ph
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/author.php
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/date-terms.php
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/term-preview.php
+wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/term-acf.php
+wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/acf-choices.php
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/preview-fields.php
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/core-blocks.php
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/compatibility.php
@@ -77,11 +79,12 @@ The term-preview fixture checks category, tag and public custom taxonomy archive
 including contextual Term Name and Term Description blocks. With Timber it also
 checks standard term imports, including Flynt-style filter labels. With Yoast it
 checks the default breadcrumb, custom title preservation and the editor’s richer
-Description HTML policy. With ACF active it checks that a preview leaves saved ACF reads,
-term metadata and ACF's save path untouched. Browser checks on WordPress 7.1.4
-covered the native textarea and Yoast SEO 28.9's Visual/Text Description editor,
-each with and without ACF Pro 6.8.12. Native Update saved the ACF fixture field,
-as verified after reopening; unsaved ACF term values were not previewed.
+Description HTML policy. The separate ACF fixture checks native formatting, new
+and cleared values, nested fields, paginated row deltas, archive isolation, and that
+previews leave saved metadata, relationships, assignments and save hooks untouched.
+The ACF choice fixture verifies that Select, Checkbox and Radio can show new choices
+without writing shared field definitions in either preview, and that native saves
+still persist those options when configured to do so.
 
 The block-editor fixture checks native REST save receipts, source conflicts,
 authorization, first-save eligibility, draft/published autosaves, unchanged validation

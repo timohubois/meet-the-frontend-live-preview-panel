@@ -438,9 +438,7 @@ try {
         };
         add_action('acf/save_post', $unexpectedSave);
         try {
-            $response = $prepare($term->term_id, 'New name', 'New description', [
-                '_acf_nonce' => wp_create_nonce('taxonomy'), 'acf' => [$fieldKey => 'Unsaved ACF term note'],
-            ]);
+            $response = $prepare($term->term_id, 'New name', 'New description');
             $check($response->get_status() === 200, 'ACF must not prevent a core term preview.');
             $withRequest(
                 $response->get_data()['url'],
@@ -448,7 +446,7 @@ try {
                 static function (int $status) use ($check, $term, $fieldKey, $fieldName, $acfId, $saved): void {
                     $check($status === 200 && single_term_title('', false) === 'New name', 'Preview the core name.');
                     $check(str_contains(get_the_archive_description(), 'New description'), 'Preview the description.');
-                    $check(get_field($fieldName, $acfId) === $saved, 'Leave ACF reads on the saved term.');
+                    $check(get_field($fieldName, $acfId) === $saved, 'Keep omitted ACF values saved.');
                     $check(get_term_meta($term->term_id, $fieldName, true) === $saved, 'Do not write ACF term values.');
                     $check(get_term_meta($term->term_id, '_' . $fieldName, true) === $fieldKey, 'Preserve references.');
                 }

@@ -30,7 +30,7 @@ In WordPress's revision browser, **Revision preview** follows the right-hand **T
 
 ## Limitations
 
-- Term previews show unsaved **Name** and **Description** edits on the term archive. Slug, parent, post assignments and custom fields (including ACF term fields) remain saved until you update them in WordPress.
+- Term previews show unsaved **Name**, **Description**, and supported **ACF field** edits on the term archive. Slug, parent, post assignments and raw term metadata stay saved until you click **Update**.
 - Both post editors preview title, content, excerpt and supported post-local ACF fields. The Block Editor also previews author, publication date/time, taxonomy assignments and featured-image changes. Arbitrary non-ACF metadata, template selections, the Site Editor and unsaved separate entities such as synced patterns are not supported.
 - The Timber integration supports post previews, including changes to taxonomy assignments. On term archives, it also previews the current term’s name and description in Timber’s standard term objects. Custom term classes and raw WordPress lookups can still show saved values.
 - The Yoast integration previews the effect of unsaved primary-term selections on post breadcrumbs, and unsaved term names in default archive breadcrumbs. It does not preview SEO titles, meta descriptions or analysis scores.

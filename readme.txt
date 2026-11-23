@@ -35,7 +35,7 @@ Save new posts as drafts first. Live post previews require revisions to be enabl
 
 Both post editors preview the title, content, excerpt and supported ACF fields. The Block Editor also previews author, publication date, categories, tags and featured image. Previewing a different date does not schedule or publish the post.
 
-Term previews show unsaved changes to the name and description on the term archive. Slug, parent, post assignments and custom term fields (including ACF fields) remain saved.
+Term previews show unsaved changes to the name, description and supported ACF fields on the term archive. Slug, parent, post assignments and raw term metadata stay saved until you click Update.
 
 The panel does not support the Site Editor, template selections, other custom fields or unsaved shared content such as synced patterns. Related-post lists and archive queries still use saved content.
 
@@ -43,7 +43,7 @@ The panel does not support the Site Editor, template selections, other custom fi
 
 No. The plugin works with WordPress on its own.
 
-ACF live previews cover supported post fields and paginated repeaters. Term previews use saved ACF field values.
+ACF live previews cover supported post and term fields, including paginated repeaters with ACF Pro. The term archive must render the fields through ACF (directly or through an integration such as Timber).
 
 The Timber integration supports post previews, including changes to taxonomy assignments. On term archives, it also previews the current term’s name and description in Timber’s standard term objects. Custom term classes and raw WordPress lookups can still show saved values.
 

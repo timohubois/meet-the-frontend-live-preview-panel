@@ -4,6 +4,7 @@ import vm from 'node:vm';
 import { sourceForVm } from './helpers/modules.mjs';
 
 const source = await sourceForVm(new URL('../src/screens/term-editor.js', import.meta.url));
+const acfSource = await sourceForVm(new URL('../src/compatibility/acf-term-editor.js', import.meta.url));
 
 test('term preview follows native fields even when a plugin duplicates or replaces a control', async () => {
     const nameSelector = '.term-name-wrap input[name="name"]';
@@ -121,4 +122,95 @@ test('term preview observes the late Visual description editor and keeps Text mo
     pagehide({ persisted: false });
     assert.equal(onInput, undefined);
     assert.equal(unbound, namespace);
+});
+
+test('term editor sends structured integration values as JSON and removes the observer on permanent pagehide', async () => {
+    const input = { value: 'Core value' }, payload = { acf: { field_example: { 'row-2': { field_nested: '' } } } };
+    const requests = [];
+    let adapter, hide, destroyed = 0;
+    const form = { addEventListener() {}, querySelector: () => input };
+    const context = {
+        form, setup: () => ({ capture: () => payload, destroy: () => { destroyed++; } }),
+        window: { addEventListener(type, callback) { assert.equal(type, 'pagehide'); hide = callback; } },
+        imports: { '../preview/live-preview.js': { createLivePreview(config, editor) {
+            adapter = editor;
+            return { changed() {}, start() {} };
+        } } },
+        fetch: async (url, options) => {
+            requests.push(options);
+            return { ok: true, json: async () => ({ url: 'https://preview.test' }) };
+        },
+    };
+    vm.runInNewContext(`${source}\ninitTermPreview({ strings: {}, nonce: 'rest' }, form, setup);`, context);
+    assert.equal((await adapter.preparePreview()).url, 'https://preview.test');
+    assert.equal(requests[0].headers['X-WP-Nonce'], 'rest');
+    assert.equal(requests[0].headers['Content-Type'], 'application/json');
+    assert.deepEqual(JSON.parse(requests[0].body), { ...payload, name: input.value, description: input.value });
+    hide({ persisted: true });
+    assert.equal(destroyed, 0);
+    hide({ persisted: false });
+    assert.equal(destroyed, 1);
+});
+
+test('ACF term capture uses the active field editor, then restores the native form untouched', () => {
+    const document = {}, handlers = new Map(), action = 'tinymce-editor-init.aflppAcfTerm';
+    const textarea = { name: 'acf[field_example]', value: 'Saved textarea' };
+    const form = {
+        ownerDocument: document, contains: (node) => node === textarea,
+        querySelector: (selector) => selector === '[name="_acf_nonce"]' ? {} : null,
+        addEventListener(type, callback) { handlers.set(type, callback); },
+        removeEventListener(type, callback) { assert.equal(callback, handlers.get(type)); handlers.delete(type); },
+    };
+    let editorInit, watch, changes = 0, hidden = false, destroyed = false, throwWhenSerializing = false;
+    const changed = () => { changes++; };
+    const editor = {
+        getElement: () => textarea, getContent: () => '<strong>Draft Visual</strong>', getBody: () => true,
+        isHidden: () => hidden,
+        on(type, callback) { handlers.set(type, callback); },
+        off(type, callback) { assert.equal(callback, handlers.get(type)); handlers.delete(type); },
+    };
+    const config = { acfTermEnabled: true, strings: {} };
+    const setup = vm.runInNewContext(`${acfSource}\nsetupAcfTermEditor;`, {
+        window: {
+            acf: {
+                addAction() {}, removeAction() {},
+                serialize(target) {
+                    assert.equal(target, form);
+                    if (throwWhenSerializing) throw new Error('serialization failed');
+                    return { acf: { field_example: textarea.value }, _acf_nonce: 'taxonomy nonce' };
+                },
+            },
+            jQuery: (target) => target === document ? {
+                on(type, callback) { assert.equal(type, action); editorInit = callback; },
+                off(type) { assert.equal(type, action); editorInit = undefined; },
+            } : target,
+        },
+        imports: { './acf-fields.js': { initAcf(target, notify, watchEditor) {
+            assert.equal(target, form);
+            assert.equal(notify, changed);
+            watch = watchEditor;
+            return { isField: (element) => element === textarea, destroy() { destroyed = true; } };
+        } } },
+    });
+    assert.equal(setup({ acfTermEnabled: false }, form, changed), undefined);
+    const field = setup(config, form, changed);
+    editorInit(null, editor);
+    watch(editor); // Both native and ACF notifications may report the same instance.
+    handlers.get('input change undo redo SetContent')();
+    handlers.get('input')({ target: textarea });
+    assert.equal(changes, 2);
+    assert.equal(field.capture().acf.field_example, '<strong>Draft Visual</strong>');
+    assert.equal(textarea.value, 'Saved textarea');
+    hidden = true;
+    textarea.value = '';
+    assert.equal(field.capture().acf.field_example, '');
+    assert.equal(field.capture()._acf_nonce, 'taxonomy nonce');
+    hidden = false;
+    throwWhenSerializing = true;
+    assert.throws(() => field.capture(), /serialization failed/);
+    assert.equal(textarea.value, '');
+    field.destroy();
+    assert.equal(editorInit, undefined);
+    assert.equal(destroyed, true);
+    assert.equal(handlers.has('input change undo redo SetContent'), false);
 });

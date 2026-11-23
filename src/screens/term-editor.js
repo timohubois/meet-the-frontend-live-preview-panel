@@ -1,6 +1,6 @@
 import { createLivePreview } from '../preview/live-preview.js';
 
-export function initTermPreview(config, form) {
+export function initTermPreview(config, form, setupFields) {
     const nameField = '.term-name-wrap input[name="name"]';
     const descriptionField = '.term-description-wrap textarea[name="description"]';
     const editorEvents = 'input change undo redo SetContent';
@@ -17,13 +17,18 @@ export function initTermPreview(config, form) {
         }
         return { name, description };
     }
+    let fields;
     const preview = createLivePreview(config, {
         title: readFields().name,
         async preparePreview() {
             const values = readFields();
+            const extra = fields?.capture();
+            const headers = { 'X-WP-Nonce': config.nonce };
+            // JSON avoids PHP truncation of repeaters with many native form inputs.
+            if (extra) headers['Content-Type'] = 'application/json';
             const response = await fetch(config.endpoint, {
-                method: 'POST', credentials: 'same-origin',
-                headers: { 'X-WP-Nonce': config.nonce }, body: new URLSearchParams(values),
+                method: 'POST', credentials: 'same-origin', headers,
+                body: extra ? JSON.stringify({ ...extra, ...values }) : new URLSearchParams(values),
             });
             const result = await response.json();
             if (!response.ok) throw Object.assign(new Error(result.message || config.strings.failed), { code: result.code });
@@ -36,6 +41,7 @@ export function initTermPreview(config, form) {
             };
         },
     });
+    fields = setupFields?.(config, form, preview.changed);
     function changed(event) {
         if (event.target.matches(nameField)) preview.setTitle(event.target.value);
         else if (!event.target.matches(descriptionField)) return;
@@ -57,6 +63,7 @@ export function initTermPreview(config, form) {
         if (event.persisted) return;
         editor?.off(editorEvents, richDescriptionChanged);
         documentEvents?.off('tinymce-editor-init.aflppTermEditor');
+        fields?.destroy();
     });
     form.addEventListener('input', changed);
     form.addEventListener('change', changed, true);
