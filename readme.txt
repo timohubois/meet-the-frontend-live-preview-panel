@@ -104,11 +104,12 @@ Report issues or contribute on [GitHub](https://github.com/timohubois/meet-the-f
 
 1. Preview unsaved changes alongside the Block Editor.
 2. Preview unsaved changes alongside the classic editor.
-3. Preview saved revisions without restoring them.
-4. Preview changes to supported ACF PRO Flexible Content fields.
-5. Check responsive layouts with device viewport presets.
-6. Enlarge the preview while keeping the editor in view.
-7. Keep the preview in a separate Picture-in-Picture window where supported.
+3. Preview unsaved category names and descriptions on the category archive.
+4. Preview saved revisions without restoring them.
+5. Preview changes to supported ACF PRO Flexible Content fields.
+6. Check responsive layouts with device viewport presets.
+7. Enlarge the preview while keeping the editor in view.
+8. Keep the preview in a separate Picture-in-Picture window where supported.
 
 == Changelog ==
 
