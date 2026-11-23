@@ -122,7 +122,7 @@ function revealChange(target) {
                 - parseFloat(offsets.scrollMarginTop) - parseFloat(offsets.scrollMarginBottom);
             if (target.getBoundingClientRect().height <= availableHeight) block = 'center';
         }
-        const behavior = win.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'auto';
+        const behavior = win.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth';
         target.scrollIntoView({ behavior, block, inline: 'nearest' });
     } finally {
         // Restore exact styles through the attribute API before removing an originally absent attribute:
