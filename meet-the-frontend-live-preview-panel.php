@@ -4,7 +4,7 @@
  * Plugin Name:       Meet the Frontend – Live Preview Panel
  * Plugin URI:        https://github.com/timohubois/meet-the-frontend-live-preview-panel/
  * Description:       See your changes in a floating preview while you edit posts, pages and taxonomy terms.
- * Version:           1.0.1
+ * Version:           1.1.0
  * Requires at least: 6.9
  * Requires PHP:      8.3
  * Author:            Timo Hubois

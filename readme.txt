@@ -3,7 +3,7 @@ Contributors: timohubois
 Tags: preview, editor
 Requires at least: 6.9
 Tested up to: 7.1
-Stable tag: 1.0.1
+Stable tag: 1.1.0
 Requires PHP: 8.3
 License: GPLv3 or later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
@@ -19,6 +19,7 @@ Meet the Frontend – Live Preview Panel shows unsaved changes in a movable, res
 * Move, resize or dock the panel without leaving the editor, using a mouse or keyboard.
 * Inspect Computer, Tablet and Phone viewports with rotation and zoom.
 * Follow detected content changes automatically, or keep your own scroll position.
+* See when the preview follows a same-site redirect or the saved public post URL redirects.
 * Remember panel preferences across posts and editors. Use fullscreen or **Keep on top** (Picture-in-Picture) where supported.
 
 Save new posts as drafts first. Live post previews require revisions to be enabled. Previewing does not save or publish your edits; use WordPress's normal save controls.
@@ -110,6 +111,12 @@ Report issues or contribute on [GitHub](https://github.com/timohubois/meet-the-f
 7. Keep the preview in a separate Picture-in-Picture window where supported.
 
 == Changelog ==
+
+= 1.1.0 =
+* Preview unsaved names and descriptions on existing category, tag, and public custom taxonomy archives.
+* Preview supported ACF fields on term archives without saving the edits, including paginated repeaters with ACF Pro.
+* Show confirmed same-site preview redirects and redirects from saved public post URLs.
+* Prevent previews from saving new ACF choices to shared field definitions.
 
 = 1.0.1 =
 * Clarify the Picture-in-Picture tooltip and documentation for Keep on top.
