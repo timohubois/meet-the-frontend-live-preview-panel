@@ -23,7 +23,7 @@ jobs:
         with:
           php-version: '8.3'
           extensions: dom, mysqli
-          tools: composer:v2, wp-cli
+          tools: composer:v2
           coverage: none
       - name: Cache Composer dependencies
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -69,8 +69,17 @@ jobs:
         with:
           php-version: '8.3'
           extensions: dom, mbstring, mysqli
-          tools: composer:v2, wp-cli
+          tools: composer:v2
           coverage: none
+      - name: Install WP-CLI
+        run: |
+          bin_dir="$RUNNER_TEMP/wp-cli"
+          mkdir -p "$bin_dir"
+          curl --fail --silent --show-error --location --retry 3 --connect-timeout 10 --max-time 60 \
+            --output "$bin_dir/wp" https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+          chmod +x "$bin_dir/wp"
+          "$bin_dir/wp" --info
+          printf '%s\n' "$bin_dir" >> "$GITHUB_PATH"
       - name: Install isolated Timber dependency
         if: matrix.timber != 'none'
         run: |
