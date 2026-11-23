@@ -22,7 +22,7 @@ Meet the Frontend – Live Preview Panel shows unsaved changes in a movable, res
 * See when the preview follows a same-site redirect or the saved public post URL redirects.
 * Remember panel preferences across posts and editors. Use fullscreen or **Keep on top** (Picture-in-Picture) where supported.
 
-Save new posts as drafts first. Live post previews require revisions to be enabled. Previewing does not save or publish your edits; use WordPress's normal save controls.
+Save new posts as drafts first. Live post previews work even when WordPress revision history is disabled. Previewing does not save or publish your edits; use WordPress's normal save controls.
 
 == Installation ==
 
