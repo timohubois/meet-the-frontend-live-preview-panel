@@ -1005,6 +1005,33 @@ async function browserTests(source) {
         equal(after.querySelector('[hidden]').getAttribute('hidden'), 'until-found', 'Stop mutation when the owner cancels following.');
         equal(after.querySelector('details').open, false, 'Do not continue opening ancestors after cancellation.');
     });
+    for (const { name, height, expectedTop, header = '' } of [
+        { name: 'short change lands in the upper third of the usable viewport', height: 40, expectedTop: 100 },
+        { name: 'upper-third alignment respects header clearance and author offsets', height: 40, expectedTop: 123,
+            header: '<div style="position:fixed;inset:0 0 auto;height:48px">Header</div>' },
+        { name: 'near-full-height change moves up only as far as it fits', height: 260, expectedTop: 20 },
+        { name: 'oversized change still shows its beginning', height: 340, expectedTop: 20 },
+    ]) {
+        await check(name, async (frame, doc) => {
+            const targetStyle = `height:${height}px;line-height:20px;${header ? 'scroll-margin: 8px 0 12px;' : ''}`;
+            const after = await doc(`${header}<div style="height:600px"></div><div id="edited" style="${targetStyle}">Changed</div><div style="height:600px"></div>`);
+            const rootStyle = header ? 'scroll-padding: 32px 0 16px;' : null;
+            if (rootStyle) after.documentElement.setAttribute('style', rootStyle);
+            const target = after.querySelector('#edited');
+            await frame.scrolling.restore(after, target);
+            const top = target.getBoundingClientRect().top;
+            if (Math.abs(top - expectedTop) > 1) throw new Error(`Expected top ${expectedTop}px, got ${top}px.`);
+            equal(after.documentElement.getAttribute('style'), rootStyle, 'Restore the exact viewport styles.');
+            equal(target.getAttribute('style'), targetStyle, 'Restore the exact target styles.');
+        });
+    }
+    await check('upper-third bias leaves nested scrollport alignment unchanged', async (frame, doc) => {
+        const after = await doc('<div style="height:600px"></div><div id="scroller" style="height:120px;overflow:auto"><div style="height:300px"></div><div id="edited" style="height:40px;line-height:20px">Changed</div><div style="height:300px"></div></div><div style="height:600px"></div>');
+        const scroller = after.querySelector('#scroller');
+        const target = after.querySelector('#edited');
+        await frame.scrolling.restore(after, target);
+        equal(target.getBoundingClientRect().top - scroller.getBoundingClientRect().top, 50, 'Center the target with its existing clearance inside the nested scrollport.');
+    });
     await check('following requests smooth scrolling even when the theme does not', async (frame, doc) => {
         const after = await doc(content(), { reducedMotion: false });
         after.documentElement.style.scrollBehavior = 'auto';
@@ -1033,5 +1060,5 @@ test('preview scrolling matches changed sections conservatively in Chromium', as
     const comparison = await readFile(new URL('../src/preview/comparison.js', import.meta.url), 'utf8');
     const scrolling = await readFile(new URL('../src/preview/scroll.js', import.meta.url), 'utf8');
     const source = `${comparison.replace('export function', 'function')}\n${scrolling.replace(/^import .*;\n/, '')}`;
-    await runChromiumTests(t, { script: `(${browserTests.toString()})(${JSON.stringify(source)})`, count: 185 });
+    await runChromiumTests(t, { script: `(${browserTests.toString()})(${JSON.stringify(source)})`, count: 190 });
 });

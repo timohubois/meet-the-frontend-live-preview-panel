@@ -105,13 +105,15 @@ function revealChange(target) {
     const win = doc.defaultView;
     const margin = win.getComputedStyle(target).scrollMarginTop;
     const header = visibleHeaderBottom(target);
-    const viewportHeight = doc.documentElement.clientHeight;
-    const padding = win.getComputedStyle(doc.documentElement);
+    const root = doc.documentElement;
+    const viewportHeight = root.clientHeight;
+    const padding = win.getComputedStyle(root);
     const paddingTop = scrollPaddingPixels(padding.scrollPaddingTop, viewportHeight);
     const paddingBottom = scrollPaddingPixels(padding.scrollPaddingBottom, viewportHeight);
     // Site padding and margin already contribute to clearance; do not add header height twice.
     const clearance = header > 0 && paddingTop !== null ? `max(${margin}, ${header - paddingTop}px)` : margin;
     const original = target.getAttribute('style');
+    let originalRoot;
     try {
         target.style.setProperty('scroll-margin-top', `calc(${clearance} + 1lh)`, 'important');
         const offsets = win.getComputedStyle(target);
@@ -120,16 +122,28 @@ function revealChange(target) {
         if (paddingTop !== null && paddingBottom !== null) {
             const availableHeight = viewportHeight - paddingTop - paddingBottom
                 - parseFloat(offsets.scrollMarginTop) - parseFloat(offsets.scrollMarginBottom);
-            if (target.getBoundingClientRect().height <= availableHeight) block = 'center';
+            const freeHeight = availableHeight - target.getBoundingClientRect().height;
+            if (freeHeight >= 0) block = 'center';
+            if (freeHeight > 0 && padding.writingMode === 'horizontal-tb') {
+                // Bias the viewport's center toward its upper third without clipping the target.
+                // Apply the bias to the root so nested scrollports retain their own alignment.
+                const bias = Math.min(availableHeight / 3, freeHeight);
+                originalRoot = root.getAttribute('style');
+                root.style.setProperty('scroll-padding-bottom', `${paddingBottom + bias}px`, 'important');
+            }
         }
         const behavior = win.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth';
         target.scrollIntoView({ behavior, block, inline: 'nearest' });
     } finally {
-        // Restore exact styles through the attribute API before removing an originally absent attribute:
-        // otherwise pending CSSOM changes can recreate it as style="".
-        target.setAttribute('style', original ?? '');
-        if (original === null) target.removeAttribute('style');
+        if (originalRoot !== undefined) restoreInlineStyle(root, originalRoot);
+        restoreInlineStyle(target, original);
     }
+}
+
+function restoreInlineStyle(element, original) {
+    // Flush pending CSSOM changes so they cannot recreate an absent attribute as style="".
+    element.setAttribute('style', original ?? '');
+    if (original === null) element.removeAttribute('style');
 }
 
 function scrollPaddingPixels(value, height) {
