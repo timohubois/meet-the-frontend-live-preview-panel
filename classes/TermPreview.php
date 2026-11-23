@@ -37,8 +37,7 @@ final class TermPreview
     public function rememberHttpMethod(array $headers, WP_REST_Request $request): array
     {
         // Core has already applied method overrides. Track only HTTP, not internal REST dispatches.
-        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Compare the transport method exactly.
-        if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+        if (!isset($_SERVER['REQUEST_METHOD']) || $_SERVER['REQUEST_METHOD'] !== 'POST') {
             $this->nonPostRequests[$request] = true;
         }
         return $headers;
@@ -150,12 +149,10 @@ final class TermPreview
         }
         PreviewDocument::disableCaching();
 
-        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only lookup, authorized below.
         $id = filter_var(wp_unslash($_GET['mtflpp_term']), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-        // phpcs:disable WordPress.Security.NonceVerification.Recommended, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Exact token contract verified below.
         $token = isset($_GET['mtflpp_token']) && is_string($_GET['mtflpp_token'])
+            // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Exact token format verified below.
             ? wp_unslash($_GET['mtflpp_token']) : '';
-        // phpcs:enable WordPress.Security.NonceVerification.Recommended, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
         $term = $id ? get_term($id) : null;
         if (
             !$term instanceof WP_Term || !$this->canEdit($term)

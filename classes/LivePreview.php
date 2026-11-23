@@ -80,8 +80,8 @@ final class LivePreview
     public function rememberHttpMethod(array $headers, WP_REST_Request $request): array
     {
         // Core has already applied method overrides to $request at this point.
-        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Compare the transport method exactly.
-        $this->httpPostRequests[$request] = ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST';
+        $this->httpPostRequests[$request] = isset($_SERVER['REQUEST_METHOD'])
+            && $_SERVER['REQUEST_METHOD'] === 'POST';
         return $headers;
     }
 
@@ -406,7 +406,6 @@ final class LivePreview
         }
 
         // An internal dispatch can have no file params while its caller still has uploaded files.
-        // phpcs:ignore WordPress.Security.NonceVerification.Missing -- Snapshot caller state, not preview input.
         $originalFiles = $_FILES;
         self::$preparingPreview = true;
         $_FILES = [];
