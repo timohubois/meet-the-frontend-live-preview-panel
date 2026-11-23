@@ -6,7 +6,7 @@ import { createPanelGeometry } from './geometry.js';
 
 // Bind the PHP-rendered panel. Never capture fields, fetch previews, acquire locks or control native saves.
 export function createPreviewPanel(strings, {
-    postTitle = '', onOpen, onClose, onRefresh, onRetry, beforeMove, afterMove,
+    postTitle = '', publicRedirect, onOpen, onClose, onRefresh, onRetry, beforeMove, afterMove,
 }) {
     const mainWindow = window;
     const mainDocument = document;
@@ -79,6 +79,8 @@ export function createPreviewPanel(strings, {
     const { compactRect, usableEdge } = geometry;
     let takeOverAction = false;
     let windowNotice = '';
+    let checkedPublicRedirect = false;
+    let publicRedirectDestination;
     let current = {
         text: strings.loading, state: 'loading', hasPreview: false, canRetry: false, reason: '',
     };
@@ -149,13 +151,44 @@ export function createPreviewPanel(strings, {
         return current.state === 'error' && !current.canRetry ? 'error' : 'warning';
     }
 
+    function redirectMessage() {
+        if (current.redirectDestination) return `${strings.redirected} ${current.redirectDestination}`;
+        if (current.hasHtmlPreview && publicRedirectDestination) {
+            return `${strings.publicRedirected} ${publicRedirectDestination}`;
+        }
+        return '';
+    }
+
+    async function checkPublicRedirect() {
+        if (!publicRedirect || checkedPublicRedirect) return;
+        checkedPublicRedirect = true;
+        try {
+            const endpoint = new URL(publicRedirect.endpoint);
+            if (endpoint.origin !== mainWindow.location.origin) return;
+            const response = await mainWindow.fetch(endpoint, {
+                credentials: 'same-origin', cache: 'no-store', redirect: 'error', headers: { 'X-WP-Nonce': publicRedirect.nonce },
+            });
+            if (!response.ok) return;
+            const { destination } = await response.json();
+            if (typeof destination !== 'string' || !destination) return;
+            publicRedirectDestination = destination;
+            if (!visible) return;
+            syncControls();
+            if (current.state === 'ready' && current.hasHtmlPreview && !current.redirectDestination && !windowNotice) {
+                status.textContent = redirectMessage();
+            }
+        } catch { /* Public routing is advisory; unavailable checks don't affect the preview. */ }
+    }
+
     function feedbackState() {
         const { state, hasPreview, canRetry, reason } = current;
         const problem = hasPreview && ['error', 'conflict', 'handover', 'paused'].includes(state);
-        feedback.hidden = !problem && !windowNotice;
+        const redirect = hasPreview && !problem && !windowNotice ? redirectMessage() : '';
+        feedback.hidden = !problem && !windowNotice && !redirect;
         feedback.tabIndex = feedback.hidden ? -1 : 0;
         panel.dataset.hasFeedback = String(!feedback.hidden);
         if (feedback.hidden) return null;
+        if (redirect) return { heading: redirect, status: 'info', dismissible: false };
         const { heading, description } = presentation();
         return {
             heading: problem ? heading : windowNotice,
@@ -184,13 +217,14 @@ export function createPreviewPanel(strings, {
     }
 
     function report(text, state = 'loading', {
-        canTakeOver = false, hasPreview = false, previewUrl, canRefresh = false, canRetry = true, reason = '',
+        canTakeOver = false, hasPreview = false, hasHtmlPreview = false, redirectDestination,
+        canRefresh = false, canRetry = true, reason = '',
     } = {}) {
         const focused = panel.ownerDocument.activeElement;
         const wasInside = panel.contains(focused);
         const resetEmptyScroll = !hasPreview && (current.state !== state || current.text !== text || current.reason !== reason);
         const previewChanged = current.hasPreview !== hasPreview;
-        current = { text, state, canTakeOver, hasPreview, previewUrl, canRefresh, canRetry, reason };
+        current = { text, state, canTakeOver, hasPreview, hasHtmlPreview, redirectDestination, canRefresh, canRetry, reason };
         if (['error', 'conflict', 'handover', 'paused'].includes(state)) windowNotice = '';
         panel.dataset.state = state;
         panel.dataset.hasPreview = String(hasPreview);
@@ -199,11 +233,13 @@ export function createPreviewPanel(strings, {
         devicebar.hidden = !hasPreview;
         const { heading, description, note } = presentation();
         if (resetEmptyScroll) empty.scrollTop = 0;
+        const redirect = state === 'ready' && !windowNotice ? redirectMessage() : '';
         // Placeholder announces its instructions; the live region supplies the heading without repeating them.
-        status.textContent = hasPreview ? [heading, description, note].filter(Boolean).join(' ') : heading;
+        status.textContent = hasPreview ? [heading, description, note, redirect].filter(Boolean).join(' ') : heading;
         syncControls();
         if (previewChanged) responsiveViewport.layout();
         restoreFocus(focused, wasInside);
+        if (visible && state === 'ready' && hasHtmlPreview && !redirectDestination) checkPublicRedirect();
     }
 
     function toggleFollow() {
@@ -630,7 +666,7 @@ export function createPreviewPanel(strings, {
             stage.replaceChildren();
             const loading = ['ready', 'stale', 'loading'].includes(current.state);
             report(loading ? strings.loading : current.text, loading ? 'loading' : current.state, {
-                ...current, hasPreview: false, previewUrl: undefined, canRefresh: false,
+                ...current, hasPreview: false, hasHtmlPreview: false, redirectDestination: undefined, canRefresh: false,
                 canRetry: loading ? false : current.canRetry,
             });
         },

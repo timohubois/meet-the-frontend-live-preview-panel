@@ -710,23 +710,36 @@ test('trusted Chromium verifies independent scrolling and DPR-corrected physical
         import { createPreviewFrame } from '/src/preview/frame.js';
         import { createPreviewScroll } from '/src/preview/scroll.js';
         const stage = document.querySelector('.aflpp-stage');
-        const preview = createPreviewFrame({stage,followChanges:false}, createPreviewScroll(), {title:'Test preview',failed:'Failed',browser:'Same-origin required'}, () => {});
+        const reports = [];
+        const preview = createPreviewFrame({stage,followChanges:false,clearPreview:()=>stage.replaceChildren()}, createPreviewScroll(), {title:'Test preview',failed:'Failed',browser:'Same-origin required',current:'Current'}, (text,state)=>reports.push({text,state}));
         await preview.load(new URL('/page?aflpp_token=trusted-scroll', location.href).href, () => true);
         const canvas = document.querySelector('.aflpp-canvas'), frame = document.querySelector('iframe');
         const viewport = createPreviewViewport(document.querySelector('.aflpp-viewport'), stage, document.querySelector('.aflpp-dimensions'), {device:'mobile',fit:'width'});
         viewport.layout();
         let wheels = 0;
         frame.contentDocument.addEventListener('wheel', (event) => { if (event.isTrusted) wheels++; }, {passive:true});
-        Object.assign(window, {canvas,frame,viewport,preview});
+        Object.assign(window, {canvas,frame,viewport,preview,reports});
         window.canvasInputState = () => ({pan:canvas.scrollTop,panX:canvas.scrollLeft,page:frame.contentWindow.scrollY,pageX:frame.contentWindow.scrollX,width:frame.contentWindow.innerWidth,height:frame.contentWindow.innerHeight,zoom:viewport.zoomPercent,wheels});
         </script>`;
     await withChromiumPage(html, async ({ args }) => {
         const pending = new Map();
         let chrome, sessionId, nextId = 0, buffer = '', stderr = '';
         const responses = new Map([...modules, ['/', html], ['/page', page],
-            ['/unmarked', page.replace(/<meta[^>]+>/, '')], ['/plain', 'Native text output']]);
+            ['/unmarked', page.replace(/<meta[^>]+>/, '')], ['/plain', 'Native text output'],
+            ['/rewrite', '<!doctype html><script>history.replaceState(null, "", "/unmarked")</script><main>Rewritten URL</main>']]);
         const server = createServer((request, response) => {
             const path = new URL(request.url, 'http://localhost').pathname;
+            const redirect = {
+                '/redirect-html': '/unmarked?private=not-for-display#fragment',
+                '/redirect-html-rewrite': '/rewrite',
+                '/redirect-marked': '/page?aflpp_token=trusted-scroll',
+                '/redirect-plain': '/plain',
+                '/redirect-other-origin': `http://localhost:${server.address().port}/unmarked`,
+            }[path];
+            if (redirect) {
+                response.writeHead(302, { Location: redirect }).end();
+                return;
+            }
             response.setHeader('Content-Type', path === '/plain' ? 'text/plain' : modules.has(path) ? 'text/javascript' : 'text/html');
             response.end(responses.get(path) ?? '');
         });
@@ -935,6 +948,28 @@ test('trusted Chromium verifies independent scrolling and DPR-corrected physical
                 assert.equal(output.type, path === 'plain' ? 'text/plain' : 'text/html');
                 assert.equal(output.style, null, 'Do not add preview-only root styles to unverified output.');
                 if (path === 'plain') assert.equal(output.text, 'Native text output');
+            });
+            await t.test('only confirmed redirects to unmarked same-origin HTML expose a display path', async () => {
+                const load = async (path) => {
+                    await evaluate(`preview.load(new URL('/${path}?aflpp_token=trusted-scroll', location.href).href, () => true)`);
+                    assert.equal(await evaluate('reports.at(-1).state'), 'ready', 'Do not turn redirected output into an error.');
+                    return evaluate('preview.redirectDestination');
+                };
+                assert.equal(await load('redirect-html'), '/unmarked', 'Exclude destination query values and fragments from the note.');
+                const output = await evaluate(`(() => {
+                    const frame = document.querySelector('iframe'), doc = frame.contentDocument;
+                    return [doc.body.textContent, doc.documentElement.style.overscrollBehavior, new URL(frame.src).pathname];
+                })()`);
+                assert.deepEqual(output, ['Scrollable page', '', '/redirect-html'], 'Leave the native output and authorized request unchanged.');
+                await evaluate(`document.querySelector('iframe').contentWindow.location.assign('/unmarked')`);
+                await waitFor('!preview.redirectDestination');
+                for (const path of ['unmarked', 'rewrite', 'redirect-marked', 'redirect-plain', 'redirect-other-origin']) {
+                    assert.equal(await load(path), undefined, `No redirect notice for ${path}.`);
+                }
+                assert.equal(await load('redirect-html-rewrite'), '/rewrite', 'Report the redirect destination even if it rewrites its URL.');
+                assert.equal(await evaluate(`new URL(document.querySelector('iframe').contentDocument.URL).pathname`), '/unmarked');
+                await evaluate('preview.clear()');
+                assert.equal(await evaluate('preview.redirectDestination'), undefined);
             });
         } finally {
             t.signal.removeEventListener('abort', abort);

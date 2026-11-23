@@ -73,6 +73,7 @@ wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/timber-terms.ph
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/yoast.php
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/preview-isolation.php
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/preview-source.php
+wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/public-redirect.php
 ```
 
 The term-preview fixture checks category, tag and public custom taxonomy archives,

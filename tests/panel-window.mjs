@@ -10,11 +10,11 @@ import vm from 'node:vm';
 
 const source = await sourceForVm(new URL('../src/panel/window.js', import.meta.url));
 
-// Exercise the view's lifecycle and launcher label without starting requests or changing native controls.
+// Exercise the view's lifecycle and launcher label with a simulated browser.
 function fixture(open = false, {
     layout, position, rememberPosition, preferences: savedPreferences, labels = {},
     width = 1440, height = 1000, direction = 'ltr', lang = 'en-US', gutter = 20, scrollbar = 0, toolbarHeight = 32,
-    nativeSaving = false, pip = false, pipApi, videoPip = false, stylesheets = [],
+    nativeSaving = false, pip = false, pipApi, videoPip = false, stylesheets = [], publicRedirect, fetch,
 } = {}) {
     const nodes = new Map();
     const preferences = new Map(savedPreferences ?? [
@@ -91,6 +91,7 @@ function fixture(open = false, {
     launcherContainer.offsetWidth = 160;
     launcherContainer.offsetHeight = 40;
     const window = target({
+        location: { origin: 'https://site.test' }, fetch,
         innerWidth: width, innerHeight: height, scrollX: 0, requestAnimationFrame: () => 1, cancelAnimationFrame() {},
         getComputedStyle: () => ({ direction, cursor: 'ew-resize', getPropertyValue: () => '' }),
         matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
@@ -132,9 +133,9 @@ function fixture(open = false, {
         './viewport.js': { createPreviewViewport },
     };
     delete window.wp;
-    const createPreviewPanel = vm.runInNewContext(`${source}\ncreatePreviewPanel`, { window, document, imports });
+    const createPreviewPanel = vm.runInNewContext(`${source}\ncreatePreviewPanel`, { window, document, imports, URL });
     const view = createPreviewPanel(strings, {
-        nativeSaving, beforeMove() {}, afterMove() {},
+        nativeSaving, publicRedirect, beforeMove() {}, afterMove() {},
         onOpen() { view.setVisible(true); }, onClose() { view.setVisible(false); }, onRetry(takeOver) { retryCalls.push(takeOver); },
         onRefresh(follow = true) { refreshCalls.push({ follow, enabled: preferences.get('scrollToChanges') }); },
     });
@@ -913,6 +914,86 @@ test('no-frame and retained-frame recovery use native UI models without weakenin
     assert.equal(h.state.notice.dismissible, false);
     h.view.report('Refreshing');
     assert.equal(h.state.notice, null);
+});
+
+test('a followed redirect is an informational notice for the displayed frame, not a preview problem', () => {
+    const h = fixture(true, { labels: panelStrings });
+    const redirect = { hasPreview: true, redirectDestination: '/destination/', canRefresh: true };
+    h.view.report(panelStrings.current, 'ready', redirect);
+    const feedback = h.node('aflpp-panel .aflpp-feedback');
+    const message = 'Followed a redirect to: /destination/';
+    assert.deepEqual(plain(h.state.notice), { heading: message, status: 'info', dismissible: false });
+    assert.equal(feedback.hidden, false);
+    assert.equal(h.state.canRefresh, true);
+    assert.ok(h.node('aflpp-panel [role="status"]').textContent.includes(message));
+    h.view.report(panelStrings.updating, 'loading', { ...redirect, canRefresh: false });
+    assert.equal(h.state.notice.heading, message, 'Keep the note while its frame is still visible during an update.');
+    assert.equal(h.node('aflpp-panel [role="status"]').textContent, panelStrings.updating);
+    h.view.report('Update failed', 'error', redirect);
+    assert.equal(h.state.notice.status, 'warning', 'A real preview problem takes precedence.');
+    h.view.report(panelStrings.current, 'ready', { hasPreview: true, canRefresh: true });
+    assert.equal(h.state.notice, null);
+    assert.equal(feedback.hidden, true);
+    h.view.report(panelStrings.current, 'ready', redirect);
+    h.view.clearPreview();
+    assert.equal(h.state.notice, null, 'Do not keep a redirect notice after discarding the frame.');
+});
+
+test('the public permalink check starts once on a recognized preview and never overrides its own redirect', async () => {
+    const request = Promise.withResolvers();
+    const calls = [];
+    const publicRedirect = { endpoint: 'https://site.test/wp-json/public-redirect', nonce: 'rest-nonce' };
+    const h = fixture(true, { labels: panelStrings, publicRedirect, fetch: (...args) => {
+        calls.push(args);
+        return request.promise;
+    } });
+    const html = { hasPreview: true, hasHtmlPreview: true, canRefresh: true };
+    const redirected = { hasPreview: true, redirectDestination: '/preview-destination/', canRefresh: true };
+    h.view.report(panelStrings.current, 'ready', redirected);
+    assert.equal(calls.length, 0, 'A redirected preview takes priority without starting the public check.');
+    h.view.report(panelStrings.current, 'ready', { hasPreview: true });
+    assert.equal(calls.length, 0, 'Do not show an unrelated public notice for browser-owned output.');
+
+    h.view.report(panelStrings.current, 'ready', html);
+    assert.equal(h.state.notice, null, 'Do not show loading or a negative result for the advisory check.');
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0][0].href, publicRedirect.endpoint);
+    assert.equal(calls[0][1].headers['X-WP-Nonce'], publicRedirect.nonce);
+    assert.equal(calls[0][1].redirect, 'error', 'Do not forward the REST nonce to a redirected endpoint.');
+
+    h.view.report(panelStrings.current, 'ready', redirected);
+    request.resolve({ ok: true, json: () => Promise.resolve({ destination: '/Public/' }) });
+    await new Promise(setImmediate);
+    assert.equal(h.state.notice.heading, 'Followed a redirect to: /preview-destination/');
+    h.view.report(panelStrings.current, 'ready', html);
+    assert.deepEqual(plain(h.state.notice), {
+        heading: 'Public URL redirects to: /Public/', status: 'info', dismissible: false,
+    });
+    assert.equal(h.state.canRefresh, true);
+    h.view.report(panelStrings.updating, 'loading', html);
+    assert.equal(h.state.notice.heading, 'Public URL redirects to: /Public/');
+    h.view.clearPreview();
+    assert.equal(h.state.notice, null);
+    h.view.report(panelStrings.current, 'ready', html);
+    assert.equal(calls.length, 1, 'Refresh, replacement and reopen must not probe again.');
+});
+
+for (const result of ['draft', 'no redirect', 'unavailable']) test(`public redirect check stays silent: ${result}`, async () => {
+    let calls = 0;
+    const h = fixture(true, {
+        labels: panelStrings,
+        publicRedirect: result === 'draft' ? undefined : { endpoint: 'https://site.test/wp-json/public-redirect' },
+        fetch() {
+            calls++;
+            return result === 'unavailable' ? Promise.reject(new Error('offline'))
+                : Promise.resolve({ ok: true, json: () => Promise.resolve({ destination: null }) });
+        },
+    });
+    h.view.report(panelStrings.current, 'ready', { hasPreview: true, hasHtmlPreview: true, canRefresh: true });
+    await new Promise(setImmediate);
+    assert.equal(calls, result === 'draft' ? 0 : 1);
+    assert.equal(h.state.notice, null);
+    assert.equal(h.state.canRefresh, true);
 });
 
 for (const hasPreview of [false, true]) {

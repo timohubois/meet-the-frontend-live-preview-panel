@@ -42,7 +42,7 @@ function fixture() {
     const controls = createPreviewControls(panel, strings, callbacks);
     const state = {
         inPage: true, inPip: false, movable: true, mode: 'expand', modeLabel: strings.expand, canRefresh: true,
-        hasPreview: true, previewUrl: '/preview', zoomPercent: 100, customZoom: 100, dpr: 1,
+        hasPreview: true, zoomPercent: 100, customZoom: 100, dpr: 1,
         canPip: true, canFullscreen: true, dock: 'center', fit: 'automatic', orientation: 'landscape', rememberVisibility: true, rememberPosition: true, followChanges: false, device: 'desktop',
     };
     controls.update(state);
@@ -417,7 +417,7 @@ test('new-tab actions are absent from the menu and failed-preview recovery', () 
     const h = fixture();
     for (const hasPreview of [true, false]) {
         h.controls.update({ ...h.state, hasPreview, empty: hasPreview ? null : {
-            heading: 'Couldn’t load preview', description: 'Try again.', previewUrl: '/preview', retry: true, action: 'Try again',
+            heading: 'Couldn’t load preview', description: 'Try again.', retry: true, action: 'Try again',
         } });
         for (const type of ['MenuItem', 'Button']) {
             assert.equal(h.nodes(type).some(({ props }) => props.href || props.target === '_blank'), false);

@@ -225,7 +225,7 @@ async function nativePreferenceTests(strings) {
             let state = {
                 inPage: mode === 'in-page', inPip: mode === 'PiP', movable: mode === 'in-page', mode: 'expand', modeLabel: strings.expand,
                 canPip: mode === 'in-page', canFullscreen: mode === 'in-page',
-                hasPreview: true, previewUrl: '/preview', dock: 'center', device: 'desktop', fit: 'window', orientation: 'landscape',
+                hasPreview: true, dock: 'center', device: 'desktop', fit: 'window', orientation: 'landscape',
                 rememberVisibility: true, rememberPosition: true, followChanges: true,
             };
             let toggles = 0, closes = 0;
@@ -359,6 +359,29 @@ async function nativeNoticeTests(strings) {
                 await pause();
                 check(panel.querySelector('.notices-inline-notices__notice') && selectors.getNotices(context).length === 1, 'Restore native feedback in the destination document.');
             }
+            const feedback = panel.querySelector('.aflpp-feedback');
+            const textLines = () => {
+                const description = feedback.querySelector('.notices-inline-notices__notice > :is(p, span)');
+                check(description?.textContent === state.notice.heading, 'Keep the label and destination together as plain text.');
+                const range = document.createRange();
+                range.selectNodeContents(description);
+                return [...range.getClientRects()];
+            };
+            state = { ...state, notice: { heading: 'Public URL redirects to: /BaseStyle/', status: 'info', dismissible: false } };
+            controls.update(state);
+            await pause();
+            check(textLines().length === 1, 'Short redirect notices fit on one line.');
+
+            panel.style.width = '280px';
+            state = { ...state, notice: { ...state.notice, heading: `Public URL redirects to: /${'long'.repeat(32)}/` } };
+            controls.update(state);
+            await pause();
+            const lines = textLines();
+            const { left, right } = feedback.getBoundingClientRect();
+            check(lines.length > 1 && lines.every((line) => line.left >= left - 1 && line.right <= right + 1)
+                && feedback.scrollWidth <= feedback.clientWidth + 1, 'Very long paths wrap without horizontal overflow.');
+            panel.style.width = '480px';
+
             state = { ...state, notice: { heading: 'Window operation failed', status: 'info', dismissible: true } };
             controls.update(state);
             await pause();

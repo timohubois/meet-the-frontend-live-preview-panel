@@ -170,7 +170,7 @@ test('disabled following skips snapshots and comparison while preserving preview
     assert.equal(h.comparisons.length, 0);
     assert.equal(h.scrolls.filter(([operation]) => operation === 'restore').length, 2);
     assert.equal(h.last.state, 'ready');
-    assert.equal(h.last.previewUrl, url(12));
+    assert.equal(h.children[0].src, url(12));
     assert.equal(h.children[0].contentDocument.documentElement.style.getPropertyValue('overscroll-behavior'), 'contain');
     assert.equal(h.children[0].contentDocument.documentElement.style.getPropertyPriority('overscroll-behavior'), 'important');
 });
@@ -276,7 +276,7 @@ test('disabled change following leaves iframe navigation on the native preview U
     h.options.onOpen();
     assert.equal(h.children[0].src, url(11));
     await h.load();
-    assert.equal(h.last.previewUrl, url(11));
+    assert.equal(h.last.state, 'ready');
 });
 
 test('revision browsing loads the native To source without editor APIs or Web Locks', async () => {
@@ -286,7 +286,6 @@ test('revision browsing loads the native To source without editor APIs or Web Lo
     await h.load();
     assert.equal(h.last.state, 'ready');
     assert.equal(h.last.hasPreview, true);
-    assert.equal(h.last.previewUrl, url(11));
     assert.equal(h.title, 'Date 11 — Author 11');
     assert.equal(h.children[0].referrerPolicy, 'same-origin');
 });
@@ -300,8 +299,6 @@ for (const isolated of [false, true]) {
         assert.equal(address.searchParams.get('aflpp_source'), '1');
         await h.load();
         assert.equal(h.last.state, 'ready');
-        assert.equal(new URL(h.last.previewUrl).searchParams.get('aflpp_isolated'), isolated ? '1' : null);
-        assert.equal(new URL(h.last.previewUrl).searchParams.get('aflpp_source'), null);
     });
 }
 
@@ -358,19 +355,19 @@ test('remembered closed panels do not load until explicitly opened', async () =>
     h.select(revision(12)); await h.runTimers();
     assert.equal(h.allFrames.length, 0);
     h.options.onOpen(); await h.load();
-    assert.equal(h.last.previewUrl, url(12));
+    assert.equal(h.children[0].src, `${url(12)}&aflpp_source=1`);
 });
 
 test('only the actual parent entry uses the current saved-post URL', async () => {
     const h = fixture({ selected: revision(1, null) }); await h.load();
-    assert.equal(h.last.previewUrl, url(1));
+    assert.equal(h.children[0].src, `${url(1)}&aflpp_source=1`);
     assert.equal(h.title, 'Current version — Date 1 — Author 1');
     h.select(revision(20, null)); await h.runTimers();
     assert.equal(h.children.length, 0);
     assert.equal(h.last.reason, 'unavailable');
     assert.equal(h.last.canRetry, false);
     assert.equal(h.last.canRefresh, false);
-    assert.equal(h.last.previewUrl, null);
+    assert.equal(h.last.hasPreview, false);
 });
 
 test('cross-origin URLs are rejected without creating a frame', async () => {
@@ -384,7 +381,7 @@ test('PiP adoption reloads the selected source and does not reopen a closed pane
     const h = fixture(); await h.load();
     h.options.beforeMove(); assert.equal(h.children.length, 0);
     h.options.afterMove(); await h.load();
-    assert.equal(h.last.previewUrl, url(11));
+    assert.equal(h.children[0].src, `${url(11)}&aflpp_source=1`);
     h.options.onClose(); h.options.afterMove();
     assert.equal(h.allFrames.length, 2);
 });

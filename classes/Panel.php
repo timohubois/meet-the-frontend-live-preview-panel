@@ -55,6 +55,13 @@ final class Panel
              * @param array $context Core-owned post identity; no source has been selected.
              */
             $config = apply_filters("aflpp_{$screen}_preview_config", $config, $context);
+            $postId = $context['post']['id'];
+            if ($postId && PublicRedirect::isAvailable(get_post($postId))) {
+                $config['publicRedirect'] = [
+                    'endpoint' => PublicRedirect::endpoint($postId),
+                    'nonce' => wp_create_nonce('wp_rest'),
+                ];
+            }
             /**
              * Filter comparison exclusions for post previews. Return an empty array for no exclusions.
              *
@@ -270,6 +277,8 @@ final class Panel
             'preparing' => __('Preparing your first preview.', 'meet-the-frontend-live-preview-panel'),
             'updating' => __('Updating preview…', 'meet-the-frontend-live-preview-panel'),
             'current' => __('Preview updated', 'meet-the-frontend-live-preview-panel'),
+            'redirected' => __('Followed a redirect to:', 'meet-the-frontend-live-preview-panel'),
+            'publicRedirected' => __('Public URL redirects to:', 'meet-the-frontend-live-preview-panel'),
             'pausedTitle' => __('Preview paused', 'meet-the-frontend-live-preview-panel'),
             'stale' => __('Waiting to update preview…', 'meet-the-frontend-live-preview-panel'),
             'failed' => __('Couldn’t load preview', 'meet-the-frontend-live-preview-panel'),

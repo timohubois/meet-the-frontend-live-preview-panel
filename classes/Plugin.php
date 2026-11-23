@@ -16,6 +16,7 @@ final class Plugin
         new CoreBlocks();
         new Timber();
         new Yoast();
+        new PublicRedirect();
         $livePreview = new LivePreview();
         $frontendPreview = new FrontendPreview($file, $livePreview);
         $panel = new Panel($file);

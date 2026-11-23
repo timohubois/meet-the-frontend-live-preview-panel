@@ -10,6 +10,7 @@ export function createLivePreview(config, nativeEditor) {
     const scrolling = createPreviewScroll();
     const view = createPreviewPanel(strings, {
         postTitle: nativeEditor.title ?? config.postTitle,
+        publicRedirect: config.publicRedirect,
         onOpen: () => startPreview(),
         onClose: () => stopPreview(),
         onRefresh: refreshPreview,
@@ -55,7 +56,8 @@ export function createLivePreview(config, nativeEditor) {
     function report(text, state = 'loading', { canRetry = true, reason = '' } = {}) {
         if (state === 'ready') followPending = false;
         view.report(text, state, {
-            canTakeOver: !!channel, hasPreview: frames.hasPreview, previewUrl: frames.address, canRetry, reason,
+            canTakeOver: !!channel, hasPreview: frames.hasPreview, canRetry, reason,
+            hasHtmlPreview: frames.hasHtmlPreview, redirectDestination: frames.redirectDestination,
             canRefresh: previewActive && !nativeEditor.saving && ['ready', 'error'].includes(state) && (state !== 'error' || canRetry),
         });
     }

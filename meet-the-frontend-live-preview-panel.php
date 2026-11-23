@@ -26,6 +26,7 @@ require_once __DIR__ . '/classes/Compatibility/Yoast.php';
 require_once __DIR__ . '/classes/LivePreview.php';
 require_once __DIR__ . '/classes/PreviewDocument.php';
 require_once __DIR__ . '/classes/FrontendPreview.php';
+require_once __DIR__ . '/classes/PublicRedirect.php';
 require_once __DIR__ . '/classes/Panel.php';
 require_once __DIR__ . '/classes/ClassicEditor.php';
 require_once __DIR__ . '/classes/BlockEditor.php';

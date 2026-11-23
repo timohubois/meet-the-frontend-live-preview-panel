@@ -1,11 +1,23 @@
 import { createPreviewComparison } from './comparison.js';
 
+function redirectedHtmlPath(doc, requested) {
+    if (doc?.contentType !== 'text/html') return;
+    // A different URL alone could be a history update, not a redirect. Unobservable redirects stay native.
+    const navigation = doc.defaultView?.performance.getEntriesByType('navigation')[0];
+    if (!(navigation?.redirectCount > 0)) return;
+    const final = new URL(navigation.name);
+    if (final.origin === requested.origin && (final.pathname !== requested.pathname || final.search !== requested.search)) {
+        // Display text only; preview tokens and other destination query values are not for the notice.
+        return final.pathname;
+    }
+}
+
 // Own iframe loading and optional HTML enhancements, not the source's writes or selection lifecycle.
 export function createPreviewFrame(view, scrolling, strings, report, excludedSelectors = []) {
     const comparison = createPreviewComparison(excludedSelectors);
     let activeFrame;
     let activeDocument;
-    let address;
+    let redirectDestination;
     let cancelLoad;
 
     function cancel() {
@@ -20,9 +32,8 @@ export function createPreviewFrame(view, scrolling, strings, report, excludedSel
         // Isolated editors cannot inspect otherwise same-origin, non-isolated preview documents.
         if (window.crossOriginIsolated) url.searchParams.set('aflpp_isolated', '1');
         cancel();
+        // Capture only following iframe loads, even if the provided URL already contains the flag.
         url.searchParams.delete('aflpp_source');
-        address = url.href;
-        // Capture only following iframe loads; keep ordinary/new-tab previews on the native URL.
         if (view.followChanges) url.searchParams.set('aflpp_source', '1');
         // Navigate natively so non-HTML output can use the browser's own viewer.
         report(strings.updating);
@@ -58,10 +69,12 @@ export function createPreviewFrame(view, scrolling, strings, report, excludedSel
                 if (!replacing) activeDocument = null;
                 if (canceled || !isCurrent()) { finish(); return; }
                 let doc;
+                let destination;
                 try {
                     const candidate = frame.contentDocument;
                     const marker = candidate?.querySelector('meta[name="a-floating-live-preview-panel"]');
                     if (marker?.content === token) doc = candidate;
+                    else if (replacing && !marker) destination = redirectedHtmlPath(candidate, url);
                 } catch { /* Cross-origin and browser-owned documents are not inspectable. */ }
                 // Freeze following documents before preview-only styles; disabled loads need no snapshot.
                 // The next following load establishes a fresh baseline without retroactively capturing old output.
@@ -83,6 +96,7 @@ export function createPreviewFrame(view, scrolling, strings, report, excludedSel
                 }
                 activeFrame = frame;
                 activeDocument = doc;
+                redirectDestination = destination;
                 frame.classList.remove('aflpp-loading');
                 frame.removeAttribute('aria-hidden');
                 frame.removeAttribute('tabindex');
@@ -99,6 +113,7 @@ export function createPreviewFrame(view, scrolling, strings, report, excludedSel
             frame.onerror = () => {
                 if (frame === activeFrame) {
                     activeDocument = null;
+                    redirectDestination = undefined;
                     if (isCurrent()) report(strings.failed, 'error');
                 } else finish(new Error(strings.failed));
             };
@@ -109,7 +124,8 @@ export function createPreviewFrame(view, scrolling, strings, report, excludedSel
 
     return {
         get hasPreview() { return !!activeFrame; },
-        get address() { return address; },
+        get hasHtmlPreview() { return !!activeDocument; },
+        get redirectDestination() { return redirectDestination; },
         load,
         cancel,
         clear() {
@@ -121,7 +137,7 @@ export function createPreviewFrame(view, scrolling, strings, report, excludedSel
             }
             activeFrame = null;
             activeDocument = null;
-            address = null;
+            redirectDestination = undefined;
             view.clearPreview();
         },
     };

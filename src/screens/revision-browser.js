@@ -10,6 +10,7 @@ export function initRevisionPreview(config, model) {
     let timer;
     const view = createPreviewPanel(strings, {
         postTitle: label(selected),
+        publicRedirect: config.publicRedirect,
         onOpen() { view.setVisible(true); refresh(); },
         onClose: close,
         onRefresh: refresh,
@@ -31,7 +32,7 @@ export function initRevisionPreview(config, model) {
         // Retain the previous revision's identity until its replacement has actually loaded.
         if (state === 'ready' || !frames.hasPreview) view.setTitle(label(selected));
         view.report(text, state, {
-            hasPreview: frames.hasPreview, previewUrl: frames.address,
+            hasPreview: frames.hasPreview, hasHtmlPreview: frames.hasHtmlPreview, redirectDestination: frames.redirectDestination,
             canRefresh: view.visible && ['ready', 'error'].includes(state),
             ...options,
         });
