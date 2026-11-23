@@ -3,7 +3,7 @@ Contributors: timohubois
 Tags: preview, editor
 Requires at least: 6.9
 Tested up to: 7.1
-Stable tag: 1.1.0
+Stable tag: 1.1.1
 Requires PHP: 8.3
 License: GPLv3 or later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
@@ -112,6 +112,11 @@ Report issues or contribute on [GitHub](https://github.com/timohubois/meet-the-f
 8. Keep the preview in a separate Picture-in-Picture window where supported.
 
 == Changelog ==
+
+= 1.1.1 =
+* Allow live post previews when WordPress revision history is disabled.
+* Explain why the preview cannot load when WordPress returns a URL on a different website address than the editor.
+* Update the plugin listing screenshots.
 
 = 1.1.0 =
 * Preview unsaved names and descriptions on existing category, tag, and public custom taxonomy archives.
