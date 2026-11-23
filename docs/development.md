@@ -33,6 +33,48 @@ Native component CSS is still enqueued separately and copied into PiP, including
 
 The public panel APIs and built asset loading are checked against WordPress 6.7 and 7.1.4 core assets, including in-page, fullscreen and native PiP controls. This is not a full authenticated editor-to-frontend compatibility guarantee.
 
+## Migrations
+
+Use a migration when an upgrade must move or remove persisted plugin data. A
+rename that doesn't affect persisted data doesn't need a migration.
+
+- Name files `<unix-timestamp>.php` in `classes/Migrations/` and classes
+  `Migration<unix-timestamp>`. Take the timestamp from `git log -1 --format=%ct`
+  when creating the migration and keep existing IDs unchanged. Describe what
+  each migration does in its class docblock.
+- The runner in `classes/Migrations.php` discovers timestamped files in order.
+  Add only the migration file; don't list individual migrations in the plugin
+  bootstrap or in `uninstall.php`.
+- Implement static `runForSite(): void` for the upgrade work. Keep progress per
+  site, bound work per request, and mark completion only after the work succeeds.
+  Make repeat runs safe and touch only legacy data the plugin owns.
+- Implement static `uninstallForSite(): array` to remove any legacy data and
+  progress markers even if the upgrade never ran. Return any retired panel
+  preference scopes (or an empty array). The uninstaller removes all returned
+  scopes and the current one in the same user scan.
+
+The [identifier rename migration](../classes/Migrations/1795452494.php) only
+discards old temporary preview revisions. It starts on the first non-AJAX
+admin request with the new code and a user who can manage the site. Don't rely
+on `upgrader_process_complete`: WordPress can fire it with the old code still
+loaded, and replacing plugin files directly doesn't fire it at all. On
+Multisite, each site's dashboard visit starts that site's migration; upgrading
+the network does not sweep every site in one request.
+
+The migration finishes scanning before retrying vetoed deletions and waits an
+hour between passes. Panel preferences reset to defaults because the panel
+reads only the new preference scope. This also ignores old values in WordPress's
+browser backup without changing what WordPress stores for other features.
+Uninstall removes the old and current panel scopes from the database; there is
+no user scan on upgrade.
+
+Test upgraded and already-migrated data, resumption between requests, and
+preservation of unrelated data. The [identifier rename fixture](../tests/identifier-rename.php)
+uses the same disposable-site guard and opt-in as the uninstall fixture below.
+CI runs both on single-site and network-activated Multisite installations.
+
+## Tests
+
 Node.js 24.5+ is needed only for development, not on the WordPress site. The ownership tests use native Web Locks and BroadcastChannel. After installing the development dependencies, run the JavaScript regression tests with:
 
 ```sh

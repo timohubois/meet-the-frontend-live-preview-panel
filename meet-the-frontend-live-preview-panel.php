@@ -33,6 +33,7 @@ require_once __DIR__ . '/classes/BlockEditor.php';
 require_once __DIR__ . '/classes/TermPreview.php';
 require_once __DIR__ . '/classes/TermEditor.php';
 require_once __DIR__ . '/classes/RevisionBrowser.php';
+require_once __DIR__ . '/classes/Migrations.php';
 require_once __DIR__ . '/classes/Plugin.php';
 
 new Plugin(__FILE__);

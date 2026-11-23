@@ -27,7 +27,8 @@
     "autoload": {
         "psr-4": {
             "MeetTheFrontendLivePreviewPanel\\": "classes/"
-        }
+        },
+        "classmap": ["classes/Migrations/"]
     },
     "scripts": {
         "php:lint": "vendor/bin/phpcs --standard=phpcs.xml .",

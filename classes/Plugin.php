@@ -12,6 +12,7 @@ final class Plugin
 {
     public function __construct(string $file)
     {
+        new Migrations();
         new Acf();
         new CoreBlocks();
         new Timber();

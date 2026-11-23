@@ -31,13 +31,18 @@ $startingSite = get_current_blog_id();
 $users = $fixtures = [];
 $createdSite = 0;
 $scope = 'meet-the-frontend-live-preview-panel';
+$legacyScope = 'a-floating-live-preview-panel';
+$legacyStatus = 'aflpp-preview';
+$stateOption = 'mtflpp_identifier_rename_state';
 $preferences = static fn (int $i): array|string => match ($i) {
     101 => ['core/edit-site' => ['keep' => true]],
     102 => 'Malformed legacy preferences',
+    0 => ['_modified' => '2000-01-01T00:00:00.000Z', $legacyScope => ['panelOpen' => false]],
     default => [
         '_modified' => '2000-01-01T00:00:00.000Z',
         'core/edit-post' => ['text' => "O'Reilly \\ path", 'nested' => [false, 0]],
         $scope . '-extra' => ['keep' => true], $scope => $i === 100 ? null : ['panelOpen' => true],
+        $legacyScope . '-extra' => ['keep' => true], $legacyScope => ['panelOpen' => false],
     ],
 };
 $snapshot = static fn (int $id): array => [get_post($id, ARRAY_A), get_post_meta($id)];
@@ -85,16 +90,24 @@ try {
                 add_metadata('post', $id, 'mtflpp_uninstall_fixture', ['keep' => "O'Reilly \\ path"]);
                 $fixtures[$siteId]['protected'][$id] = $snapshot($id);
             }
-            for ($i = 0; $i < 101; $i++) {
-                $id = $create(array_replace($revision, ['post_status' => 'mtflpp-preview']));
-                add_metadata('post', $id, 'mtflpp_uninstall_fixture', ['remove' => true]);
-                $fixtures[$siteId]['previews'][] = $id;
+            foreach (['mtflpp-preview' => 101, $legacyStatus => 1] as $status => $count) {
+                for ($i = 0; $i < $count; $i++) {
+                    $id = $create(array_replace($revision, ['post_status' => $status]));
+                    add_metadata('post', $id, 'mtflpp_uninstall_fixture', ['remove' => true]);
+                    $fixtures[$siteId]['previews'][] = $id;
+                }
             }
             $key = $wpdb->get_blog_prefix() . 'persisted_preferences';
             foreach ($users as $i => $id) {
                 update_user_meta($id, $key, wp_slash($preferences($i)));
             }
             $fixtures[$siteId]['key'] = $key;
+            if (is_multisite() && $siteId === $startingSite) {
+                update_option($stateOption, ['retry_after' => time() + HOUR_IN_SECONDS], false);
+            } else {
+                // Exercise uninstall before the first admin request can run the migration.
+                delete_option($stateOption);
+            }
         } finally {
             if (is_multisite()) {
                 restore_current_blog();
@@ -105,13 +118,16 @@ try {
     update_user_meta($users[0], $orphanKey, [$scope => ['keep' => true]]);
     deactivate_plugins($plugin, true, $network);
     $check(get_post($fixtures[$startingSite]['previews'][0]) !== null, 'Deactivation must keep preview data.');
-    unset($GLOBALS['wp_post_statuses']['mtflpp-preview']); // Uninstall must work without plugin registration.
+    // Uninstall must work without plugin registration.
+    unset($GLOBALS['wp_post_statuses']['mtflpp-preview'], $GLOBALS['wp_post_statuses'][$legacyStatus]);
     $check(uninstall_plugin($plugin) === true, 'WordPress must discover and execute uninstall.php.');
     foreach ($fixtures as $siteId => $fixture) {
         if (is_multisite()) {
             switch_to_blog($siteId);
         }
         try {
+            $check(!get_option($stateOption), 'Uninstall must remove the migration marker.');
+            $check(!get_post_status_object($legacyStatus), 'Do not register the previous status.');
             foreach ($fixture['previews'] as $id) {
                 $check(!get_post($id) && !get_post_meta($id), 'All preview revisions and metadata must be removed.');
             }
@@ -121,9 +137,12 @@ try {
             foreach ($users as $i => $id) {
                 $before = $preferences($i);
                 $after = get_user_meta($id, $fixture['key'], true);
-                if (is_array($before) && array_key_exists($scope, $before)) {
+                if (
+                    is_array($before)
+                    && (array_key_exists($scope, $before) || array_key_exists($legacyScope, $before))
+                ) {
                     $check(strtotime($after['_modified'] ?? '') > strtotime($before['_modified']), 'New timestamp.');
-                    unset($before[$scope], $before['_modified'], $after['_modified']);
+                    unset($before[$scope], $before[$legacyScope], $before['_modified'], $after['_modified']);
                 }
                 $check($after === $before, 'Preserve unrelated preferences, types and escaping.');
             }
@@ -134,7 +153,7 @@ try {
         }
     }
     $check(get_user_meta($users[0], $orphanKey, true) === [$scope => ['keep' => true]], 'Keep other metadata keys.');
-    include dirname(__DIR__) . '/uninstall.php';
+    include WP_PLUGIN_DIR . '/' . dirname($plugin) . '/uninstall.php';
     $check(
         get_current_blog_id() === $startingSite && (!is_multisite() || !ms_is_switched()),
         'Repeated cleanup must restore site context.'

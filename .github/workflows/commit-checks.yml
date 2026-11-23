@@ -124,11 +124,13 @@ jobs:
             wp --path="$RUNNER_TEMP/site" eval-file "$GITHUB_WORKSPACE/$fixture"
             echo '::endgroup::'
           done
-      - name: Check multisite uninstall safety
+      - name: Check multisite migration and uninstall safety
         env:
           MTFLPP_TEST_UNINSTALL: '1'
         run: |
           wp core multisite-convert --path="$RUNNER_TEMP/site" --base=/
+          wp plugin activate meet-the-frontend-live-preview-panel --network --path="$RUNNER_TEMP/site"
+          wp --path="$RUNNER_TEMP/site" eval-file "$GITHUB_WORKSPACE/tests/identifier-rename.php"
           wp --path="$RUNNER_TEMP/site" eval-file "$GITHUB_WORKSPACE/tests/uninstall.php"
 
   plugin-check:

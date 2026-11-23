@@ -6,11 +6,18 @@ namespace MeetTheFrontendLivePreviewPanel;
 
 defined('WP_UNINSTALL_PLUGIN') || exit;
 
+require_once __DIR__ . '/classes/Migrations.php';
+
 // The deactivated plugin has not registered this status; WP_Query ignores unregistered statuses.
 register_post_status('mtflpp-preview', ['internal' => true]);
 
 $mtflppCleanupSite = static function (): void {
     global $wpdb;
+
+    $scopes = array_fill_keys(
+        array_merge(['meet-the-frontend-live-preview-panel'], Migrations::uninstallForSite()),
+        true
+    );
 
     $offset = 0;
     do {
@@ -50,11 +57,11 @@ $mtflppCleanupSite = static function (): void {
         ]);
         foreach ($userIds as $userId) {
             $preferences = get_user_meta($userId, $metaKey, true);
-            if (!is_array($preferences) || !array_key_exists('meet-the-frontend-live-preview-panel', $preferences)) {
+            if (!is_array($preferences) || !array_intersect_key($preferences, $scopes)) {
                 continue;
             }
             $previous = $preferences;
-            unset($preferences['meet-the-frontend-live-preview-panel']);
+            $preferences = array_diff_key($preferences, $scopes);
             // Prefer the cleaned server copy over WordPress's older browser-local preference backup.
             $preferences['_modified'] = current_datetime()->format('Y-m-d\TH:i:s.vP');
             update_user_meta($userId, $metaKey, wp_slash($preferences), $previous);
