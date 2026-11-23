@@ -3,7 +3,7 @@ Contributors: timohubois
 Tags: preview, editor
 Requires at least: 6.9
 Tested up to: 7.1
-Stable tag: 1.2.0
+Stable tag: 1.2.1
 Requires PHP: 8.3
 License: GPLv3 or later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
@@ -112,6 +112,10 @@ Report issues or contribute on [GitHub](https://github.com/timohubois/meet-the-f
 8. Keep the preview in a separate Picture-in-Picture window where supported.
 
 == Changelog ==
+
+= 1.2.1 =
+* Scroll smoothly to changes and position shorter changes higher in the preview so more of the content below stays visible. Respect reduced-motion preferences.
+* Fix duplicate initialization of custom fields when preparing a post preview.
 
 = 1.2.0 =
 * Align plugin identifiers with the Meet the Frontend name and remove obsolete temporary preview snapshots after upgrading.
