@@ -3,7 +3,7 @@ Contributors: timohubois
 Tags: preview, editor
 Requires at least: 6.9
 Tested up to: 7.1
-Stable tag: 1.1.1
+Stable tag: 1.2.0
 Requires PHP: 8.3
 License: GPLv3 or later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
@@ -112,6 +112,11 @@ Report issues or contribute on [GitHub](https://github.com/timohubois/meet-the-f
 8. Keep the preview in a separate Picture-in-Picture window where supported.
 
 == Changelog ==
+
+= 1.2.0 =
+* Align plugin identifiers with the Meet the Frontend name and remove obsolete temporary preview snapshots after upgrading.
+* Panel preferences reset to defaults once. Reload any editor tabs left open during the update. Saved posts, revision history, and recovery autosaves are unchanged.
+* Breaking change for custom integrations: use the `mtflpp_` PHP hooks and `mtflpp.` JavaScript hooks. The old hooks are no longer called. See the [integration guide](https://github.com/timohubois/meet-the-frontend-live-preview-panel/blob/1.2.0/docs/integrations.md).
 
 = 1.1.1 =
 * Allow live post previews when WordPress revision history is disabled.
