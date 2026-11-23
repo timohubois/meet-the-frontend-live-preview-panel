@@ -29,6 +29,7 @@ foreach (
         'aflpp_live_preview_form_values', 'aflpp_live_preview_custom_fields_initialized',
         'aflpp_live_preview_preparation_error', 'aflpp_frontend_live_preview_source_selected',
         'aflpp_frontend_saved_preview_source_selected', 'aflpp_preview_comparison_excluded_selectors',
+        'aflpp_term_preview_comparison_excluded_selectors', 'aflpp_term_preview_pre_sanitize_description',
     ]) as $hook
 ) {
     $hooks[$hook] = isset($GLOBALS['wp_filter'][$hook]) ? clone $GLOBALS['wp_filter'][$hook] : null;
@@ -238,6 +239,41 @@ try {
         );
     }
     $check($postsSeen === [456, 457, 458], 'Context remains available without imposing post-specific policy.');
+
+    $termContexts = [];
+    add_filter('aflpp_term_preview_comparison_excluded_selectors', static function (
+        array $selectors,
+        array $received
+    ) use (
+        $check,
+        $comparisonDefaults,
+        &$termContexts
+    ): array {
+        $check($selectors === $comparisonDefaults, 'Term comparison starts with the same complete default policy.');
+        $termContexts[] = $received;
+        $selectors[] = '.vendor-term-runtime';
+        return $selectors;
+    }, 10, 2);
+    wp_deregister_script('a-floating-live-preview-panel');
+    $panel->enqueue('term-editor', ['termId' => 789, 'taxonomy' => 'category']);
+    $inline = implode("\n", wp_scripts()->get_data('a-floating-live-preview-panel', 'before'));
+    $termConfig = json_decode(substr($inline, strpos($inline, ' = ') + 3, -1), true, 512, JSON_THROW_ON_ERROR);
+    $check(
+        $termContexts === [['term' => ['id' => 789, 'taxonomy' => 'category'], 'source' => null]],
+        'The opt-in term comparison policy receives only term identity.'
+    );
+    $check(
+        $termConfig['comparisonExcludedSelectors'] === array_merge($comparisonDefaults, ['.vendor-term-runtime']),
+        'Only the term policy contributes to term previews.'
+    );
+    $check($postsSeen === [456, 457, 458], 'Term previews must not invoke callbacks that expect post identity.');
+    $check(
+        $readConfig('classic-editor')['comparisonExcludedSelectors'] === array_merge(
+            $comparisonDefaults,
+            ['.vendor-runtime']
+        ) && count($termContexts) === 1,
+        'Post previews must not invoke the term comparison policy.'
+    );
     WP_CLI::success(
         'External configuration/assets, comparison policy, contributors, escaping and revision isolation passed.'
     );

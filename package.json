@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "wp-scripts build src/classic-editor.js src/block-editor.js src/revision-browser.js src/preview-navigation.js",
-    "start": "wp-scripts start src/classic-editor.js src/block-editor.js src/revision-browser.js src/preview-navigation.js",
+    "build": "wp-scripts build src/classic-editor.js src/block-editor.js src/term-editor.js src/revision-browser.js src/preview-navigation.js",
+    "start": "wp-scripts start src/classic-editor.js src/block-editor.js src/term-editor.js src/revision-browser.js src/preview-navigation.js",
     "test": "node --test tests/*.mjs",
     "lint": "npm run lint:js && npm run lint:css",
     "lint:js": "wp-scripts lint-js src --max-warnings=0",

@@ -8,11 +8,11 @@ Requires PHP: 8.3
 License: GPLv3 or later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
-Preview unsaved changes on your actual frontend in a floating panel while editing posts, pages and supported custom post types.
+Preview unsaved changes on your frontend in a floating panel for posts, pages, supported custom post types and taxonomy terms.
 
 == Description ==
 
-Meet the Frontend – Live Preview Panel shows unsaved changes in a movable, resizable frontend preview alongside WordPress's post Block Editor or classic editor. Your theme and plugins render the output through WordPress's normal preview routing. You can also preview saved revisions without restoring them.
+Meet the Frontend – Live Preview Panel shows unsaved changes in a movable, resizable frontend preview alongside WordPress's post Block Editor or classic editor. The panel also previews category, tag and public custom taxonomy archives from the term editor. Your theme and plugins render the output. You can also preview saved post revisions without restoring them.
 
 **Features**
 
@@ -21,19 +21,21 @@ Meet the Frontend – Live Preview Panel shows unsaved changes in a movable, res
 * Follow detected content changes automatically, or keep your own scroll position.
 * Remember panel preferences across posts and editors. Use fullscreen or **Keep on top** (Picture-in-Picture) where supported.
 
-Save new posts as drafts first. Live updates require revisions to be enabled. Previewing does not save or publish your edits; use WordPress's normal save controls.
+Save new posts as drafts first. Live post previews require revisions to be enabled. Previewing does not save or publish your edits; use WordPress's normal save controls.
 
 == Installation ==
 
 1. Install and activate **Meet the Frontend – Live Preview Panel** through **Plugins > Add New**, or upload an installable plugin ZIP using **Upload Plugin**.
-2. Open a post, page or supported custom post type in the Block Editor or classic editor. Save new posts as drafts first.
+2. Open a post, page or supported custom post type in the Block Editor or classic editor. Save new posts as drafts first. For a category, tag or public custom taxonomy term, open its **Edit** screen.
 3. Open **Live preview**, edit a supported field and the preview refreshes after a short pause.
 
 == Frequently Asked Questions ==
 
 = Which changes can I preview? =
 
-Both editors preview the title, content, excerpt and supported ACF fields. The Block Editor also previews author, publication date, categories, tags and featured image. Previewing a different date does not schedule or publish the post.
+Both post editors preview the title, content, excerpt and supported ACF fields. The Block Editor also previews author, publication date, categories, tags and featured image. Previewing a different date does not schedule or publish the post.
+
+Term previews show unsaved changes to the name and description on the term archive. Slug, parent, post assignments and custom term fields (including ACF fields) remain saved.
 
 The panel does not support the Site Editor, template selections, other custom fields or unsaved shared content such as synced patterns. Related-post lists and archive queries still use saved content.
 
@@ -41,7 +43,11 @@ The panel does not support the Site Editor, template selections, other custom fi
 
 No. The plugin works with WordPress on its own.
 
-ACF support includes live updates to supported fields and paginated repeaters. Timber support lets standard post and term reads use preview values; custom theme queries may still show saved values. In the Block Editor, Yoast SEO support previews unsaved primary-term selections and their effect on breadcrumbs where your theme displays them, not SEO titles, meta descriptions or analysis scores.
+ACF live previews cover supported post fields and paginated repeaters. Term previews use saved ACF field values.
+
+The Timber integration supports post previews, including changes to taxonomy assignments. On term archives, it also previews the current term’s name and description in Timber’s standard term objects. Custom term classes and raw WordPress lookups can still show saved values.
+
+Yoast SEO support previews changes to post breadcrumbs when you edit primary-term selections in the Block Editor, and changes to the default archive breadcrumb when you edit a term name. It does not preview SEO titles, meta descriptions or analysis scores.
 
 Flynt is not required and has no separate integration.
 
@@ -69,13 +75,13 @@ Panel preferences are remembered across posts and editors. You can turn remember
 
 Fullscreen and **Keep on top** appear only when supported. Keep on top uses Document Picture-in-Picture; your browser and desktop window manager control its availability and behavior. Neither mode reopens automatically or is required for the in-editor panel.
 
-= What happens if I edit the same post in multiple tabs? =
+= What happens if I edit the same post or term in multiple tabs? =
 
 Choose **Use preview here** to move live preview to that tab. Each tab keeps its own edits; changes are not copied or merged. This works within the same browser, not across browsers or devices.
 
 = Why is the preview unavailable, blank or not updating? =
 
-Save the post first and check that you can edit it, its post type has a frontend preview, and revisions are enabled.
+For posts, save the post first and check that you can edit it, its post type has a frontend preview, and revisions are enabled. For terms, open the full **Edit** screen (not Quick Edit) and check that the term has a public archive.
 
 Live updates need HTTPS (or a trusted local development address), a browser with ES module and Web Locks support, and access to WordPress's REST API while signed in. The editor and frontend must use the same protocol, domain and port.
 
@@ -87,7 +93,7 @@ No. Theme and plugin scripts run normally and can access the editor because both
 
 = What happens when I deactivate or delete the plugin? =
 
-Deactivation keeps preview data and preferences. Deleting the plugin through WordPress removes its temporary preview revisions and server-stored preferences, including across Multisite. Your posts, normal revisions and recovery autosaves are preserved. Browser-local preference backups may remain.
+Deactivation keeps preview data and preferences. Deleting the plugin through WordPress removes its temporary preview revisions and server-stored preferences, including across Multisite. Your saved content, normal revisions and recovery autosaves are preserved. Temporary term previews expire automatically. Browser-local preference backups may remain.
 
 == Support and contributions ==
 

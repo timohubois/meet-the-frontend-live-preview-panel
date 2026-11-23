@@ -7,8 +7,9 @@ use WP_Block;
 use WP_Block_Type;
 use WP_Block_Type_Registry;
 use WP_Post;
+use WP_Term;
 
-/** Supply selected fields to native ID-based renderers without changing real block/post identity. */
+/** Supply selected fields to native ID-based renderers without changing real block or content identity. */
 final class CoreBlocks
 {
     private const AUTHOR_BLOCKS = [
@@ -18,6 +19,14 @@ final class CoreBlocks
         'core/avatar' => 'render_block_core_avatar',
     ];
 
+    private const TERM_BLOCKS = [
+        'core/term-name' => 'render_block_core_term_name',
+        'core/term-description' => 'render_block_core_term_description',
+    ];
+
+    private array $termBlocks = [];
+    private ?WP_Term $term = null;
+    private ?WP_Term $savedTerm = null;
     private ?WP_Block_Type $excerptBlock = null;
     private ?WP_Block_Type $dateBlock = null;
     private array $authorBlocks = [];
@@ -35,6 +44,97 @@ final class CoreBlocks
             $context['source']['id'],
             true
         ));
+        add_action('aflpp_frontend_term_preview_source_selected', fn (array $context) => $this->bindTermPreview(
+            $context['term'],
+            $context['saved']
+        ));
+    }
+
+    private function bindTermPreview(WP_Term $term, WP_Term $saved): void
+    {
+        $this->unbindTermPreview();
+        $this->term = clone $term;
+        $this->savedTerm = clone $saved;
+        $registry = WP_Block_Type_Registry::get_instance();
+        foreach (self::TERM_BLOCKS as $name => $callback) {
+            $type = $registry->get_registered($name);
+            if ($type && $type->render_callback === $callback && function_exists($callback)) {
+                $this->termBlocks[$name] = $type;
+                $type->render_callback = [$this, 'renderTerm'];
+            }
+        }
+        if ($this->termBlocks) {
+            add_action('shutdown', [$this, 'unbindTermPreview'], PHP_INT_MAX);
+        }
+    }
+
+    public function renderTerm(array $attributes, string $content, WP_Block $block): string
+    {
+        $render = self::TERM_BLOCKS[$block->name];
+        $linked = $block->name === 'core/term-name' && !empty($attributes['isLink']);
+        $term = $this->term;
+        if (!$term) {
+            return $render($attributes, $content, $block);
+        }
+        if (isset($block->context['termId'], $block->context['taxonomy'])) {
+            if (
+                $block->context['taxonomy'] !== $term->taxonomy
+                || !in_array($block->context['termId'], [$term->term_id, (string) $term->term_id], true)
+            ) {
+                return $render($attributes, $content, $block);
+            }
+        } elseif (!$linked) {
+            return $render($attributes, $content, $block);
+        } else {
+            $queried = get_queried_object();
+            if (!$queried instanceof WP_Term || $queried->term_taxonomy_id !== $term->term_taxonomy_id) {
+                return $render($attributes, $content, $block);
+            }
+            $term = $queried;
+        }
+
+        // Supply a private object to core's get_term() lookup without changing the real context or queried object.
+        $block = clone $block;
+        $display = clone $term;
+        $block->context['termId'] = $display;
+        $block->context['taxonomy'] = $display->taxonomy;
+        if (!$linked) {
+            return $render($attributes, $content, $block);
+        }
+
+        // The native renderer reads the label before asking for the link. Permit the permalink filters
+        // to see saved fields on just that private object, without generating a second link.
+        $saved = $this->savedTerm;
+        $restore = static function ($structure, WP_Term $candidate) use ($display, $saved) {
+            if ($candidate === $display) {
+                $candidate->name = $saved->name;
+                $candidate->description = $saved->description;
+                if (isset($candidate->cat_name)) {
+                    $candidate->cat_name = $saved->name;
+                    $candidate->category_description = $saved->description;
+                }
+            }
+            return $structure;
+        };
+        add_filter('pre_term_link', $restore, PHP_INT_MIN, 2);
+        try {
+            return $render($attributes, $content, $block);
+        } finally {
+            remove_filter('pre_term_link', $restore, PHP_INT_MIN);
+        }
+    }
+
+    public function unbindTermPreview(): void
+    {
+        foreach ($this->termBlocks as $name => $type) {
+            if ($type->render_callback === [$this, 'renderTerm']) {
+                $type->render_callback = self::TERM_BLOCKS[$name];
+            }
+        }
+        remove_action('shutdown', [$this, 'unbindTermPreview'], PHP_INT_MAX);
+        $this->termBlocks = [];
+        $this->term = null;
+        $this->savedTerm = null;
     }
 
     /** Source selection and authorization belong to FrontendPreview, not block rendering. */

@@ -4,9 +4,10 @@ namespace AFloatingLivePreviewPanel\Compatibility;
 
 use AFloatingLivePreviewPanel\LivePreview;
 use WP_Post;
+use WP_Term;
 use WP_Term_Query;
 
-/** Make Timber's ID-based post imports respect the already-authorized preview source. */
+/** Adapt Timber's native post and term reads to the already-authorized preview source. */
 final class Timber
 {
     private int $previewPostId = 0;
@@ -25,6 +26,30 @@ final class Timber
             $context['source']['id'],
             true
         ));
+        add_action('aflpp_frontend_term_preview_source_selected', fn (array $context) => $this->bindTermPreview(
+            $context['term'],
+            $context['saved']
+        ));
+    }
+
+    private function bindTermPreview(WP_Term $term, WP_Term $saved): void
+    {
+        if (!class_exists(\Timber\Term::class)) {
+            return;
+        }
+        require_once __DIR__ . '/TimberTerm.php';
+        TimberTerm::setPreview($term, $saved);
+        add_filter('timber/term/class', [TimberTerm::class, 'previewClass'], PHP_INT_MAX, 2);
+        add_action('shutdown', [$this, 'unbindTermPreview'], PHP_INT_MAX);
+    }
+
+    public function unbindTermPreview(): void
+    {
+        if (class_exists(TimberTerm::class, false)) {
+            TimberTerm::setPreview(null);
+        }
+        remove_filter('timber/term/class', [TimberTerm::class, 'previewClass'], PHP_INT_MAX);
+        remove_action('shutdown', [$this, 'unbindTermPreview'], PHP_INT_MAX);
     }
 
     /** Core owns authorization and source selection; this adapter only binds Timber reads. */
@@ -80,15 +105,17 @@ final class Timber
         if (!$this->terms || (int) $post->ID !== $this->previewPostId) {
             return $native();
         }
-        $ownedQuery = $emptyQuery = null;
-        $adapt = function (WP_Term_Query $query) use (&$ownedQuery, &$emptyQuery): void {
+        // Timber can issue one direct query per taxonomy when grouping. Queries triggered by
+        // WordPress hooks inside those reads (including our own fallback reads) stay native.
+        $queryDepth = count($GLOBALS['wp_current_filter']) + 1;
+        $emptyQueries = new \WeakMap();
+        $adapt = function (WP_Term_Query $query) use ($queryDepth, $emptyQueries): void {
             if (
-                $ownedQuery !== null
+                count($GLOBALS['wp_current_filter']) !== $queryDepth
                 || wp_parse_id_list($query->query_vars['object_ids'] ?? []) !== [$this->previewPostId]
             ) {
                 return;
             }
-            $ownedQuery = $query;
             $args = &$query->query_vars;
             // These modes depend on real relationship rows, not just a selection of terms.
             if (
@@ -114,14 +141,14 @@ final class Timber
             $args['object_ids'] = [];
             $args['include'] = array_values(array_unique($ids));
             if (!$ids) {
-                $emptyQuery = $query;
+                $emptyQueries[$query] = true;
             }
             // Native object_ids queries include assigned terms even when their count is zero.
             $args['hide_empty'] = false;
         };
         // Empty include lists (and even [0] on older core) otherwise query every term.
-        $empty = static function ($terms, WP_Term_Query $query) use (&$emptyQuery) {
-            return $query === $emptyQuery ? ($query->query_vars['fields'] === 'count' ? '0' : []) : $terms;
+        $empty = static function ($terms, WP_Term_Query $query) use ($emptyQueries) {
+            return isset($emptyQueries[$query]) ? ($query->query_vars['fields'] === 'count' ? '0' : []) : $terms;
         };
         add_action('pre_get_terms', $adapt, PHP_INT_MIN);
         add_filter('terms_pre_query', $empty, PHP_INT_MIN, 2);

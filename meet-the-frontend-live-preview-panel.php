@@ -3,7 +3,7 @@
 /**
  * Plugin Name:       Meet the Frontend – Live Preview Panel
  * Plugin URI:        https://github.com/timohubois/meet-the-frontend-live-preview-panel/
- * Description:       See your changes in a floating preview while you edit posts and pages.
+ * Description:       See your changes in a floating preview while you edit posts, pages and taxonomy terms.
  * Version:           1.0.1
  * Requires at least: 6.9
  * Requires PHP:      8.3
@@ -23,10 +23,13 @@ require_once __DIR__ . '/classes/Compatibility/CoreBlocks.php';
 require_once __DIR__ . '/classes/Compatibility/Timber.php';
 require_once __DIR__ . '/classes/Compatibility/Yoast.php';
 require_once __DIR__ . '/classes/LivePreview.php';
+require_once __DIR__ . '/classes/PreviewDocument.php';
 require_once __DIR__ . '/classes/FrontendPreview.php';
 require_once __DIR__ . '/classes/Panel.php';
 require_once __DIR__ . '/classes/ClassicEditor.php';
 require_once __DIR__ . '/classes/BlockEditor.php';
+require_once __DIR__ . '/classes/TermPreview.php';
+require_once __DIR__ . '/classes/TermEditor.php';
 require_once __DIR__ . '/classes/RevisionBrowser.php';
 require_once __DIR__ . '/classes/Plugin.php';
 

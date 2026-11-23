@@ -24,47 +24,65 @@ final class Panel
             'classic-editor' => 'classic_editor',
             'block-editor' => 'block_editor',
             'revision-browser' => 'revision_browser',
+            'term-editor' => null,
         };
-        $context = ['post' => ['id' => (int) $config['postId']], 'source' => null];
-        /**
-         * Extend this screen's configuration; preserve core identity and integrity values.
-         *
-         * The hooks are aflpp_classic_editor_preview_config, aflpp_block_editor_preview_config
-         * and aflpp_revision_browser_preview_config. Only the selected screen's filter runs.
-         *
-         * @param array $config  Screen configuration, including postId and strings.
-         * @param array $context Core-owned post identity; no source has been selected.
-         */
-        $config = apply_filters("aflpp_{$screen}_preview_config", $config, $context);
-        /**
-         * Filter the complete comparison exclusion policy for any preview screen.
-         *
-         * These selectors exclude elements and their descendants from snapshots, not rendered output.
-         * Return an empty array to remove all exclusions. Attribute normalization remains separate.
-         *
-         * @param string[] $selectors Complete default policy, including Xdebug diagnostic tables.
-         * @param array    $context   Core-owned post identity; no source has been selected.
-         */
-        $selectors = apply_filters(
-            'aflpp_preview_comparison_excluded_selectors',
-            self::COMPARISON_EXCLUDED_SELECTORS,
-            $context
-        );
+        if ($screen === null) {
+            $context = [
+                'term' => ['id' => (int) $config['termId'], 'taxonomy' => $config['taxonomy']],
+                'source' => null,
+            ];
+            /**
+             * Filter comparison exclusions for term previews. Return an empty array for no exclusions.
+             *
+             * @param string[] $selectors Complete default policy, including Xdebug diagnostic tables.
+             * @param array    $context   Core-owned term identity; no source has been selected.
+             */
+            $selectors = apply_filters(
+                'aflpp_term_preview_comparison_excluded_selectors',
+                self::COMPARISON_EXCLUDED_SELECTORS,
+                $context
+            );
+        } else {
+            $context = ['post' => ['id' => (int) $config['postId']], 'source' => null];
+            /**
+             * Extend this screen's configuration; preserve core identity and integrity values.
+             *
+             * Only the selected screen's filter runs: aflpp_classic_editor_preview_config,
+             * aflpp_block_editor_preview_config or aflpp_revision_browser_preview_config.
+             *
+             * @param array $config  Screen configuration, including postId and strings.
+             * @param array $context Core-owned post identity; no source has been selected.
+             */
+            $config = apply_filters("aflpp_{$screen}_preview_config", $config, $context);
+            /**
+             * Filter comparison exclusions for post previews. Return an empty array for no exclusions.
+             *
+             * @param string[] $selectors Complete default policy, including Xdebug diagnostic tables.
+             * @param array    $context   Core-owned post identity; no source has been selected.
+             */
+            $selectors = apply_filters(
+                'aflpp_preview_comparison_excluded_selectors',
+                self::COMPARISON_EXCLUDED_SELECTORS,
+                $context
+            );
+        }
         $config['comparisonExcludedSelectors'] = is_array($selectors) && !array_filter(
             $selectors,
             static fn ($selector): bool => !is_string($selector) || trim($selector) === ''
         ) ? array_values($selectors) : self::COMPARISON_EXCLUDED_SELECTORS;
-        /**
-         * Register integration scripts and add their handles so setup runs before the panel entry.
-         *
-         * @param string[] $dependencies Additional script dependencies; preserve existing handles.
-         * @param array    $context      Post identity, null source and filtered screen config.
-         */
-        $dependencies = apply_filters(
-            "aflpp_{$screen}_preview_script_dependencies",
-            $dependencies,
-            $context + ['config' => $config]
-        );
+        if ($screen !== null) {
+            /**
+             * Register integration scripts and add their handles so setup runs before the panel entry.
+             *
+             * @param string[] $dependencies Additional script dependencies; preserve existing handles.
+             * @param array    $context      Post identity, null source and filtered screen config.
+             */
+            $dependencies = apply_filters(
+                "aflpp_{$screen}_preview_script_dependencies",
+                $dependencies,
+                $context + ['config' => $config]
+            );
+        }
         $asset = require dirname($this->file) . '/build/' . $entry . '.asset.php';
         wp_enqueue_style(
             'a-floating-live-preview-panel',
@@ -108,68 +126,73 @@ final class Panel
             'base' => $preview->fingerprint($post->ID),
             'adminCookiePath' => ADMIN_COOKIE_PATH,
             'available' => $preview->isAvailable($post),
-            'strings' => [
-                'takeOver' => __('Use preview here', 'meet-the-frontend-live-preview-panel'),
-                'takingOver' => __('Switching…', 'meet-the-frontend-live-preview-panel'),
-                'switchingPreview' => __('Switching preview…', 'meet-the-frontend-live-preview-panel'),
-                'waiting' => __(
-                    'Waiting for the other tab to finish updating.',
-                    'meet-the-frontend-live-preview-panel'
-                ),
-                'handedOff' => __('Preview is paused here', 'meet-the-frontend-live-preview-panel'),
-                'handedOffHelp' => __(
-                    'The preview is updating in another tab. Starting it here pauses updates there.',
-                    'meet-the-frontend-live-preview-panel'
-                ),
-                'takeoverTimeout' => __('The other preview is still busy', 'meet-the-frontend-live-preview-panel'),
-                'takeoverTimeoutHelp' => __(
-                    'Try again, or close the preview in the other tab.',
-                    'meet-the-frontend-live-preview-panel'
-                ),
-                'tabEdits' => __('Each tab keeps its own edits.', 'meet-the-frontend-live-preview-panel'),
-                'bootFailed' => __(
-                    'Couldn’t start live preview. Use WordPress Preview, or copy any changes you want to keep and reload the editor.', // phpcs:ignore Generic.Files.LineLength.TooLong -- Keep the translatable message intact.
-                    'meet-the-frontend-live-preview-panel'
-                ),
-                'reviewBeforeReload' => __(
-                    'Copy any changes you want to keep. Then reload the editor before saving again.',
-                    'meet-the-frontend-live-preview-panel'
-                ),
-                'conflict' => __('Preview is running in another tab', 'meet-the-frontend-live-preview-panel'),
-                'conflictHelp' => __(
-                    'Starting the preview here pauses updates in the other tab.',
-                    'meet-the-frontend-live-preview-panel'
-                ),
-                'closeOther' => __('Close the other preview first', 'meet-the-frontend-live-preview-panel'),
-                'closeOtherHelp' => __(
-                    'Close the preview in the other tab, then start it here.',
-                    'meet-the-frontend-live-preview-panel'
-                ),
-                'manualSwitchHint' => __(
-                    'This browser can’t switch the preview between tabs for you.',
-                    'meet-the-frontend-live-preview-panel'
-                ),
-                'unavailableTitle' => __('Live preview isn’t available yet', 'meet-the-frontend-live-preview-panel'),
-                'unavailable' => __(
-                    'Save a draft first. If the preview still won’t open, ask your site admin to check that revisions are turned on.', // phpcs:ignore Generic.Files.LineLength.TooLong -- Keep the translatable message intact.
-                    'meet-the-frontend-live-preview-panel'
-                ),
-                'browserTitle' => __('Live preview can’t run here', 'meet-the-frontend-live-preview-panel'),
-                'browser' => __(
-                    'Try an up-to-date browser. If the preview still won’t open, ask your site admin to check that the editor and preview use the same secure website address.', // phpcs:ignore Generic.Files.LineLength.TooLong -- Keep the translatable message intact.
-                    'meet-the-frontend-live-preview-panel'
-                ),
-                'saving' => __('Saving in WordPress…', 'meet-the-frontend-live-preview-panel'),
-                'nativePreview' => __('Preparing WordPress Preview…', 'meet-the-frontend-live-preview-panel'),
-                'integrationFailed' => __(
-                    'A preview integration could not read your edits.',
-                    'meet-the-frontend-live-preview-panel'
-                ),
-                'nativePreviewFailed' => __(
-                    'We couldn’t check whether WordPress finished preparing its preview. Check the preview tab before continuing.', // phpcs:ignore Generic.Files.LineLength.TooLong -- Keep the translatable message intact.
-                    'meet-the-frontend-live-preview-panel'
-                ),
-            ],
+            'strings' => $this->liveStrings(),
+        ];
+    }
+
+    public function liveStrings(): array
+    {
+        return [
+            'takeOver' => __('Use preview here', 'meet-the-frontend-live-preview-panel'),
+            'takingOver' => __('Switching…', 'meet-the-frontend-live-preview-panel'),
+            'switchingPreview' => __('Switching preview…', 'meet-the-frontend-live-preview-panel'),
+            'waiting' => __(
+                'Waiting for the other tab to finish updating.',
+                'meet-the-frontend-live-preview-panel'
+            ),
+            'handedOff' => __('Preview is paused here', 'meet-the-frontend-live-preview-panel'),
+            'handedOffHelp' => __(
+                'The preview is updating in another tab. Starting it here pauses updates there.',
+                'meet-the-frontend-live-preview-panel'
+            ),
+            'takeoverTimeout' => __('The other preview is still busy', 'meet-the-frontend-live-preview-panel'),
+            'takeoverTimeoutHelp' => __(
+                'Try again, or close the preview in the other tab.',
+                'meet-the-frontend-live-preview-panel'
+            ),
+            'tabEdits' => __('Each tab keeps its own edits.', 'meet-the-frontend-live-preview-panel'),
+            'bootFailed' => __(
+                'Couldn’t start live preview. Use WordPress Preview, or copy any changes you want to keep and reload the editor.', // phpcs:ignore Generic.Files.LineLength.TooLong -- Keep the translatable message intact.
+                'meet-the-frontend-live-preview-panel'
+            ),
+            'reviewBeforeReload' => __(
+                'Copy any changes you want to keep. Then reload the editor before saving again.',
+                'meet-the-frontend-live-preview-panel'
+            ),
+            'conflict' => __('Preview is running in another tab', 'meet-the-frontend-live-preview-panel'),
+            'conflictHelp' => __(
+                'Starting the preview here pauses updates in the other tab.',
+                'meet-the-frontend-live-preview-panel'
+            ),
+            'closeOther' => __('Close the other preview first', 'meet-the-frontend-live-preview-panel'),
+            'closeOtherHelp' => __(
+                'Close the preview in the other tab, then start it here.',
+                'meet-the-frontend-live-preview-panel'
+            ),
+            'manualSwitchHint' => __(
+                'This browser can’t switch the preview between tabs for you.',
+                'meet-the-frontend-live-preview-panel'
+            ),
+            'unavailableTitle' => __('Live preview isn’t available yet', 'meet-the-frontend-live-preview-panel'),
+            'unavailable' => __(
+                'Save a draft first. If the preview still won’t open, ask your site admin to check that revisions are turned on.', // phpcs:ignore Generic.Files.LineLength.TooLong -- Keep the translatable message intact.
+                'meet-the-frontend-live-preview-panel'
+            ),
+            'browserTitle' => __('Live preview can’t run here', 'meet-the-frontend-live-preview-panel'),
+            'browser' => __(
+                'Try an up-to-date browser. If the preview still won’t open, ask your site admin to check that the editor and preview use the same secure website address.', // phpcs:ignore Generic.Files.LineLength.TooLong -- Keep the translatable message intact.
+                'meet-the-frontend-live-preview-panel'
+            ),
+            'saving' => __('Saving in WordPress…', 'meet-the-frontend-live-preview-panel'),
+            'nativePreview' => __('Preparing WordPress Preview…', 'meet-the-frontend-live-preview-panel'),
+            'integrationFailed' => __(
+                'A preview integration could not read your edits.',
+                'meet-the-frontend-live-preview-panel'
+            ),
+            'nativePreviewFailed' => __(
+                'We couldn’t check whether WordPress finished preparing its preview. Check the preview tab before continuing.', // phpcs:ignore Generic.Files.LineLength.TooLong -- Keep the translatable message intact.
+                'meet-the-frontend-live-preview-panel'
+            ),
         ];
     }
 

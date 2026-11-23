@@ -214,6 +214,9 @@ try {
         $post->category() === null && $post->terms('tag') === [],
         'Rebinding/clearing must update existing bridges.'
     );
+    $emptyGroups = $post->terms(['category', 'post_tag'], ['merge' => false]);
+    // Some Timber versions omit empty groups. Preserve native grouping without restoring saved relationships.
+    $check($emptyGroups === [] || $emptyGroups === ['category' => [], 'post_tag' => []], 'Both groups stay empty.');
     $check(
         wp_get_object_terms($postId, 'category', ['fields' => 'ids']) === $savedCategory,
         'The empty-result filter must not affect direct relationship reads.'

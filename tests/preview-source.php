@@ -53,13 +53,16 @@ $check = static function (bool $condition, string $message): void {
         throw new RuntimeException(esc_html($message));
     }
 };
-$makePreview = static function (bool $requested = true, bool $authorized = true): FrontendPreview {
+$file = dirname(__DIR__) . '/meet-the-frontend-live-preview-panel.php';
+$makeDocument = static fn (): PreviewDocument => new PreviewDocument($file, 'source-token');
+$makePreview = static function (bool $requested) use ($file): FrontendPreview {
     $preview = (new ReflectionClass(FrontendPreview::class))->newInstanceWithoutConstructor();
     $properties = [
+        'file' => $file,
         'previewPostId' => 123,
         'previewToken' => 'source-token',
         'sourceRequested' => $requested,
-        'source' => $authorized ? new WP_Post((object) ['ID' => 123]) : null,
+        'source' => new WP_Post((object) ['ID' => 123]),
     ];
     foreach ($properties as $name => $value) {
         (new ReflectionProperty(FrontendPreview::class, $name))->setValue($preview, $value);
@@ -92,7 +95,7 @@ foreach ($hooks as $hook) {
 }
 
 try {
-    $preview = $makePreview();
+    $preview = $makeDocument();
     $output = $preview->captureSource($html);
     $source = $readSource($output);
     $check(is_string($source), 'The actual HTML API buffer must expose a decodable source.');
@@ -130,22 +133,19 @@ try {
         $html
     );
     $check(
-        is_string($readSource($makePreview()->captureSource($longHtml))),
+        is_string($readSource($makeDocument()->captureSource($longHtml))),
         'Long pages must retain the source bookmark.'
     );
 
     $largeHtml = str_replace('<body>', '<body><!--' . str_repeat(' ', 2 * 1024 * 1024) . '-->', $html);
     $check(
-        is_string($readSource($makePreview()->captureSource($largeHtml))),
+        is_string($readSource($makeDocument()->captureSource($largeHtml))),
         'Capture must not silently switch modes at an arbitrary HTML size.'
     );
 
-    foreach ([$makePreview(false), $makePreview(true, false)] as $inactive) {
-        $check($inactive->captureSource($html) === $html, 'Do not rewrite unrequested/unauthorized output.');
-    }
     foreach ([301, 403, 500] as $status) {
         PreviewSourceFixture::$status = $status;
-        $check($makePreview()->captureSource($html) === $html, 'Do not rewrite redirects or error responses.');
+        $check($makeDocument()->captureSource($html) === $html, 'Do not rewrite redirects or error responses.');
     }
     PreviewSourceFixture::$status = 200;
     $headerCases = [
@@ -155,7 +155,7 @@ try {
     ];
     foreach ($headerCases as $headers) {
         PreviewSourceFixture::$headers = $headers;
-        $check($makePreview()->captureSource($html) === $html, 'Preserve non-HTML and explicit response contracts.');
+        $check($makeDocument()->captureSource($html) === $html, 'Preserve non-HTML and explicit response contracts.');
     }
     PreviewSourceFixture::$headers = ['Content-Type: text/html; charset=UTF-8'];
     $unavailableCases = [
@@ -167,14 +167,14 @@ try {
     ];
     foreach ($unavailableCases as $unavailable) {
         $check(
-            $makePreview()->captureSource($unavailable) === $unavailable,
+            $makeDocument()->captureSource($unavailable) === $unavailable,
             'Unverified, partial and invalid UTF-8 HTML must use the unmodified fallback.'
         );
     }
 
     // Exercise the required core buffer and respect its streaming opt-out.
     $check(\function_exists('wp_start_template_enhancement_output_buffer'), 'WordPress 6.9 or later is required.');
-    $preview = $makePreview();
+    $preview = $makeDocument();
     add_filter('wp_template_enhancement_output_buffer', [$preview, 'captureSource'], PHP_INT_MAX);
     ob_start();
     $check(wp_start_template_enhancement_output_buffer(), 'The real native buffer must start.');
@@ -207,8 +207,8 @@ try {
             $preview->checkPreviewTarget();
             $expected = $requested && $target;
             $check(
-                (has_filter('wp_template_enhancement_output_buffer', [$preview, 'captureSource']) !== false)
-                    === $expected,
+                (($GLOBALS['wp_filter']['wp_template_enhancement_output_buffer'] ?? null)
+                    != $originalHooks['wp_template_enhancement_output_buffer']) === $expected,
                 'Use native buffering only for opted-in target previews.'
             );
             $check(ob_get_level() === $level, 'Register the core filter without starting a custom buffer.');
@@ -224,7 +224,12 @@ try {
                     'The native filter must accept its real one-argument callback registration.'
                 );
             }
-            remove_filter('wp_template_enhancement_output_buffer', [$preview, 'captureSource'], PHP_INT_MAX);
+            if ($originalHooks['wp_template_enhancement_output_buffer'] === null) {
+                unset($GLOBALS['wp_filter']['wp_template_enhancement_output_buffer']);
+            } else {
+                $GLOBALS['wp_filter']['wp_template_enhancement_output_buffer'] =
+                    clone $originalHooks['wp_template_enhancement_output_buffer'];
+            }
         }
     }
 } finally {

@@ -21,6 +21,7 @@ final class Plugin
         $panel = new Panel($file);
         new ClassicEditor($livePreview, $panel);
         new BlockEditor($livePreview, $panel);
+        new TermEditor(new TermPreview($file), $panel);
         new RevisionBrowser($frontendPreview, $panel);
     }
 }

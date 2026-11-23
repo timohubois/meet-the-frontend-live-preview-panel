@@ -7,7 +7,7 @@ use WP_Error;
 use WP_Post;
 use WP_Term;
 
-/** Preview native primary-term controls and breadcrumb trails without persisting unsaved SEO data. */
+/** Match Yoast's native primary-term, breadcrumb and term description behavior in previews. */
 final class Yoast
 {
     private const META_PREFIX = '_yoast_wpseo_primary_';
@@ -19,10 +19,14 @@ final class Yoast
     private bool $cold = false;
     private array $keys = [];
     private array $trailIds = [];
+    private ?WP_Term $term = null;
+    private string $savedTermName = '';
+    private int|string|null $termBreadcrumbKey = null;
 
     public function __construct()
     {
         add_filter('aflpp_block_editor_preview_config', [$this, 'configureEditor'], 10, 2);
+        add_filter('aflpp_term_preview_pre_sanitize_description', [$this, 'sanitizeTermDescription'], 10, 3);
         add_filter('aflpp_live_preview_form_values', [$this, 'preparePayload'], 10, 2);
         add_action('aflpp_live_preview_custom_fields_initialized', fn (array $context) =>
             $this->savePrimaryTerms($context['source']['id'], $context['post']['id']));
@@ -35,6 +39,9 @@ final class Yoast
             $context['post']['id'],
             $context['source']['id'],
             true
+        ));
+        add_action('aflpp_frontend_term_preview_source_selected', fn (array $context) => $this->bindTermPreview(
+            $context['term']
         ));
     }
 
@@ -50,6 +57,94 @@ final class Yoast
     {
         return function_exists('YoastSEO') && class_exists('WPSEO_Primary_Term')
             && class_exists('WPSEO_Options') && class_exists('WPSEO_Taxonomy_Meta');
+    }
+
+    public function sanitizeTermDescription(?string $sanitized, string $description, WP_Term $term): ?string
+    {
+        if (
+            $sanitized !== null || !function_exists('YoastSEO')
+            || !method_exists('WPSEO_Taxonomy', 'custom_category_descriptions_allow_html')
+        ) {
+            return $sanitized;
+        }
+
+        // Yoast swaps these save filters on the taxonomy admin screen, not in REST.
+        // Copy the hook so other callbacks still run and their original order is restored.
+        global $wp_filter;
+        $hook = 'pre_term_description';
+        $original = $wp_filter[$hook] ?? null;
+        if ($original !== null) {
+            $wp_filter[$hook] = clone $original;
+        }
+        remove_filter($hook, 'wp_filter_kses');
+        add_filter($hook, 'wp_filter_post_kses');
+        try {
+            return sanitize_term_field('description', $description, $term->term_id, $term->taxonomy, 'db');
+        } finally {
+            if ($original === null) {
+                unset($wp_filter[$hook]);
+            } else {
+                $wp_filter[$hook] = $original;
+            }
+        }
+    }
+
+    private function bindTermPreview(WP_Term $term): void
+    {
+        $this->unbindTermPreview();
+        if (!$this->isAvailable() || \WPSEO_Taxonomy_Meta::get_term_meta($term, $term->taxonomy, 'bctitle')) {
+            return;
+        }
+        $saved = get_term($term->term_id, $term->taxonomy);
+        if (!$saved instanceof WP_Term || $saved->name === $term->name) {
+            return;
+        }
+        $this->term = clone $term;
+        $this->savedTermName = $saved->name;
+        add_filter('wpseo_breadcrumb_indexables', [$this, 'locateTermBreadcrumb'], PHP_INT_MAX, 2);
+        add_filter('wpseo_breadcrumb_links', [$this, 'readTermBreadcrumb'], PHP_INT_MIN);
+        add_action('shutdown', [$this, 'unbindTermPreview'], PHP_INT_MAX);
+    }
+
+    public function locateTermBreadcrumb($indexables, object $context)
+    {
+        $this->termBreadcrumbKey = null;
+        $current = $context->indexable ?? null;
+        if (
+            $this->term && is_array($indexables) && $current instanceof \Yoast\WP\SEO\Models\Indexable
+            && $current->object_type === 'term' && (int) $current->object_id === $this->term->term_id
+            && $current->object_sub_type === $this->term->taxonomy
+        ) {
+            $key = array_search($current, $indexables, true);
+            $this->termBreadcrumbKey = $key === false ? null : $key;
+        }
+        return $indexables;
+    }
+
+    public function readTermBreadcrumb($crumbs)
+    {
+        $key = $this->termBreadcrumbKey;
+        $this->termBreadcrumbKey = null;
+        // Indexables may share mutable ORM state even when cloned. Only edit the rendered link data.
+        if (
+            $this->term && $key !== null && is_array($crumbs) && isset($crumbs[$key]['term_id'])
+            && (int) $crumbs[$key]['term_id'] === $this->term->term_id
+            && ($crumbs[$key]['taxonomy'] ?? null) === $this->term->taxonomy
+            && ($crumbs[$key]['text'] ?? null) === $this->savedTermName
+        ) {
+            $crumbs[$key]['text'] = esc_html($this->term->name);
+        }
+        return $crumbs;
+    }
+
+    public function unbindTermPreview(): void
+    {
+        remove_filter('wpseo_breadcrumb_indexables', [$this, 'locateTermBreadcrumb'], PHP_INT_MAX);
+        remove_filter('wpseo_breadcrumb_links', [$this, 'readTermBreadcrumb'], PHP_INT_MIN);
+        remove_action('shutdown', [$this, 'unbindTermPreview'], PHP_INT_MAX);
+        $this->term = null;
+        $this->savedTermName = '';
+        $this->termBreadcrumbKey = null;
     }
 
     /** Only expose native primary controls whose taxonomy can also be captured from Gutenberg. */

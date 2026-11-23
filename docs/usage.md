@@ -10,7 +10,7 @@ boundary support arrow keys, with Shift for larger steps.
 Closing the window stops live updates without discarding editor fields and focuses
 the launcher. Keyboard opening moves focus to **Preview options**, without trapping
 focus; pointer opening does not automatically focus a panel action.
-WordPress's native **Preview** button keeps the panel and its last frame visible,
+In the post editors, WordPress's native **Preview** button keeps the panel and its last frame visible,
 waits for outstanding live writes, and normally resumes live updates afterward.
 It retains WordPress's normal behavior, including saving changes to your own drafts.
 **Save**, **Update** and **Publish** also keep an open panel and its last frame visible
@@ -31,6 +31,21 @@ the panel never guesses a new baseline or prevents WordPress from saving.
 - **Remember open or closed** is on by default. Turning it off starts the preview open on each new screen load without changing its layout. Visibility, viewport, zoom mode, custom percentage, tablet and phone orientations, **Scroll to my changes** and layout preferences are independent and stored per user across posts, both editors and the revision browser. Preferences remain after deactivation; uninstalling through WordPress removes the plugin's server-stored preferences.
 - **Remember size and position** is on by default. It restores compact dimensions, custom placement or responsive docking, the shared panel/launcher anchor and expanded/compact mode. The initial layout is 480 × 393 px, compact, bottom-right. Turning remembering off leaves the current layout untouched and discards its saved geometry; subsequent screen loads start with the default compact size at the preferred **Move preview to** preset. Moving, resizing or expanding then lasts only for the current page; closing and reopening without reloading keeps that layout. Re-enabling saves the current layout rather than reviving an older one. Restored layouts fit inside the current window without overwriting preferred bounds; fullscreen and PiP are never reopened automatically.
 - **Scroll to my changes** is on by default. It combines submitted editor-value changes, HTML captured before frontend scripts and the loaded DOM to identify changed content, structure and attributes without theme-specific mapping. Matching old → new values strengthen candidates, including script-rendered content; missing literal matches do not reject conditional or transformed output. Content/structure normally takes priority over presentation unless stronger input evidence supports an attribute edit. Non-content regions, including Xdebug diagnostic tables, are excluded by default without hiding their output. The PHP [comparison exclusion filter](integrations.md#comparison-exclusions) can extend or replace that complete policy. After identifying a change, following opens enclosing native `<details>` bodies and reveals `hidden="until-found"` containers through their `beforematch` notification contract. Visible disclosure headings and wrappers do not open their own bodies. Native exclusive groups may close another item, and frontend handlers still run. After one bounded rendering opportunity and an immediate owner-state flush, the plugin scrolls once; this is not a readiness guarantee for late initialization, transitions or lazy content. Ordinary hidden or unrelated display-none containers block native activation along that path; following instead uses the nearest visible ancestor, which may be a broader container. Custom accordions/tabs are not activated through guessed controls, ARIA attributes, clicks, focus or URL fragments. Equally corroborated locations retain position rather than letting visibility decide which one was edited. Shorter content is normally centered and taller content shown from its beginning. Following scrolls instantly when reduced motion is preferred; theme-owned opening animations remain the theme's responsibility. Detection and header handling remain best-effort; disable following to retain manual positioning and skip comparison snapshots. Turning following on refreshes the preview once to establish a baseline while retaining position. Once the preview is ready, further edits can be followed.
+
+### Taxonomy terms
+
+Open the full **Edit** screen for an existing category, tag or public custom
+taxonomy term, then open **Live preview**. Edit **Name** or **Description** to see
+the change on the term archive as your theme renders it. The public archive stays
+unchanged until you click WordPress's **Update** button.
+
+The panel is not available in Quick Edit or when adding a new term. It uses the
+saved archive URL, slug, parent, post assignments and term metadata (including
+ACF fields). Native archive headings, Term Name and Term Description blocks, and
+standard Timber term objects show the matching term edits. Yoast’s default archive
+breadcrumb shows the updated name; custom breadcrumb titles stay saved. Theme code
+reading raw term data directly may still show saved values. Term previews don’t
+require post revisions and their temporary data expires after 15 minutes.
 
 ### Revision browser
 
@@ -57,13 +72,13 @@ browser. Embedding and theme-specific output limitations below also apply.
 
 ## Data and limitations
 
-Live updates write a separate internal preview revision per user and post, not the
+Live post updates write a separate internal preview revision per user and post, not the
 saved parent post or WordPress's recovery autosave, and do not publish changes.
 Preview revisions stay out of the normal revision history and do not trigger the
 newer-autosave notice. They are reused on refresh and deleted when the parent post
 is updated or permanently deleted. Existing recovery autosaves are left untouched.
 
-Both editors preview title, content, excerpt and supported post-local ACF fields.
+Both post editors preview title, content, excerpt and supported post-local ACF fields.
 The Block Editor supplies serialized blocks in either visual or code mode and also
 previews author, publication date/time and taxonomy assignment changes, plus
 featured-image selection, replacement and removal. Publication dates update the

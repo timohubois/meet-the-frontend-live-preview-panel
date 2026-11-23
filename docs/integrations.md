@@ -13,7 +13,7 @@ PHP filters receive the extendable value first and context second:
 `$value, array $context`. PHP actions receive only `array $context`. Register two
 accepted arguments for filters when your callback needs context.
 
-Every PHP context starts with these core-owned identities, in this documented order:
+Post preview contexts start with these core-owned identities, in this documented order:
 
 ```php
 [
@@ -46,8 +46,7 @@ Only the selected screen's hooks run:
 | `aflpp_block_editor_preview_config` | `array $config, array $context`. Extend Block Editor live-preview configuration before JSON encoding. |
 | `aflpp_revision_browser_preview_config` | `array $config, array $context`. Extend read-only revision-browser configuration; this screen does not capture edits or prepare live previews. |
 
-Configuration context contains `post` and a null `source`. Use
-`$context['post']['id']` for core's post identity. Preserve the configuration's core
+Configuration context contains `post` and a null `source`. Preserve the configuration's core
 identity, endpoint, nonce, baseline and availability values where present, existing
 integration keys and labels. Shared panel labels are merged afterward.
 
@@ -94,10 +93,12 @@ as a dependency: WordPress will also withhold the dependent entry.
 ### Comparison exclusions
 
 `aflpp_preview_comparison_excluded_selectors` filters the complete `string[]` exclusion
-policy for Classic, Block Editor and read-only revision previews. It runs once while
-building the selected screen's configuration, after its configuration filter and before
-its script-dependency filter. Arguments follow the standard contract:
-`array $selectors, array $context`, with `post.id` and a null `source`.
+policy for Classic, Block Editor and read-only revision previews. The term editor
+uses the separate opt-in `aflpp_term_preview_comparison_excluded_selectors` filter.
+Each runs once for its selected screen. On post screens it runs after the
+configuration filter and before the script-dependency filter. Both receive
+`array $selectors, array $context`. The post filter receives `post.id` and
+the term filter receives `term.id` and `term.taxonomy`. Both have a null `source`.
 
 Defaults are `script`, `style`, `noscript`, `template`, `link`, `meta`, `nav`,
 `[role="navigation"]`, `[aria-live]`, `input[type="hidden"]` and `table.xdebug-error`.
@@ -142,9 +143,9 @@ Register synchronously with the action for the editor you support:
 - `wp.hooks.addAction('aflpp.classicEditor.previewSetup', 'vendor/integration', callback)`
 - `wp.hooks.addAction('aflpp.blockEditor.previewSetup', 'vendor/integration', callback)`
 
-Only that editor's setup action runs, once per live editor session. There is no live
-editor setup action in the read-only revision browser. An adapter supporting both
-editors registers both actions; it does not need to inspect a `screen` discriminator.
+Only that editor's setup action runs, once per live editor session. The term editor
+and the read-only revision browser have no browser setup action. An adapter supporting
+both post editors registers both actions; it does not need to inspect a `screen` discriminator.
 
 Both setup contexts contain:
 

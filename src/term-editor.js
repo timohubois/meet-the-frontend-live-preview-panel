@@ -1,0 +1,13 @@
+import { initTermPreview } from './screens/term-editor.js';
+import { showStartupError } from './panel/startup-error.js';
+import './panel/panel.css';
+
+const config = window.aFloatingLivePreviewPanel;
+const form = document.getElementById('edittag');
+if (config && form) {
+    try {
+        initTermPreview(config, form);
+    } catch (error) {
+        showStartupError(config.strings.bootFailed, error);
+    }
+}

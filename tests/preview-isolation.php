@@ -75,6 +75,10 @@ $check = static function (bool $condition, string $message): void {
     }
 };
 $preview = (new ReflectionClass(FrontendPreview::class))->newInstanceWithoutConstructor();
+(new ReflectionProperty(FrontendPreview::class, 'file'))->setValue(
+    $preview,
+    dirname(__DIR__) . '/meet-the-frontend-live-preview-panel.php'
+);
 (new ReflectionProperty(FrontendPreview::class, 'previewPostId'))->setValue($preview, 123);
 $isolation = new ReflectionProperty(FrontendPreview::class, 'isolated');
 $policy = 'Document-Isolation-Policy: isolate-and-credentialless';

@@ -1,12 +1,12 @@
 # Meet the Frontend – Live Preview Panel
 
-Meet the Frontend – Live Preview Panel adds a movable, resizable frontend preview to WordPress's post Block Editor, classic editor and revision browser. See unsaved changes while editing, or browse saved revisions without restoring them. Your theme and plugins render the preview through WordPress's normal frontend rendering.
+Meet the Frontend – Live Preview Panel adds a movable, resizable frontend preview to WordPress's post Block Editor, classic editor, taxonomy term editor and revision browser. See unsaved changes while editing, or browse saved revisions without restoring them. Your theme and plugins render the preview through WordPress's normal frontend rendering.
 
 ## Requirements
 
 - WordPress 6.9 or later.
 - PHP 8.3 or later.
-- A saved post in a frontend-viewable post type, permission to edit it and enabled revisions for live editing.
+- Permission to edit the post or term. Post live previews require a saved post in a frontend-viewable post type with revisions enabled; term previews require an existing term with a public archive.
 - The editor and frontend on the same origin: matching protocol, domain and port. A browser with ES modules is required; live editing also needs authenticated WordPress REST requests and Web Locks in a secure context (HTTPS or a trusted local development address).
 
 ACF, Timber and Yoast SEO integrations are available when those plugins or libraries are present; they are not required for basic use.
@@ -15,7 +15,7 @@ ACF, Timber and Yoast SEO integrations are available when those plugins or libra
 
 1. Place a source checkout in `wp-content/plugins/meet-the-frontend-live-preview-panel/` and run `npm ci && npm run build` from that directory.
 2. Activate **Meet the Frontend – Live Preview Panel** under **Plugins**.
-3. Open a post, page or supported custom post type in the Block Editor or classic editor. Save new posts as drafts first.
+3. Open a post, page or supported custom post type in the Block Editor or classic editor. Save new posts as drafts first. For a category, tag or public custom taxonomy term, open its **Edit** screen.
 4. Open **Live preview** and edit a supported field. Use WordPress's normal **Save**, **Update** or **Publish** controls to save your work.
 
 Installable packages already include the built assets. GitHub's automatic source ZIPs, like a checkout, require a build.
@@ -30,13 +30,15 @@ In WordPress's revision browser, **Revision preview** follows the right-hand **T
 
 ## Limitations
 
-- Both editors preview title, content, excerpt and supported post-local ACF fields. The Block Editor also previews author, publication date/time, taxonomy assignments and featured-image changes. Arbitrary non-ACF metadata, template selections, the Site Editor and unsaved separate entities such as synced patterns are not supported.
-- Timber support covers standard post and term reads; custom queries may still show saved values. The Yoast integration captures unsaved primary-term selections in the Block Editor and previews their effect on breadcrumbs, not SEO titles, meta descriptions or analysis scores.
+- Term previews show unsaved **Name** and **Description** edits on the term archive. Slug, parent, post assignments and custom fields (including ACF term fields) remain saved until you update them in WordPress.
+- Both post editors preview title, content, excerpt and supported post-local ACF fields. The Block Editor also previews author, publication date/time, taxonomy assignments and featured-image changes. Arbitrary non-ACF metadata, template selections, the Site Editor and unsaved separate entities such as synced patterns are not supported.
+- The Timber integration supports post previews, including changes to taxonomy assignments. On term archives, it also previews the current term’s name and description in Timber’s standard term objects. Custom term classes and raw WordPress lookups can still show saved values.
+- The Yoast integration previews the effect of unsaved primary-term selections on post breadcrumbs, and unsaved term names in default archive breadcrumbs. It does not preview SEO titles, meta descriptions or analysis scores.
 - Live updates use separate internal preview revisions, not the saved post or WordPress's recovery autosave. Native saves and autosaves continue normally. The panel does not publish changes or provide crash recovery or collaborative editing.
 - Historical content uses the current theme, styles and global settings. Missing historical fields cannot be reconstructed; revision previews are not complete historical site snapshots.
 - Site and browser embedding restrictions still apply. The preview is not sandboxed: same-origin frontend scripts can access the editor. Use trusted theme and plugin code, and do not weaken security policies to force embedding.
 
-Check your intended workflow on staging, including any optional integrations. Deactivation retains preview data and preferences. Uninstalling through WordPress removes internal preview revisions and the plugin's server-stored preferences, not saved posts, normal revisions or recovery autosaves.
+Check your intended workflow on staging, including any optional integrations. Deactivation retains preview data and preferences. Uninstalling through WordPress removes internal preview revisions and the plugin's server-stored preferences, not saved content, normal revisions or recovery autosaves. Temporary term previews expire automatically.
 
 ## Development
 

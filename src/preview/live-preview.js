@@ -5,6 +5,7 @@ import { createPreviewScroll } from '../preview/scroll.js';
 // Share preview writes, frames and ownership, not editor-specific fields or save controls.
 export function createLivePreview(config, nativeEditor) {
     const strings = config.strings;
+    const subjectId = config.termId ?? config.postId;
     const mainWindow = window;
     const scrolling = createPreviewScroll();
     const view = createPreviewPanel(strings, {
@@ -37,7 +38,7 @@ export function createLivePreview(config, nativeEditor) {
     try {
         if (mainWindow.BroadcastChannel) {
             channel = new mainWindow.BroadcastChannel(
-                `a-floating-live-preview-panel:${config.endpoint}:${config.postId}:${config.userId}`
+                `a-floating-live-preview-panel:${config.endpoint}:${subjectId}:${config.userId}`
             );
             channel.onmessage = (event) => {
                 if (event.data?.type !== 'takeover' || !previewActive) return;
@@ -224,8 +225,8 @@ export function createLivePreview(config, nativeEditor) {
         try {
             // Queue cooperatively. Never steal: the current owner must finish its PHP write first.
             const options = controller ? { signal: controller.signal } : { ifAvailable: true };
-            // Different sites can share an origin and post IDs; users of the same site/post must still contend.
-            ownershipTask = navigator.locks.request(`a-floating-live-preview-panel:${config.endpoint}:${config.postId}`, options, async (lock) => {
+            // The endpoint separates sites and entity types; users editing the same entity must still contend.
+            ownershipTask = navigator.locks.request(`a-floating-live-preview-panel:${config.endpoint}:${subjectId}`, options, async (lock) => {
                 clearTimeout(takeoverTimer);
                 takeoverTimer = null;
                 takeoverRequest = null;

@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import { icons } from '../src/panel/icons.js';
 import { createHooks } from '@wordpress/hooks';
 
-const adminEntries = ['classic-editor', 'block-editor', 'revision-browser'];
+const adminEntries = ['classic-editor', 'block-editor', 'term-editor', 'revision-browser'];
 const bundle = await readFile(new URL('../build/classic-editor.js', import.meta.url), 'utf8');
 
 function shape({ props }) {
@@ -46,7 +46,7 @@ for (const entry of adminEntries) {
             .map((match) => match[1]);
         assert.deepEqual(dependencies, [
             'react-jsx-runtime', ...(entry === 'block-editor' ? ['wp-api-fetch'] : []),
-            'wp-components', 'wp-data', 'wp-element', ...(entry === 'revision-browser' ? [] : ['wp-hooks']),
+            'wp-components', 'wp-data', 'wp-element', ...(['classic-editor', 'block-editor'].includes(entry) ? ['wp-hooks'] : []),
             'wp-notices', 'wp-preferences', 'wp-primitives',
         ]);
         assert.match(asset, /'version'\s*=>\s*'[a-f0-9]+'/);
@@ -73,11 +73,10 @@ test('the shipped editor bundle uses WordPress runtime globals and bundles exact
 });
 
 test('all admin entries emit the same panel stylesheet without a separate shared runtime', async () => {
-    const [editor, blocks, revisions] = await Promise.all(adminEntries.map((entry) =>
+    const [editor, ...others] = await Promise.all(adminEntries.map((entry) =>
         readFile(new URL(`../build/${entry}.css`, import.meta.url), 'utf8')
     ));
-    assert.equal(editor, blocks);
-    assert.equal(editor, revisions);
+    for (const css of others) assert.equal(editor, css);
     assert.match(editor, /\.aflpp-panel/);
     assert.match(editor, /\.aflpp-pip-document/);
 });
