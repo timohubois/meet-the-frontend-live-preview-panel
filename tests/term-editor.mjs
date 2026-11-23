@@ -12,7 +12,7 @@ test('term preview follows native fields even when a plugin duplicates or replac
     const field = (value, selector) => ({ value, matches: (candidate) => candidate === selector });
     const name = field('Saved name', nameSelector), slug = field('new-slug', '#slug');
     const duplicate = field('Not the term description', '#description');
-    const config = { endpoint: 'http://wp.test/?rest_route=/aflpp/terms/42/preview', nonce: 'rest-nonce', strings: {} };
+    const config = { endpoint: 'http://wp.test/?rest_route=/mtflpp/terms/42/preview', nonce: 'rest-nonce', strings: {} };
     const handlers = new Map();
     const fields = {
         [nameSelector]: name,
@@ -41,7 +41,7 @@ test('term preview follows native fields even when a plugin duplicates or replac
         } } },
         fetch: async (url, options) => {
             requests.push({ url, ...options });
-            return { ok: true, json: async () => ({ url: 'http://wp.test/?cat=42&aflpp_token=token' }) };
+            return { ok: true, json: async () => ({ url: 'http://wp.test/?cat=42&mtflpp_token=token' }) };
         },
         config, form,
     };
@@ -68,7 +68,7 @@ test('term preview follows native fields even when a plugin duplicates or replac
     assert.deepEqual(Object.fromEntries(request.body), { name: name.value, description: 'Edited term description' });
     assert.equal(result.comparisonValues.name.value, name.value);
     assert.equal(result.comparisonValues.description.value, 'Edited term description');
-    assert.equal(result.url, 'http://wp.test/?cat=42&aflpp_token=token');
+    assert.equal(result.url, 'http://wp.test/?cat=42&mtflpp_token=token');
     assert.equal((await adapter.preparePreview()).comparisonValues.description.value, '');
     assert.equal(requests[1].body.get('description'), '');
 });
@@ -84,7 +84,7 @@ test('term preview observes the late Visual description editor and keeps Text mo
     };
     let adapter, initialized, onInput, pagehide, events, unbound;
     let refreshes = 0, hidden = false;
-    const namespace = 'tinymce-editor-init.aflppTermEditor';
+    const namespace = 'tinymce-editor-init.mtflppTermEditor';
     const editor = {
         id: 'description', getElement: () => textarea, getBody: () => ({}),
         isHidden: () => hidden, getContent: () => '<p>Unsaved <strong>Visual</strong> edit</p>',
@@ -153,7 +153,7 @@ test('term editor sends structured integration values as JSON and removes the ob
 });
 
 test('ACF term capture uses the active field editor, then restores the native form untouched', () => {
-    const document = {}, handlers = new Map(), action = 'tinymce-editor-init.aflppAcfTerm';
+    const document = {}, handlers = new Map(), action = 'tinymce-editor-init.mtflppAcfTerm';
     const textarea = { name: 'acf[field_example]', value: 'Saved textarea' };
     const form = {
         ownerDocument: document, contains: (node) => node === textarea,

@@ -39,7 +39,7 @@ export function createLivePreview(config, nativeEditor) {
     try {
         if (mainWindow.BroadcastChannel) {
             channel = new mainWindow.BroadcastChannel(
-                `a-floating-live-preview-panel:${config.endpoint}:${subjectId}:${config.userId}`
+                `meet-the-frontend-live-preview-panel:${config.endpoint}:${subjectId}:${config.userId}`
             );
             channel.onmessage = (event) => {
                 if (event.data?.type !== 'takeover' || !previewActive) return;
@@ -64,14 +64,14 @@ export function createLivePreview(config, nativeEditor) {
 
     function failureReason(error) {
         const code = error?.code;
-        if (code === 'aflpp_post_locked') return 'post-locked';
+        if (code === 'mtflpp_post_locked') return 'post-locked';
         if ([
-            'aflpp_invalid_nonce', 'rest_cookie_invalid_nonce', 'aflpp_preview_conflict',
-            'aflpp_source_changed', 'aflpp_acf_unavailable', 'aflpp_integration_failed',
+            'mtflpp_invalid_nonce', 'rest_cookie_invalid_nonce', 'mtflpp_preview_conflict',
+            'mtflpp_source_changed', 'mtflpp_acf_unavailable', 'mtflpp_integration_failed',
         ].includes(code)) return 'reload';
-        if (['aflpp_cannot_preview', 'rest_forbidden', 'rest_cannot_edit'].includes(code)) return 'permission';
-        if (code === 'aflpp_preview_origin_mismatch') return 'origin-mismatch';
-        if (code === 'aflpp_preview_unsupported_url') return 'unsupported-url';
+        if (['mtflpp_cannot_preview', 'rest_forbidden', 'rest_cannot_edit'].includes(code)) return 'permission';
+        if (code === 'mtflpp_preview_origin_mismatch') return 'origin-mismatch';
+        if (code === 'mtflpp_preview_unsupported_url') return 'unsupported-url';
         return '';
     }
 
@@ -229,7 +229,7 @@ export function createLivePreview(config, nativeEditor) {
             // Queue cooperatively. Never steal: the current owner must finish its PHP write first.
             const options = controller ? { signal: controller.signal } : { ifAvailable: true };
             // The endpoint separates sites and entity types; users editing the same entity must still contend.
-            ownershipTask = navigator.locks.request(`a-floating-live-preview-panel:${config.endpoint}:${subjectId}`, options, async (lock) => {
+            ownershipTask = navigator.locks.request(`meet-the-frontend-live-preview-panel:${config.endpoint}:${subjectId}`, options, async (lock) => {
                 clearTimeout(takeoverTimer);
                 takeoverTimer = null;
                 takeoverRequest = null;

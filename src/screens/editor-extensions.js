@@ -7,9 +7,9 @@ export function createEditorExtensions(setupAction, context) {
     let failure;
     let destroyed = false;
     function failed(error) {
-        failure ??= error?.code === 'aflpp_integration_failed' ? error
+        failure ??= error?.code === 'mtflpp_integration_failed' ? error
             : Object.assign(new Error(context.config.strings.integrationFailed), {
-                code: 'aflpp_integration_failed', cause: error,
+                code: 'mtflpp_integration_failed', cause: error,
             });
     }
     const extensions = {

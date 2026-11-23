@@ -38,7 +38,7 @@ async function fixture({ visible = true, pending = true } = {}) {
     const initPreview = vm.runInNewContext(`${source}\ninitLivePreview`, context);
     initPreview({ available: true, base: 'base', endpoint: '/preview', strings: {} }, nativeEditor);
     const finish = async () => {
-        finishRequest({ ok: false, json: async () => ({ code: 'aflpp_preview_failed', message: 'Transient failure' }) });
+        finishRequest({ ok: false, json: async () => ({ code: 'mtflpp_preview_failed', message: 'Transient failure' }) });
         await flush();
     };
     await flush();

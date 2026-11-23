@@ -6,64 +6,64 @@
 
 defined('ABSPATH') || exit;
 ?>
-<div id="aflpp-toggle" class="aflpp-launcher" hidden
+<div id="mtflpp-toggle" class="mtflpp-launcher" hidden
     data-title="<?php echo esc_attr($title); ?>"
     data-move-help="<?php esc_attr_e(
         'Drag to move the preview, or use the arrow keys. Hold Shift to move farther.',
         'meet-the-frontend-live-preview-panel'
     ); ?>"></div>
-<section id="aflpp-panel" class="aflpp-panel" data-state="loading" data-has-preview="false" data-has-feedback="false"
-    aria-labelledby="aflpp-title" hidden>
-    <header class="aflpp-header">
-        <div class="aflpp-move-control"></div>
-        <div class="aflpp-refresh-control"></div>
-        <div class="aflpp-titlebar">
-            <h2 id="aflpp-title" class="aflpp-caption"><?php echo esc_html($title); ?></h2>
+<section id="mtflpp-panel" class="mtflpp-panel" data-state="loading" data-has-preview="false" data-has-feedback="false"
+    aria-labelledby="mtflpp-title" hidden>
+    <header class="mtflpp-header">
+        <div class="mtflpp-move-control"></div>
+        <div class="mtflpp-refresh-control"></div>
+        <div class="mtflpp-titlebar">
+            <h2 id="mtflpp-title" class="mtflpp-caption"><?php echo esc_html($title); ?></h2>
         </div>
-        <div class="aflpp-controls"></div>
+        <div class="mtflpp-controls"></div>
     </header>
-    <div class="aflpp-feedback" hidden></div>
-    <div class="aflpp-viewport">
-        <div class="aflpp-canvas" role="region" tabindex="-1"
+    <div class="mtflpp-feedback" hidden></div>
+    <div class="mtflpp-viewport">
+        <div class="mtflpp-canvas" role="region" tabindex="-1"
             aria-label="<?php esc_attr_e('Preview canvas', 'meet-the-frontend-live-preview-panel'); ?>"
-            aria-describedby="aflpp-canvas-help">
-            <div class="aflpp-canvas-space"><div class="aflpp-stage"></div></div>
+            aria-describedby="mtflpp-canvas-help">
+            <div class="mtflpp-canvas-space"><div class="mtflpp-stage"></div></div>
         </div>
-        <span id="aflpp-canvas-help" class="aflpp-sr-only">
+        <span id="mtflpp-canvas-help" class="mtflpp-sr-only">
             <?php esc_html_e(
                 'Use this area’s scrollbars, or focus it and use the arrow keys, to move around the preview screen. The page scrolls separately inside the preview.', // phpcs:ignore Generic.Files.LineLength.TooLong -- Keep the translatable message intact.
                 'meet-the-frontend-live-preview-panel'
             ); ?>
         </span>
-        <div class="aflpp-empty"></div>
-        <div class="aflpp-pip-control"></div>
+        <div class="mtflpp-empty"></div>
+        <div class="mtflpp-pip-control"></div>
     </div>
-    <footer class="aflpp-devicebar" hidden>
-        <div class="aflpp-device-controls"></div>
-        <div class="aflpp-viewport-controls">
-            <span class="aflpp-dimensions"
+    <footer class="mtflpp-devicebar" hidden>
+        <div class="mtflpp-device-controls"></div>
+        <div class="mtflpp-viewport-controls">
+            <span class="mtflpp-dimensions"
                 title="<?php esc_attr_e(
                     'Viewport size in CSS pixels and current zoom.',
                     'meet-the-frontend-live-preview-panel'
                 ); ?>">
             </span>
-            <div class="aflpp-fit-control"></div>
+            <div class="mtflpp-fit-control"></div>
         </div>
     </footer>
-    <?php foreach (['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'] as $aflppEdge) : ?>
-        <span class="aflpp-edge aflpp-edge-<?php echo esc_attr($aflppEdge); ?>"
-            data-resize-edge="<?php echo esc_attr($aflppEdge); ?>" aria-hidden="true"></span>
+    <?php foreach (['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'] as $mtflppEdge) : ?>
+        <span class="mtflpp-edge mtflpp-edge-<?php echo esc_attr($mtflppEdge); ?>"
+            data-resize-edge="<?php echo esc_attr($mtflppEdge); ?>" aria-hidden="true"></span>
     <?php endforeach; ?>
-    <div class="aflpp-resize-control">
-        <button type="button" class="aflpp-resize"
+    <div class="mtflpp-resize-control">
+        <button type="button" class="mtflpp-resize"
             aria-label="<?php esc_attr_e('Resize preview', 'meet-the-frontend-live-preview-panel'); ?>"
-            aria-describedby="aflpp-resize-help"></button>
-        <span id="aflpp-resize-help" class="aflpp-resize-help" role="tooltip">
+            aria-describedby="mtflpp-resize-help"></button>
+        <span id="mtflpp-resize-help" class="mtflpp-resize-help" role="tooltip">
             <?php esc_html_e(
                 'Use the arrow keys to change the preview’s size. Hold Shift for bigger steps.',
                 'meet-the-frontend-live-preview-panel'
             ); ?>
         </span>
     </div>
-    <span class="aflpp-sr-only" role="status"></span>
+    <span class="mtflpp-sr-only" role="status"></span>
 </section>

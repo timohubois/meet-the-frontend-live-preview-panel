@@ -2,7 +2,7 @@
 
 /** Run with `wp eval-file tests/term-acf.php` on a disposable site with ACF active. */
 
-use AFloatingLivePreviewPanel\TermPreview;
+use MeetTheFrontendLivePreviewPanel\TermPreview;
 
 if (!defined('WP_CLI') || !WP_CLI || !class_exists(TermPreview::class) || is_multisite()) {
     throw new RuntimeException('Run through WP-CLI on a disposable single site with the plugin active.');
@@ -18,7 +18,7 @@ $check = static function (bool $condition, string $message): void {
 };
 require_once ABSPATH . 'wp-admin/includes/user.php';
 $props = static fn ($name, $type, array $settings = []): array => [
-    'key' => 'field_aflpp_term_' . $name, 'name' => $name, 'type' => $type,
+    'key' => 'field_mtflpp_term_' . $name, 'name' => $name, 'type' => $type,
 ] + $settings;
 $fields = [
     $props('heading', 'text'),
@@ -28,7 +28,7 @@ $fields = [
     $props('stays', 'text'),
     $props('select_terms', 'taxonomy', [
         'field_type' => 'multi_select', 'taxonomy' => 'post_tag', 'load_terms' => 1, 'save_terms' => 1,
-        'bidirectional' => 1, 'bidirectional_target' => ['field_aflpp_term_back'],
+        'bidirectional' => 1, 'bidirectional_target' => ['field_mtflpp_term_back'],
     ]),
     $props('also_assign', 'taxonomy', [
         'field_type' => 'multi_select', 'taxonomy' => 'post_tag', 'save_terms' => 1,
@@ -37,7 +37,7 @@ $fields = [
         'field_type' => 'multi_select', 'taxonomy' => 'category', 'load_terms' => 1,
     ]),
     $props('related', 'relationship', [
-        'return_format' => 'id', 'bidirectional' => 1, 'bidirectional_target' => ['field_aflpp_term_back'],
+        'return_format' => 'id', 'bidirectional' => 1, 'bidirectional_target' => ['field_mtflpp_term_back'],
     ]),
     $props('back', 'relationship'),
     $props('featured', 'post_object', ['return_format' => 'id']),
@@ -50,19 +50,19 @@ if ($pro) {
         'pagination' => 1, 'rows_per_page' => 1, 'sub_fields' => [$props('row_text', 'text')],
     ]);
     $fields[] = $props('layout', 'flexible_content', ['layouts' => [
-        ['key' => 'layout_aflpp_term_first', 'name' => 'first', 'sub_fields' => [$props('first_text', 'text')]],
-        ['key' => 'layout_aflpp_term_second', 'name' => 'second', 'sub_fields' => [$props('second_text', 'text')]],
+        ['key' => 'layout_mtflpp_term_first', 'name' => 'first', 'sub_fields' => [$props('first_text', 'text')]],
+        ['key' => 'layout_mtflpp_term_second', 'name' => 'second', 'sub_fields' => [$props('second_text', 'text')]],
     ]]);
 }
-$taxonomy = 'aflpp_acf_term';
+$taxonomy = 'mtflpp_acf_term';
 register_taxonomy($taxonomy, 'post', ['public' => true]);
 acf_add_local_field_group([
-    'key' => 'group_aflpp_term_preview', 'title' => 'AFLPP term preview',
+    'key' => 'group_mtflpp_term_preview', 'title' => 'MTFLPP term preview',
     'location' => [[['param' => 'taxonomy', 'operator' => '==', 'value' => $taxonomy]]],
     'fields' => $fields,
 ]);
 acf_add_local_field_group([
-    'key' => 'group_aflpp_term_elsewhere', 'title' => 'AFLPP other fields',
+    'key' => 'group_mtflpp_term_elsewhere', 'title' => 'MTFLPP other fields',
     'location' => [[['param' => 'post_type', 'operator' => '==', 'value' => 'post']]],
     'fields' => [$props('elsewhere', 'text')],
 ]);
@@ -71,7 +71,7 @@ $user = $id = $neighbor = $related = $tag = $otherTag = 0;
 $storageKey = '';
 try {
     $user = wp_insert_user([
-        'user_login' => 'aflpp_term_acf_' . wp_generate_password(8, false),
+        'user_login' => 'mtflpp_term_acf_' . wp_generate_password(8, false),
         'user_pass' => wp_generate_password(), 'role' => 'editor',
     ]);
     $check(is_int($user), 'Create an editor fixture.');
@@ -83,27 +83,27 @@ try {
     $related = wp_insert_post(['post_title' => 'Related to term ACF fixture', 'post_status' => 'publish']);
     $term = get_term($id);
     $acfId = 'term_' . $id;
-    $storageKey = 'aflpp_term_' . $term->term_taxonomy_id . '_' . $user;
+    $storageKey = 'mtflpp_term_' . $term->term_taxonomy_id . '_' . $user;
 
     $savedFields = [
         'heading' => 'Saved heading', 'stays' => 'Not submitted', 'intro' => 'Saved intro', 'tone' => 'a',
         'group' => ['group_text' => 'Saved group'],
     ];
     foreach ($savedFields as $field => $value) {
-        update_field('field_aflpp_term_' . $field, $value, $acfId);
+        update_field('field_mtflpp_term_' . $field, $value, $acfId);
     }
     if ($pro) {
         $rows = [['row_text' => 'First'], ['row_text' => 'Keep'], ['row_text' => 'Last']];
-        update_field('field_aflpp_term_rows', $rows, $acfId);
-        update_field('field_aflpp_term_layout', [['acf_fc_layout' => 'first', 'first_text' => 'Old layout']], $acfId);
+        update_field('field_mtflpp_term_rows', $rows, $acfId);
+        update_field('field_mtflpp_term_layout', [['acf_fc_layout' => 'first', 'first_text' => 'Old layout']], $acfId);
     }
-    update_field('field_aflpp_term_heading', 'Other archive', 'term_' . $neighbor);
-    update_field('field_aflpp_term_heading', 'Other object type', $related);
+    update_field('field_mtflpp_term_heading', 'Other archive', 'term_' . $neighbor);
+    update_field('field_mtflpp_term_heading', 'Other object type', $related);
     $saved = get_term_meta($id);
     $oldPostMeta = get_post_meta($related);
     $oldTagMeta = get_term_meta($tag);
     $oldTermAssignment = wp_get_object_terms($id, 'post_tag', ['fields' => 'ids']);
-    $loadOnlyAssignment = get_field('field_aflpp_term_load_only', $acfId);
+    $loadOnlyAssignment = get_field('field_mtflpp_term_load_only', $acfId);
 
     $saveHookCalls = 0;
     $observeSave = static function ($value = null) use (&$saveHookCalls) {
@@ -117,7 +117,7 @@ try {
         add_filter($hook, $observeSave);
     }
     $post = static function (array $extra) use ($id): WP_REST_Response {
-        $request = new WP_REST_Request('POST', '/a-floating-live-preview-panel/v1/terms/' . $id . '/preview');
+        $request = new WP_REST_Request('POST', '/meet-the-frontend-live-preview-panel/v1/terms/' . $id . '/preview');
         $request->set_header('X-WP-Nonce', wp_create_nonce('wp_rest'));
         $request->set_header('Content-Type', 'application/json');
         $request->set_body(wp_json_encode($extra + ['name' => 'Draft archive', 'description' => '']));
@@ -125,27 +125,27 @@ try {
     };
     $map = ['address' => 'Draft "quoted" street', 'lat' => 30.5, 'lng' => 12.5, 'zoom' => 11];
     $input = ['acf' => [
-        'field_aflpp_term_heading' => "Draft O’Reilly \\ heading",
-        'field_aflpp_term_intro' => '<strong>Draft rich text</strong><script></script>',
-        'field_aflpp_term_tone' => 'b',
-        'field_aflpp_term_fresh' => 'Never previously saved',
-        'field_aflpp_term_select_terms' => [(string) $tag],
-        'field_aflpp_term_also_assign' => [(string) $otherTag],
-        'field_aflpp_term_load_only' => [(string) get_option('default_category')],
-        'field_aflpp_term_related' => [(string) $related],
-        'field_aflpp_term_featured' => (string) $related,
-        'field_aflpp_term_location' => wp_json_encode($map),
-        'field_aflpp_term_group' => ['field_aflpp_term_group_text' => ''],
-        'field_aflpp_term_elsewhere' => 'Not allowed on this taxonomy',
+        'field_mtflpp_term_heading' => "Draft O’Reilly \\ heading",
+        'field_mtflpp_term_intro' => '<strong>Draft rich text</strong><script></script>',
+        'field_mtflpp_term_tone' => 'b',
+        'field_mtflpp_term_fresh' => 'Never previously saved',
+        'field_mtflpp_term_select_terms' => [(string) $tag],
+        'field_mtflpp_term_also_assign' => [(string) $otherTag],
+        'field_mtflpp_term_load_only' => [(string) get_option('default_category')],
+        'field_mtflpp_term_related' => [(string) $related],
+        'field_mtflpp_term_featured' => (string) $related,
+        'field_mtflpp_term_location' => wp_json_encode($map),
+        'field_mtflpp_term_group' => ['field_mtflpp_term_group_text' => ''],
+        'field_mtflpp_term_elsewhere' => 'Not allowed on this taxonomy',
     ]];
     if ($pro) {
-        $input['acf']['field_aflpp_term_rows'] = [
+        $input['acf']['field_mtflpp_term_rows'] = [
             'row-0' => ['acf_deleted' => '1'],
-            'row-2' => ['field_aflpp_term_row_text' => 'Moved', 'acf_reordered' => '0'],
-            'acf-1' => ['field_aflpp_term_row_text' => 'New'],
+            'row-2' => ['field_mtflpp_term_row_text' => 'Moved', 'acf_reordered' => '0'],
+            'acf-1' => ['field_mtflpp_term_row_text' => 'New'],
         ];
-        $input['acf']['field_aflpp_term_layout'] = [
-            'row-0' => ['acf_fc_layout' => 'second', 'field_aflpp_term_second_text' => 'New layout'],
+        $input['acf']['field_mtflpp_term_layout'] = [
+            'row-0' => ['acf_fc_layout' => 'second', 'field_mtflpp_term_second_text' => 'New layout'],
         ];
     }
     $check($post($input)->get_status() === 400, 'Reject a missing native ACF form nonce.');
@@ -181,7 +181,7 @@ try {
     $GLOBALS['wp_query'] = new WP_Query(['taxonomy' => $taxonomy, 'term' => $term->slug]);
     do_action('template_redirect');
 
-    $check(get_field('heading', $acfId) === $input['acf']['field_aflpp_term_heading'], 'Read draft by field name.');
+    $check(get_field('heading', $acfId) === $input['acf']['field_mtflpp_term_heading'], 'Read draft by field name.');
     $check(get_field('heading', $term) === get_field('heading', $acfId), 'Read draft by a WP_Term object.');
     $check(get_field('heading', $taxonomy . '_' . $id) === get_field('heading', $acfId), 'Read draft by legacy ID.');
     $check(get_field('tone', $acfId) === 'Beta', 'Keep native ACF return formats.');

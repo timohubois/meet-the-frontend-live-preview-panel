@@ -144,7 +144,7 @@ test('live comparison receives the complete PHP exclusion policy, including an e
 for (const hasPreview of [false, true]) {
     test(`an edit lock pauses ${hasPreview ? 'a retained preview' : 'an initial preview'} until WordPress takeover reloads the editor`, { timeout: 5000 }, async (t) => {
         const open = fixture(t);
-        const error = Object.assign(new Error('Take over editing to continue.'), { code: 'aflpp_post_locked' });
+        const error = Object.assign(new Error('Take over editing to continue.'), { code: 'mtflpp_post_locked' });
         const h = open({ error, hasPreview });
         h.session.start(); await h.started; await h.session.pending; await settle();
         const report = h.reports.at(-1);
@@ -175,8 +175,8 @@ for (const hasPreview of [false, true]) {
 }
 
 for (const [code, reason, detail] of [
-    ['aflpp_preview_origin_mismatch', 'origin-mismatch', panelStrings.originMismatch.replace('%s', 'https://other.example')],
-    ['aflpp_preview_unsupported_url', 'unsupported-url', panelStrings.failed],
+    ['mtflpp_preview_origin_mismatch', 'origin-mismatch', panelStrings.originMismatch.replace('%s', 'https://other.example')],
+    ['mtflpp_preview_unsupported_url', 'unsupported-url', panelStrings.failed],
 ]) {
     test(`a blocked preview URL stops live updates without clearing the last preview (${reason})`, { timeout: 5000 }, async (t) => {
         const open = fixture(t);

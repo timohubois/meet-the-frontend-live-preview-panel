@@ -2,10 +2,10 @@
 
 /** Run with `wp eval-file tests/timber-terms.php` on a disposable single-site installation. */
 
-use AFloatingLivePreviewPanel\Compatibility\Timber as TimberAdapter;
-use AFloatingLivePreviewPanel\Compatibility\TimberPost;
-use AFloatingLivePreviewPanel\FrontendPreview;
-use AFloatingLivePreviewPanel\LivePreview;
+use MeetTheFrontendLivePreviewPanel\Compatibility\Timber as TimberAdapter;
+use MeetTheFrontendLivePreviewPanel\Compatibility\TimberPost;
+use MeetTheFrontendLivePreviewPanel\FrontendPreview;
+use MeetTheFrontendLivePreviewPanel\LivePreview;
 
 if (!defined('WP_CLI') || !WP_CLI || !class_exists(LivePreview::class) || is_multisite()) {
     throw new RuntimeException('Run through WP-CLI on a single-site installation with this plugin active.');
@@ -25,24 +25,24 @@ $originalUser = get_current_user_id();
 $originalGet = $_GET;
 $hooks = [];
 $previewHooks = [
-    'aflpp_frontend_live_preview_source_selected', 'aflpp_frontend_saved_preview_source_selected',
+    'mtflpp_frontend_live_preview_source_selected', 'mtflpp_frontend_saved_preview_source_selected',
     'the_preview', 'get_post_metadata', 'get_the_terms',
     'timber/post/import_data', 'timber/post/class', 'shutdown',
 ];
 foreach ($previewHooks as $hook) {
     $hooks[$hook] = isset($GLOBALS['wp_filter'][$hook]) ? clone $GLOBALS['wp_filter'][$hook] : null;
 }
-remove_all_actions('aflpp_frontend_live_preview_source_selected');
-remove_all_actions('aflpp_frontend_saved_preview_source_selected');
+remove_all_actions('mtflpp_frontend_live_preview_source_selected');
+remove_all_actions('mtflpp_frontend_saved_preview_source_selected');
 $adapter = new TimberAdapter();
 $live = new LivePreview();
 $frontend = new FrontendPreview(dirname(__DIR__) . '/meet-the-frontend-live-preview-panel.php', $live);
 $posts = $terms = [];
 $user = 0;
-register_taxonomy('aflpp_timber_topic', 'post', ['public' => true, 'show_in_rest' => true]);
-register_taxonomy('aflpp_timber_hidden', 'post', ['public' => true, 'show_in_rest' => false]);
+register_taxonomy('mtflpp_timber_topic', 'post', ['public' => true, 'show_in_rest' => true]);
+register_taxonomy('mtflpp_timber_hidden', 'post', ['public' => true, 'show_in_rest' => false]);
 $bind = static function (int $id, array|stdClass $selection) use ($live, $frontend, $check): void {
-    $request = new WP_REST_Request('POST', '/a-floating-live-preview-panel/v1/posts/' . $id . '/preview');
+    $request = new WP_REST_Request('POST', '/meet-the-frontend-live-preview-panel/v1/posts/' . $id . '/preview');
     $request->set_header('X-WP-Nonce', wp_create_nonce('wp_rest'));
     $request->set_body_params(['base' => $live->fingerprint($id), 'terms' => wp_json_encode($selection)]);
     $response = rest_do_request($request);
@@ -54,15 +54,15 @@ $bind = static function (int $id, array|stdClass $selection) use ($live, $fronte
 $ids = static fn (array $list): array => array_map(static fn (object $term): int => (int) $term->ID, $list);
 try {
     $user = wp_insert_user([
-        'user_login' => 'aflpp_timber_terms_' . wp_generate_password(12, false, false),
+        'user_login' => 'mtflpp_timber_terms_' . wp_generate_password(12, false, false),
         'user_pass' => wp_generate_password(32), 'role' => 'administrator',
     ]);
     $check(!is_wp_error($user), 'Could not create a fixture user.');
     wp_set_current_user($user);
     $choices = [];
-    foreach (['category', 'post_tag', 'aflpp_timber_topic', 'aflpp_timber_hidden'] as $taxonomy) {
+    foreach (['category', 'post_tag', 'mtflpp_timber_topic', 'mtflpp_timber_hidden'] as $taxonomy) {
         foreach (['Saved', 'Edited'] as $label) {
-            $term = wp_insert_term('AFLPP ' . $label . ' ' . wp_generate_password(10, false, false), $taxonomy);
+            $term = wp_insert_term('MTFLPP ' . $label . ' ' . wp_generate_password(10, false, false), $taxonomy);
             $check(!is_wp_error($term), 'Could not create fixture terms.');
             $choices[$taxonomy][$label] = (int) $term['term_id'];
             $terms[] = [$term['term_id'], $taxonomy];
@@ -71,7 +71,7 @@ try {
     foreach (['Selected', 'Other'] as $label) {
         $id = wp_insert_post([
             'post_type' => 'post', 'post_status' => 'publish', 'post_author' => $user,
-            'post_title' => 'AFLPP Timber terms ' . $label,
+            'post_title' => 'MTFLPP Timber terms ' . $label,
         ], true);
         $check(!is_wp_error($id), 'Could not create a fixture post.');
         $posts[] = $id;
@@ -86,7 +86,7 @@ try {
     $recovery = $live->fingerprint($recoveryId);
     $check(get_class(\Timber\Timber::get_post($postId)) === \Timber\Post::class, 'Ordinary imports stay native.');
     $selection = [];
-    foreach (['category', 'post_tag', 'aflpp_timber_topic'] as $taxonomy) {
+    foreach (['category', 'post_tag', 'mtflpp_timber_topic'] as $taxonomy) {
         $selection[$taxonomy] = [$choices[$taxonomy]['Edited']];
     }
     $bind($postId, $selection);
@@ -95,7 +95,7 @@ try {
     $check($post->category()->ID === $choices['category']['Edited'], 'category() must use unsaved terms.');
     $check($ids($post->categories()) === $selection['category'], 'categories() must use the selection.');
     $check($ids($post->terms('tags')) === $selection['post_tag'], 'Native taxonomy aliases must remain supported.');
-    $check($ids($post->terms('aflpp_timber_topic')) === $selection['aflpp_timber_topic'], 'Custom taxonomies work.');
+    $check($ids($post->terms('mtflpp_timber_topic')) === $selection['mtflpp_timber_topic'], 'Custom taxonomies work.');
     $html = \Timber\Timber::compile_string(
         '{{ post.category.name }}|{{ post.category.link }}|'
         . '{% for tag in post.terms("tag") %}{{ tag.name }}{% endfor %}',
@@ -125,7 +125,7 @@ try {
         'Theme-specific post classes must not be replaced.'
     );
     $check(
-        $ids($post->terms('aflpp_timber_hidden')) === [$choices['aflpp_timber_hidden']['Saved']],
+        $ids($post->terms('mtflpp_timber_hidden')) === [$choices['mtflpp_timber_hidden']['Saved']],
         'Other taxonomies stay saved.'
     );
     $grouped = $post->terms(['category', 'post_tag'], ['merge' => false]);
@@ -176,14 +176,14 @@ try {
     $nativeHooks = $GLOBALS['wp_filter']['pre_get_terms']->callbacks ?? [];
     $nativeFilters = $GLOBALS['wp_filter']['terms_pre_query']->callbacks ?? [];
     $throw = static function (): void {
-        throw new RuntimeException('aflpp_timber_terms_throw');
+        throw new RuntimeException('mtflpp_timber_terms_throw');
     };
     add_action('pre_get_terms', $throw);
     try {
         $post->categories();
         throw new RuntimeException('The throwing-query fixture did not run.');
     } catch (RuntimeException $error) {
-        $check($error->getMessage() === 'aflpp_timber_terms_throw', 'Native query exceptions must be preserved.');
+        $check($error->getMessage() === 'mtflpp_timber_terms_throw', 'Native query exceptions must be preserved.');
     } finally {
         remove_action('pre_get_terms', $throw);
     }
@@ -198,7 +198,7 @@ try {
     );
     $check($live->fingerprint($postId) === $base, 'Timber preview reads must not change the saved parent.');
     $check($live->fingerprint($recoveryId) === $recovery, 'Timber preview reads must preserve recovery data.');
-    foreach (['category', 'post_tag', 'aflpp_timber_topic'] as $taxonomy) {
+    foreach (['category', 'post_tag', 'mtflpp_timber_topic'] as $taxonomy) {
         $check(get_term($choices[$taxonomy]['Edited'])->count === 0, 'Preview-only terms must retain zero counts.');
     }
     $multiple = $selection;
@@ -209,7 +209,7 @@ try {
             === $selection['category'],
         'Native ordering and limits must apply to multiple selected terms.'
     );
-    $bind($postId, ['category' => [], 'post_tag' => [], 'aflpp_timber_topic' => []]);
+    $bind($postId, ['category' => [], 'post_tag' => [], 'mtflpp_timber_topic' => []]);
     $check(
         $post->category() === null && $post->terms('tag') === [],
         'Rebinding/clearing must update existing bridges.'
@@ -255,8 +255,8 @@ try {
     foreach ($terms as [$id, $taxonomy]) {
         wp_delete_term($id, $taxonomy);
     }
-    unregister_taxonomy('aflpp_timber_topic');
-    unregister_taxonomy('aflpp_timber_hidden');
+    unregister_taxonomy('mtflpp_timber_topic');
+    unregister_taxonomy('mtflpp_timber_hidden');
     if (is_int($user) && $user > 0) {
         wp_delete_user($user);
     }

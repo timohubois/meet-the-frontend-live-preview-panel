@@ -2,8 +2,8 @@
 
 /** Run with `wp eval-file tests/date-terms.php` on a disposable single-site installation. */
 
-use AFloatingLivePreviewPanel\FrontendPreview;
-use AFloatingLivePreviewPanel\LivePreview;
+use MeetTheFrontendLivePreviewPanel\FrontendPreview;
+use MeetTheFrontendLivePreviewPanel\LivePreview;
 
 if (!defined('WP_CLI') || !WP_CLI || !class_exists(LivePreview::class) || is_multisite()) {
     throw new RuntimeException('Run through WP-CLI on a single-site installation with this plugin active.');
@@ -28,14 +28,14 @@ $timezone = static fn (): string => 'Europe/Berlin';
 add_filter('pre_option_timezone_string', $timezone);
 $permalinks = static fn (): string => '/%year%/%monthnum%/%author%/%postname%/';
 add_filter('pre_option_permalink_structure', $permalinks);
-register_taxonomy('aflpp_topic', 'post', [
+register_taxonomy('mtflpp_topic', 'post', [
     'public' => true, 'show_in_rest' => true, 'rest_base' => 'preview_topics',
 ]);
-register_taxonomy('aflpp_restricted', 'post', [
+register_taxonomy('mtflpp_restricted', 'post', [
     'public' => true, 'show_in_rest' => true, 'capabilities' => ['assign_terms' => 'manage_options'],
 ]);
-register_taxonomy('aflpp_hidden', 'post', ['public' => true, 'show_in_rest' => false]);
-register_taxonomy('aflpp_ordered', 'post', [
+register_taxonomy('mtflpp_hidden', 'post', ['public' => true, 'show_in_rest' => false]);
+register_taxonomy('mtflpp_ordered', 'post', [
     'public' => true, 'show_in_rest' => true, 'args' => ['orderby' => 'id', 'order' => 'DESC'],
 ]);
 $live = new LivePreview();
@@ -50,7 +50,7 @@ $block = static fn (string $name, int $postId, array $attrs): WP_Block => new WP
     'blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => [], 'innerHTML' => '', 'innerContent' => [],
 ], ['postId' => $postId, 'postType' => 'post']);
 $bind = static function (int $id, array $input = []) use ($send, $live, $frontend, $check): array {
-    $response = $send('/a-floating-live-preview-panel/v1/posts/' . $id . '/preview', [
+    $response = $send('/meet-the-frontend-live-preview-panel/v1/posts/' . $id . '/preview', [
         'base' => $live->fingerprint($id), ...$input,
     ]);
     $check($response->get_status() === 200, 'Preview failed: ' . wp_json_encode($response->get_data()));
@@ -62,7 +62,7 @@ $bind = static function (int $id, array $input = []) use ($send, $live, $fronten
 try {
     foreach (['administrator', 'author'] as $role) {
         $id = wp_insert_user([
-            'user_login' => 'aflpp_date_terms_' . $role . '_' . wp_generate_password(12, false, false),
+            'user_login' => 'mtflpp_date_terms_' . $role . '_' . wp_generate_password(12, false, false),
             'user_pass' => wp_generate_password(32), 'role' => $role,
         ]);
         $check(!is_wp_error($id), 'Could not create a fixture user.');
@@ -71,9 +71,9 @@ try {
     [$admin, $author] = $users;
     wp_set_current_user($admin);
     $choices = [];
-    foreach (['category', 'post_tag', 'aflpp_topic', 'aflpp_restricted'] as $taxonomy) {
+    foreach (['category', 'post_tag', 'mtflpp_topic', 'mtflpp_restricted'] as $taxonomy) {
         foreach (['Saved', 'Edited'] as $label) {
-            $term = wp_insert_term('AFLPP ' . $label . ' ' . wp_generate_password(10, false, false), $taxonomy);
+            $term = wp_insert_term('MTFLPP ' . $label . ' ' . wp_generate_password(10, false, false), $taxonomy);
             $check(!is_wp_error($term), 'Could not create fixture terms.');
             $choices[$taxonomy][$label] = (int) $term['term_id'];
             $terms[] = [$term['term_id'], $taxonomy];
@@ -81,15 +81,15 @@ try {
     }
     $ordered = [];
     foreach (['Alpha', 'Beta', 'Gamma'] as $label) {
-        $term = wp_insert_term('AFLPP ' . $label . ' ' . wp_generate_password(10, false, false), 'aflpp_ordered');
+        $term = wp_insert_term('MTFLPP ' . $label . ' ' . wp_generate_password(10, false, false), 'mtflpp_ordered');
         $check(!is_wp_error($term), 'Could not create ordered terms.');
         $ordered[] = (int) $term['term_id'];
-        $terms[] = [$term['term_id'], 'aflpp_ordered'];
+        $terms[] = [$term['term_id'], 'mtflpp_ordered'];
     }
     foreach (['publish', 'draft', 'future'] as $status) {
         $id = wp_insert_post([
             'post_type' => 'post', 'post_status' => $status, 'post_author' => $author,
-            'post_title' => 'AFLPP date/terms fixture', 'post_content' => 'Saved content',
+            'post_title' => 'MTFLPP date/terms fixture', 'post_content' => 'Saved content',
             'post_date' => $status === 'future' ? '2035-01-10 13:00:00' : '2020-01-10 13:00:00',
             'post_date_gmt' => $status === 'future' ? '2035-01-10 12:00:00' : '2020-01-10 12:00:00',
         ], true);
@@ -100,16 +100,16 @@ try {
         }
     }
     [$postId, $otherId, $scheduledId] = $posts;
-    wp_set_object_terms($postId, array_slice($ordered, 0, 2), 'aflpp_ordered');
-    $nativeOrder = wp_list_pluck(get_the_terms($postId, 'aflpp_ordered'), 'term_id');
+    wp_set_object_terms($postId, array_slice($ordered, 0, 2), 'mtflpp_ordered');
+    $nativeOrder = wp_list_pluck(get_the_terms($postId, 'mtflpp_ordered'), 'term_id');
     $check($nativeOrder === [$ordered[1], $ordered[0]], 'The registered descending order must be active.');
     $bind($postId);
     $check(
-        wp_list_pluck(get_the_terms($postId, 'aflpp_ordered'), 'term_id') === $nativeOrder,
+        wp_list_pluck(get_the_terms($postId, 'mtflpp_ordered'), 'term_id') === $nativeOrder,
         'Unchanged selections must retain registered taxonomy ordering.'
     );
     $decorate = static function ($list, int $id, string $taxonomy) use ($postId) {
-        if ($id === $postId && $taxonomy === 'aflpp_ordered' && is_array($list)) {
+        if ($id === $postId && $taxonomy === 'mtflpp_ordered' && is_array($list)) {
             $list = array_reverse($list);
         }
         return $list;
@@ -117,19 +117,19 @@ try {
     add_filter('get_the_terms', $decorate, 0, 3);
     try {
         $check(
-            wp_list_pluck(get_the_terms($postId, 'aflpp_ordered'), 'term_id') === array_reverse($nativeOrder),
+            wp_list_pluck(get_the_terms($postId, 'mtflpp_ordered'), 'term_id') === array_reverse($nativeOrder),
             'Unchanged selections must preserve earlier term-list filters.'
         );
     } finally {
         remove_filter('get_the_terms', $decorate, 0);
     }
-    $bind($postId, ['terms' => wp_json_encode(['aflpp_ordered' => [$ordered[0], $ordered[2]]])]);
+    $bind($postId, ['terms' => wp_json_encode(['mtflpp_ordered' => [$ordered[0], $ordered[2]]])]);
     $check(
-        wp_list_pluck(get_the_terms($postId, 'aflpp_ordered'), 'term_id') === [$ordered[2], $ordered[0]],
+        wp_list_pluck(get_the_terms($postId, 'mtflpp_ordered'), 'term_id') === [$ordered[2], $ordered[0]],
         'Changed selections must also respect registered ordering, including unassigned terms.'
     );
     $check(
-        wp_list_pluck(get_object_term_cache($postId, 'aflpp_ordered'), 'term_id') === $nativeOrder,
+        wp_list_pluck(get_object_term_cache($postId, 'mtflpp_ordered'), 'term_id') === $nativeOrder,
         'Ordered preview reads must leave the relationship cache native.'
     );
     $bind($postId);
@@ -144,7 +144,7 @@ try {
         $sourceId = 0;
         foreach (['2024-07-15T13:45:00', '2024-01-15T13:45:00+03:00', '2036-07-15T13:45:00Z'] as $date) {
             $params = $bind($id, ['date' => $date, 'author' => $admin]);
-            $source = (int) $params['aflpp_revision'];
+            $source = (int) $params['mtflpp_revision'];
             $check(!$sourceId || $source === $sourceId, 'Date changes must reuse the owned source.');
             $sourceId = $source;
             [$local, $utc] = rest_get_date_with_gmt($date);
@@ -171,7 +171,7 @@ try {
                 'Excerpt links must use saved-parent routing despite unsaved author/date permalink tokens.'
             );
             $check($live->fingerprint($id) === $base, 'Date preview must not update parent fields or relationships.');
-            $check(get_post($source)->post_status === 'aflpp-preview', 'Date selection must not schedule the source.');
+            $check(get_post($source)->post_status === 'mtflpp-preview', 'Date selection must not schedule the source.');
             $check(get_post($id) == $parent, 'The saved parent and cached fields must remain unchanged.');
             $import = apply_filters('timber/post/import_data', (array) $parent, $parent);
             if (class_exists(\Timber\Timber::class)) {
@@ -238,7 +238,7 @@ try {
     }
     $throwDate = static function ($date, $format, WP_Post $post) use ($scheduledId) {
         if ($post->ID === $scheduledId) {
-            throw new RuntimeException('aflpp_date_fixture');
+            throw new RuntimeException('mtflpp_date_fixture');
         }
         return $date;
     };
@@ -248,7 +248,7 @@ try {
         try {
             $block('core/post-date', $scheduledId, ['isLink' => true])->render();
         } catch (RuntimeException $error) {
-            $thrown = $error->getMessage() === 'aflpp_date_fixture';
+            $thrown = $error->getMessage() === 'mtflpp_date_fixture';
         }
         $check($thrown, 'The native date callback must actually throw for the cleanup test.');
         foreach ($linkHooks as $hook => $callbacks) {
@@ -263,7 +263,7 @@ try {
     $base = $live->fingerprint($postId);
     $selection = array_map(static fn (array $ids): array => [$ids['Edited']], $choices);
     $params = $bind($postId, ['terms' => wp_json_encode($selection)]);
-    $sourceId = (int) $params['aflpp_revision'];
+    $sourceId = (int) $params['mtflpp_revision'];
     foreach ($choices as $taxonomy => $ids) {
         wp_cache_delete($postId, $taxonomy . '_relationships');
         $list = get_the_terms($postId, $taxonomy);
@@ -285,8 +285,8 @@ try {
         $check(str_contains($html, esc_url(get_term_link($ids['Edited'], $taxonomy))), 'Term links must stay valid.');
     }
     $check($live->fingerprint($postId) === $base, 'Term previews must not write relationships.');
-    $bind($postId, ['terms' => '{"category":[],"post_tag":[],"aflpp_topic":[]}']);
-    foreach (['category', 'post_tag', 'aflpp_topic'] as $taxonomy) {
+    $bind($postId, ['terms' => '{"category":[],"post_tag":[],"mtflpp_topic":[]}']);
+    foreach (['category', 'post_tag', 'mtflpp_topic'] as $taxonomy) {
         $check(get_the_terms($postId, $taxonomy) === false, 'Empty selections must remove term lists.');
         $check(
             $block('core/post-terms', $postId, ['term' => $taxonomy])->render() === '',
@@ -294,7 +294,7 @@ try {
         );
     }
     $check(
-        $live->authorizedSource($postId, $sourceId, $params['aflpp_token']) === null,
+        $live->authorizedSource($postId, $sourceId, $params['mtflpp_token']) === null,
         'Changed terms must invalidate earlier source tokens.'
     );
     $params = $bind($postId);
@@ -309,11 +309,11 @@ try {
         ['terms' => 'invalid'], ['terms' => '[]'], ['terms' => '{"category":1}'],
         ['terms' => '{"category":[-1]}'], ['terms' => '{"category":[1.5]}'],
         ['terms' => '{"category":[2147483647]}'], ['terms' => '{"unknown":[]}'],
-        ['terms' => '{"aflpp_hidden":[]}'],
+        ['terms' => '{"mtflpp_hidden":[]}'],
         ['terms' => wp_json_encode(['category' => [$choices['post_tag']['Edited']]])],
     ];
     foreach ($invalidInputs as $input) {
-        $response = $send('/a-floating-live-preview-panel/v1/posts/' . $postId . '/preview', [
+        $response = $send('/meet-the-frontend-live-preview-panel/v1/posts/' . $postId . '/preview', [
             'base' => $base, ...$input,
         ]);
         $check($response->get_status() === 400, 'Invalid input must be rejected: ' . wp_json_encode($input));
@@ -323,8 +323,8 @@ try {
         );
     }
     wp_set_current_user($author);
-    $response = $send('/a-floating-live-preview-panel/v1/posts/' . $postId . '/preview', [
-        'base' => $base, 'terms' => '{"aflpp_restricted":[]}',
+    $response = $send('/meet-the-frontend-live-preview-panel/v1/posts/' . $postId . '/preview', [
+        'base' => $base, 'terms' => '{"mtflpp_restricted":[]}',
     ]);
     $check($response->get_status() === 403, 'Clearing assignments must require the taxonomy capability.');
     $bind($postId, ['terms' => wp_json_encode(['category' => [$choices['category']['Edited']]])]);
@@ -335,7 +335,7 @@ try {
     };
     add_filter('map_meta_cap', $denyTerm, 10, 4);
     try {
-        $response = $send('/a-floating-live-preview-panel/v1/posts/' . $postId . '/preview', [
+        $response = $send('/meet-the-frontend-live-preview-panel/v1/posts/' . $postId . '/preview', [
             'base' => $base, 'terms' => wp_json_encode(['category' => [$choices['category']['Edited']]]),
         ]);
         $check($response->get_status() === 403, 'Per-term assignment restrictions must remain effective.');
@@ -367,22 +367,22 @@ try {
     wp_set_object_terms($postId, [$choices['category']['Edited']], 'category');
     $check($live->fingerprint($postId) !== $base, 'A term-only saved change must alter the baseline.');
     $check(
-        $live->authorizedSource($postId, (int) $params['aflpp_revision'], $params['aflpp_token']) === null,
+        $live->authorizedSource($postId, (int) $params['mtflpp_revision'], $params['mtflpp_token']) === null,
         'External term changes must expire old previews.'
     );
-    $response = $send('/a-floating-live-preview-panel/v1/posts/' . $postId . '/preview', ['base' => $base]);
+    $response = $send('/meet-the-frontend-live-preview-panel/v1/posts/' . $postId . '/preview', ['base' => $base]);
     $check($response->get_status() === 409, 'Stale taxonomy baselines must not be silently rebased.');
     remove_filter('get_the_terms', [$frontend, 'readTerms'], 10);
     $response = $send(rest_get_route_for_post($postId), [
         'date' => '2024-07-15T13:45:00', 'categories' => [$choices['category']['Edited']],
-        'tags' => [$choices['post_tag']['Edited']], 'preview_topics' => [$choices['aflpp_topic']['Edited']],
+        'tags' => [$choices['post_tag']['Edited']], 'preview_topics' => [$choices['mtflpp_topic']['Edited']],
     ], 'PUT');
     $check($response->get_status() === 200, 'Native date and taxonomy saving must remain intact.');
     $response = $send(rest_get_route_for_post($postId), [], 'GET');
     $saved = $response->get_data();
     $check($saved['date'] === '2024-07-15T13:45:00', 'Reopening must retain the saved publication date.');
     $check(
-        $saved['preview_topics'] === [$choices['aflpp_topic']['Edited']],
+        $saved['preview_topics'] === [$choices['mtflpp_topic']['Edited']],
         'Reopening must retain custom taxonomy assignments.'
     );
     WP_CLI::success('Dates, timezones, native blocks, term lists, caches, permissions and save/reopen passed.');
@@ -406,7 +406,7 @@ try {
     foreach ($terms as [$id, $taxonomy]) {
         wp_delete_term($id, $taxonomy);
     }
-    foreach (['aflpp_topic', 'aflpp_restricted', 'aflpp_hidden', 'aflpp_ordered'] as $taxonomy) {
+    foreach (['mtflpp_topic', 'mtflpp_restricted', 'mtflpp_hidden', 'mtflpp_ordered'] as $taxonomy) {
         unregister_taxonomy($taxonomy);
     }
     foreach ($users as $id) {

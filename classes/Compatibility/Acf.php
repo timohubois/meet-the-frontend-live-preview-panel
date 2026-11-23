@@ -1,8 +1,8 @@
 <?php
 
-namespace AFloatingLivePreviewPanel\Compatibility;
+namespace MeetTheFrontendLivePreviewPanel\Compatibility;
 
-use AFloatingLivePreviewPanel\LivePreview;
+use MeetTheFrontendLivePreviewPanel\LivePreview;
 use Closure;
 use WP_Error;
 use WP_Hook;
@@ -10,7 +10,7 @@ use WP_Hook;
 /** Keep ACF's field, save and preview contracts outside the preview coordinator. */
 final class Acf
 {
-    private const TERMS_META = '_aflpp_acf_preview_term_assignments';
+    private const TERMS_META = '_mtflpp_acf_preview_term_assignments';
 
     private bool $saving = false;
     private int $savedId = 0;
@@ -27,19 +27,19 @@ final class Acf
     public function __construct()
     {
         new AcfTerm();
-        add_filter('aflpp_classic_editor_preview_config', [$this, 'configureEditor']);
-        add_filter('aflpp_block_editor_preview_config', [$this, 'configureEditor']);
-        add_filter('aflpp_classic_editor_preview_script_dependencies', [$this, 'addEditorDependencies']);
-        add_filter('aflpp_block_editor_preview_script_dependencies', [$this, 'addEditorDependencies']);
-        add_filter('aflpp_live_preview_form_values', [$this, 'preparePayload'], 10, 2);
-        add_action('aflpp_live_preview_custom_fields_initialized', [$this, 'beginRevisionWrite']);
-        add_filter('aflpp_live_preview_preparation_error', [$this, 'verifySave'], 10, 2);
-        add_action('aflpp_live_preview_preparation_finished', [$this, 'resetSave'], PHP_INT_MIN, 0);
-        add_action('aflpp_frontend_live_preview_source_selected', fn (array $context) => $this->bindPreview(
+        add_filter('mtflpp_classic_editor_preview_config', [$this, 'configureEditor']);
+        add_filter('mtflpp_block_editor_preview_config', [$this, 'configureEditor']);
+        add_filter('mtflpp_classic_editor_preview_script_dependencies', [$this, 'addEditorDependencies']);
+        add_filter('mtflpp_block_editor_preview_script_dependencies', [$this, 'addEditorDependencies']);
+        add_filter('mtflpp_live_preview_form_values', [$this, 'preparePayload'], 10, 2);
+        add_action('mtflpp_live_preview_custom_fields_initialized', [$this, 'beginRevisionWrite']);
+        add_filter('mtflpp_live_preview_preparation_error', [$this, 'verifySave'], 10, 2);
+        add_action('mtflpp_live_preview_preparation_finished', [$this, 'resetSave'], PHP_INT_MIN, 0);
+        add_action('mtflpp_frontend_live_preview_source_selected', fn (array $context) => $this->bindPreview(
             $context['post']['id'],
             $context['source']['id']
         ));
-        add_action('aflpp_frontend_saved_preview_source_selected', fn (array $context) => $this->bindPreview(
+        add_action('mtflpp_frontend_saved_preview_source_selected', fn (array $context) => $this->bindPreview(
             $context['post']['id'],
             $context['source']['id'],
             true
@@ -108,7 +108,7 @@ final class Acf
             || (isset($input['_acf_fields']) && !is_array($input['_acf_fields']))
         ) {
             return new WP_Error(
-                'aflpp_acf_unavailable',
+                'mtflpp_acf_unavailable',
                 __('The preview can’t read your custom fields.', 'meet-the-frontend-live-preview-panel'),
                 ['status' => 400]
             );
@@ -334,7 +334,7 @@ final class Acf
             }
             if (!$saved) {
                 return new WP_Error(
-                    'aflpp_acf_not_saved',
+                    'mtflpp_acf_not_saved',
                     __('We couldn’t add your field changes to the preview.', 'meet-the-frontend-live-preview-panel'),
                     ['status' => 409]
                 );

@@ -1,6 +1,6 @@
 <?php
 
-namespace AFloatingLivePreviewPanel;
+namespace MeetTheFrontendLivePreviewPanel;
 
 use WP_Post;
 

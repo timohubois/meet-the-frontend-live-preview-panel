@@ -12,7 +12,7 @@ const source = await sourceForVm(new URL('../src/panel/window.js', import.meta.u
 
 // Exercise the view's lifecycle and launcher label with a simulated browser.
 function fixture(open = false, {
-    layout, position, rememberPosition, preferences: savedPreferences, labels = {},
+    layout, position, rememberPosition, preferences: savedPreferences, legacyPreferences: oldPreferences, labels = {},
     width = 1440, height = 1000, direction = 'ltr', lang = 'en-US', gutter = 20, scrollbar = 0, toolbarHeight = 32,
     nativeSaving = false, pip = false, pipApi, videoPip = false, stylesheets = [], publicRedirect, fetch,
 } = {}) {
@@ -20,6 +20,9 @@ function fixture(open = false, {
     const preferences = new Map(savedPreferences ?? [
         ['panelOpen', open], ['layout', layout], ['position', position], ['rememberPosition', rememberPosition],
     ]);
+    const legacyPreferences = new Map(oldPreferences);
+    const scope = 'meet-the-frontend-live-preview-panel';
+    const legacyScope = 'a-floating-live-preview-panel';
     const writes = [];
     const target = (element) => Object.assign(new EventTarget(), element, {
         fire(type, properties = {}) {
@@ -52,7 +55,7 @@ function fixture(open = false, {
             releasePointerCapture: (pointer) => captured.delete(pointer),
             querySelector: (selector) => node(`${key} ${selector}`),
             querySelectorAll: (selector) => selector === '[data-resize-edge]' ? ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'].map((edge) => {
-                const handle = node(`${key} .aflpp-edge-${edge}`);
+                const handle = node(`${key} .mtflpp-edge-${edge}`);
                 handle.dataset.resizeEdge = edge;
                 return handle;
             }) : [],
@@ -85,7 +88,7 @@ function fixture(open = false, {
     document.body = { append: (panel) => { panel.ownerDocument = document; } };
     const detached = target({ document: detachedDocument, close() { this.fire('pagehide'); } });
     const requests = [];
-    const launcherContainer = node('aflpp-toggle');
+    const launcherContainer = node('mtflpp-toggle');
     const launcher = node('launcher-button');
     launcher.title = 'Live preview'; // Native Button's action label.
     launcherContainer.offsetWidth = 160;
@@ -97,8 +100,13 @@ function fixture(open = false, {
         matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
         ResizeObserver: class { observe() {} disconnect() {} },
         wp: { data: {
-            select: () => ({ get: (scope, key) => preferences.get(key) }),
-            dispatch: () => ({ setDefaults() {}, set: (scope, key, value) => {
+            select: () => ({ get: (name, key) => {
+                if (name === legacyScope) return legacyPreferences.get(key);
+                assert.equal(name, scope);
+                return preferences.get(key);
+            } }),
+            dispatch: () => ({ setDefaults(name) { assert.equal(name, scope); }, set: (name, key, value) => {
+                assert.equal(name, scope);
                 preferences.set(key, value);
                 writes.push({ key, value });
             } }),
@@ -108,9 +116,9 @@ function fixture(open = false, {
     detachedDocument.defaultView = detached;
     detached.ResizeObserver = window.ResizeObserver;
     detached.matchMedia = window.matchMedia;
-    for (const selector of ['aflpp-panel .aflpp-viewport', 'aflpp-panel .aflpp-viewport .aflpp-canvas']) Object.defineProperties(node(selector), {
-        clientWidth: { get: () => parseFloat(node('aflpp-panel').style.width) || 0 },
-        clientHeight: { get: () => Math.max(0, (parseFloat(node('aflpp-panel').style.height) || 0) - 92) },
+    for (const selector of ['mtflpp-panel .mtflpp-viewport', 'mtflpp-panel .mtflpp-viewport .mtflpp-canvas']) Object.defineProperties(node(selector), {
+        clientWidth: { get: () => parseFloat(node('mtflpp-panel').style.width) || 0 },
+        clientHeight: { get: () => Math.max(0, (parseFloat(node('mtflpp-panel').style.height) || 0) - 92) },
     });
     setMaxListeners(0, window); // Browser windows have no Node listener warning limit.
     if (pip) window.documentPictureInPicture = { requestWindow: async (options) => { requests.push(options); return detached; } };
@@ -139,7 +147,7 @@ function fixture(open = false, {
         onOpen() { view.setVisible(true); }, onClose() { view.setVisible(false); }, onRetry(takeOver) { retryCalls.push(takeOver); },
         onRefresh(follow = true) { refreshCalls.push({ follow, enabled: preferences.get('scrollToChanges') }); },
     });
-    const panel = node('aflpp-panel');
+    const panel = node('mtflpp-panel');
     return {
         view, launcher, launcherContainer, panel, node, actions, window, document, preferences, writes, detached, copiedStyles,
         requests, focusCalls, retryCalls, refreshCalls,
@@ -149,13 +157,25 @@ function fixture(open = false, {
             const currentWidth = parseFloat(panel.style.width), currentHeight = parseFloat(panel.style.height);
             const dx = state.dock === 'left' ? width - currentWidth
                 : (currentWidth - width) / (state.dock === 'center' ? 2 : 1);
-            const grip = node('aflpp-panel .aflpp-resize');
+            const grip = node('mtflpp-panel .mtflpp-resize');
             grip.fire('pointerdown');
             grip.fire('pointermove', { clientX: 100 + dx, clientY: 100 + currentHeight - height });
             grip.fire('pointerup');
         },
     };
 }
+
+test('old panel preferences are ignored, and changes persist under the new scope', () => {
+    const legacyPreferences = [['panelOpen', false], ['viewport', 'tablet']];
+    const h = fixture(true, { preferences: [], legacyPreferences });
+    assert.equal(h.view.visible, true);
+    assert.equal(h.state.device, 'desktop');
+    assert.deepEqual(h.writes, []);
+
+    h.actions.device('mobile');
+    const reopened = fixture(true, { preferences: h.preferences, legacyPreferences });
+    assert.equal(reopened.state.device, 'mobile');
+});
 
 for (const combined of [false, true]) {
     test(`PiP retains native control styles with ${combined ? 'concatenated' : 'standalone'} core CSS`, async () => {
@@ -165,8 +185,8 @@ for (const combined of [false, true]) {
         const inline = { id: 'wp-components-inline-css' };
         const theme = { id: 'wp-theme-css', rel: 'stylesheet', href: '/wp-includes/css/dist/theme/design-tokens.min.css' };
         const themeInline = { id: 'wp-theme-inline-css' };
-        const panel = { id: 'a-floating-live-preview-panel-css', rel: 'stylesheet', href: '/build/classic-editor.css' };
-        const panelInline = { id: 'a-floating-live-preview-panel-inline-css' };
+        const panel = { id: 'meet-the-frontend-live-preview-panel-css', rel: 'stylesheet', href: '/build/classic-editor.css' };
+        const panelInline = { id: 'meet-the-frontend-live-preview-panel-inline-css' };
         const h = fixture(true, { pip: true, stylesheets: [
             theme, themeInline, core, inline,
             { id: 'unrelated-css', rel: 'stylesheet', href: '/unrelated.css' }, panel, panelInline,
@@ -308,7 +328,7 @@ test('closing a ready panel clears its frame without changing the launcher into 
 
 test('pending, loading, ready and problem states keep refresh activity and accessible status in sync', () => {
     const h = fixture(true);
-    const status = h.node('aflpp-panel [role="status"]');
+    const status = h.node('mtflpp-panel [role="status"]');
     h.view.report('Loading preview…', 'loading', { hasPreview: false });
     assert.equal(status.textContent, 'Loading preview…');
     h.view.report(panelStrings.stale, 'stale', { hasPreview: true });
@@ -391,8 +411,8 @@ test('remembering size and position defaults to on with a 480×393 bottom-right 
     assert.equal(h.state.mode, 'expand');
     assert.equal(h.state.device, 'desktop');
     assert.equal(h.state.fit, 'automatic');
-    assert.equal(h.node('aflpp-panel .aflpp-stage').style.width, '1280px');
-    assert.equal(h.node('aflpp-panel .aflpp-stage').style.height, '800px');
+    assert.equal(h.node('mtflpp-panel .mtflpp-stage').style.width, '1280px');
+    assert.equal(h.node('mtflpp-panel .mtflpp-stage').style.height, '800px');
     assert.equal(h.writes.length, 0);
 });
 
@@ -416,8 +436,8 @@ for (const position of ['left', 'center', 'right']) {
         h.actions.dock(position);
         assert.equal(h.preferences.get('position'), position);
         h.resizeTo(640, 440);
-        h.node('aflpp-panel .aflpp-resize').fire('keydown', { key: 'ArrowUp' });
-        const move = h.node('aflpp-panel .aflpp-move-control');
+        h.node('mtflpp-panel .mtflpp-resize').fire('keydown', { key: 'ArrowUp' });
+        const move = h.node('mtflpp-panel .mtflpp-move-control');
         move.fire('keydown', { key: position === 'left' ? 'ArrowRight' : 'ArrowLeft' });
         move.fire('pointerdown');
         move.fire('pointermove', { clientY: 80 });
@@ -468,7 +488,7 @@ test('re-enabling remembers the current layout rather than restoring an older on
     assert.equal(h.rect().width, 480);
     assert.equal(h.state.mode, 'expand');
     h.resizeTo(640, 440);
-    h.node('aflpp-panel .aflpp-move-control').fire('keydown', { key: 'ArrowRight', shiftKey: true });
+    h.node('mtflpp-panel .mtflpp-move-control').fire('keydown', { key: 'ArrowRight', shiftKey: true });
     const compact = h.rect();
     h.actions.mode();
     const expanded = h.rect();
@@ -556,7 +576,7 @@ for (const fit of ['automatic', 'window', 'width', 'custom']) {
         const h = fixture(true, { preferences: [['fit', 'width'], ['fitMode', fit]] });
         h.view.report('Loaded', 'current', { hasPreview: true });
         assert.equal(h.state.fit, fit);
-        assert.equal(h.node('aflpp-panel .aflpp-stage').style.height, '800px');
+        assert.equal(h.node('mtflpp-panel .mtflpp-stage').style.height, '800px');
         assert.equal(h.writes.length, 0);
     });
 }
@@ -626,8 +646,8 @@ test('hybrid Auto stays selected and never persists an internal fitting strategy
     assert.equal(h.state.fit, 'automatic');
     assert.equal(h.state.device, 'mobile');
     assert.equal(h.state.orientation, 'portrait');
-    assert.equal(h.node('aflpp-panel .aflpp-stage').style.width, '390px');
-    assert.equal(h.node('aflpp-panel .aflpp-stage').style.height, '844px');
+    assert.equal(h.node('mtflpp-panel .mtflpp-stage').style.width, '390px');
+    assert.equal(h.node('mtflpp-panel .mtflpp-stage').style.height, '844px');
     assert.equal(h.writes.length, writes);
     assert.deepEqual(plain([...h.preferences]), preferred);
 });
@@ -642,7 +662,7 @@ test('invalid new fitting preferences fall back to Automatic', () => {
 
 test('an unavailable canvas returns focus to recovery without collapsing the iframe layout', () => {
     const h = fixture(true);
-    const canvas = h.node('aflpp-panel .aflpp-canvas');
+    const canvas = h.node('mtflpp-panel .mtflpp-canvas');
     assert.equal(h.panel.dataset.hasPreview, 'false');
     h.view.report('Loaded', 'current', { hasPreview: true });
     assert.equal(h.panel.dataset.hasPreview, 'true');
@@ -673,8 +693,8 @@ test('desktop stays in landscape on reactivation, device switches and reopening,
         assert.equal(h.state.orientation, 'landscape');
         h.actions.device('desktop');
         assert.equal(h.state.orientation, 'landscape');
-        assert.equal(h.node('aflpp-panel .aflpp-stage').style.width, '1280px');
-        assert.equal(h.node('aflpp-panel .aflpp-stage').style.height, '800px');
+        assert.equal(h.node('mtflpp-panel .mtflpp-stage').style.width, '1280px');
+        assert.equal(h.node('mtflpp-panel .mtflpp-stage').style.height, '800px');
         assert.equal(h.writes.length, 0, 'Reactivating desktop must not write preferences.');
         h.actions.device('mobile');
         assert.equal(h.state.orientation, 'portrait');
@@ -687,7 +707,7 @@ test('desktop stays in landscape on reactivation, device switches and reopening,
         assert.equal(reopened.state.orientation, 'landscape');
         reopened.actions.device('desktop');
         assert.equal(reopened.state.orientation, 'landscape');
-        assert.equal(reopened.node('aflpp-panel .aflpp-stage').style.width, '1280px');
+        assert.equal(reopened.node('mtflpp-panel .mtflpp-stage').style.width, '1280px');
         assert.equal(reopened.writes.length, 0);
         assert.equal(h.writes.some(({ key }) => key === 'desktopOrientation'), false);
         assert.deepEqual(h.rect(), before);
@@ -699,7 +719,7 @@ for (const fit of ['automatic', 'window', 'width']) test(`${fit} and fixed viewp
     h.actions.device('mobile');
     h.actions.device('mobile');
     h.actions.fit(fit);
-    const stage = h.node('aflpp-panel .aflpp-stage');
+    const stage = h.node('mtflpp-panel .mtflpp-stage');
     assert.equal(stage.style.width, '844px');
     assert.equal(stage.style.height, '390px');
     const preferred = plain([...h.preferences]);
@@ -818,11 +838,11 @@ for (const dock of ['left', 'center', 'right']) {
 
 test('keyboard moving becomes a remembered custom position, while resizing preserves docking', () => {
     const h = fixture(true);
-    h.node('aflpp-panel .aflpp-resize').fire('keydown', { key: 'ArrowRight' });
+    h.node('mtflpp-panel .mtflpp-resize').fire('keydown', { key: 'ArrowRight' });
     assert.equal(h.state.dock, 'right');
     assert.equal(h.rect().width, 470);
     assert.equal(h.rect().left + h.rect().width, 1420);
-    h.node('aflpp-panel .aflpp-move-control').fire('keydown', { key: 'ArrowLeft' });
+    h.node('mtflpp-panel .mtflpp-move-control').fire('keydown', { key: 'ArrowLeft' });
     assert.equal(h.state.dock, null);
     const reopened = fixture(true, { layout: h.preferences.get('layout') });
     assert.deepEqual(reopened.rect(), h.rect());
@@ -831,7 +851,7 @@ test('keyboard moving becomes a remembered custom position, while resizing prese
 
 test('pointer movement saves once on release, not during movement or a plain title click', () => {
     const h = fixture(true);
-    const move = h.node('aflpp-panel .aflpp-move-control');
+    const move = h.node('mtflpp-panel .mtflpp-move-control');
     move.fire('pointerdown');
     move.fire('pointerup');
     assert.equal(h.writes.length, 0);
@@ -858,7 +878,7 @@ for (const [edge, dx, dy, expected] of [
     ['nw', -20, -20, { x: 130, y: 160, width: 580, height: 440 }],
 ]) test(`${edge} free border follows pointer input without changing untouched axes`, () => {
     const h = fixture(true, { layout: layout({ anchor: 'right' }) });
-    const handle = h.node(`aflpp-panel .aflpp-edge-${edge}`);
+    const handle = h.node(`mtflpp-panel .mtflpp-edge-${edge}`);
     assert.equal(handle.hidden, false);
     assert.equal(getEventListeners(handle, 'keydown').length, 0);
     handle.fire('pointerdown');
@@ -872,10 +892,10 @@ for (const [dock, usable] of [[null, ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'
     test(`${dock || 'free'} layout exposes only pointer edges that can move with its anchor`, () => {
         const h = fixture(true, { layout: layout({ dock }) });
         for (const edge of ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw']) {
-            assert.equal(h.node(`aflpp-panel .aflpp-edge-${edge}`).hidden, !usable.includes(edge));
+            assert.equal(h.node(`mtflpp-panel .mtflpp-edge-${edge}`).hidden, !usable.includes(edge));
         }
         h.actions.mode();
-        for (const edge of usable) assert.equal(h.node(`aflpp-panel .aflpp-edge-${edge}`).hidden, true);
+        for (const edge of usable) assert.equal(h.node(`mtflpp-panel .mtflpp-edge-${edge}`).hidden, true);
         assert.equal(h.state.movable, false);
     });
 }
@@ -920,15 +940,15 @@ test('a followed redirect is an informational notice for the displayed frame, no
     const h = fixture(true, { labels: panelStrings });
     const redirect = { hasPreview: true, redirectDestination: '/destination/', canRefresh: true };
     h.view.report(panelStrings.current, 'ready', redirect);
-    const feedback = h.node('aflpp-panel .aflpp-feedback');
+    const feedback = h.node('mtflpp-panel .mtflpp-feedback');
     const message = 'Followed a redirect to: /destination/';
     assert.deepEqual(plain(h.state.notice), { heading: message, status: 'info', dismissible: false });
     assert.equal(feedback.hidden, false);
     assert.equal(h.state.canRefresh, true);
-    assert.ok(h.node('aflpp-panel [role="status"]').textContent.includes(message));
+    assert.ok(h.node('mtflpp-panel [role="status"]').textContent.includes(message));
     h.view.report(panelStrings.updating, 'loading', { ...redirect, canRefresh: false });
     assert.equal(h.state.notice.heading, message, 'Keep the note while its frame is still visible during an update.');
-    assert.equal(h.node('aflpp-panel [role="status"]').textContent, panelStrings.updating);
+    assert.equal(h.node('mtflpp-panel [role="status"]').textContent, panelStrings.updating);
     h.view.report('Update failed', 'error', redirect);
     assert.equal(h.state.notice.status, 'warning', 'A real preview problem takes precedence.');
     h.view.report(panelStrings.current, 'ready', { hasPreview: true, canRefresh: true });
@@ -1011,7 +1031,7 @@ for (const hasPreview of [false, true]) {
             assert.equal(h.state.empty, null);
             assert.equal(h.state.notice.status, 'info');
             assert.equal(h.state.notice.dismissible, false);
-            assert.equal(h.node('aflpp-panel .aflpp-feedback').hidden, false);
+            assert.equal(h.node('mtflpp-panel .mtflpp-feedback').hidden, false);
         } else {
             assert.equal(h.state.empty.busy, false);
             assert.equal(h.state.empty.icon, 'info');
@@ -1023,7 +1043,7 @@ for (const hasPreview of [false, true]) {
 }
 
 const postLockedMessage = (await readFile(new URL('../classes/LivePreview.php', import.meta.url), 'utf8'))
-    .match(/'aflpp_post_locked',\s*__\(\s*'([^']+)'/)[1];
+    .match(/'mtflpp_post_locked',\s*__\(\s*'([^']+)'/)[1];
 for (const hasPreview of [false, true]) {
     test(`an edit lock points to native takeover without a retry with ${hasPreview ? 'a retained preview' : 'no preview'}`, () => {
         const h = fixture(true, { labels: panelStrings });
@@ -1085,8 +1105,8 @@ const reloadDetails = [acfStrings.nativePreviewAcf, panelStrings.nativePreviewFa
     panelStrings.integrationFailed, acfStrings.acfUnavailable];
 for (const path of ['classes/LivePreview.php', 'classes/Compatibility/Acf.php']) {
     const php = await readFile(new URL(`../${path}`, import.meta.url), 'utf8');
-    for (const [, code, message] of php.matchAll(/new WP_Error\(\s*'(aflpp_[^']+)',\s*__\(\s*'([^']+)'/g)) {
-        if (['aflpp_invalid_nonce', 'aflpp_preview_conflict', 'aflpp_source_changed', 'aflpp_acf_unavailable'].includes(code)) {
+    for (const [, code, message] of php.matchAll(/new WP_Error\(\s*'(mtflpp_[^']+)',\s*__\(\s*'([^']+)'/g)) {
+        if (['mtflpp_invalid_nonce', 'mtflpp_preview_conflict', 'mtflpp_source_changed', 'mtflpp_acf_unavailable'].includes(code)) {
             reloadDetails.push(message);
         }
     }
@@ -1201,7 +1221,7 @@ for (const dock of ['left', 'center', 'right']) {
         const h = fixture(true);
         h.actions.dock(dock);
         const before = h.rect();
-        const grip = h.node('aflpp-panel .aflpp-resize');
+        const grip = h.node('mtflpp-panel .mtflpp-resize');
         const dx = dock === 'left' ? 50 : -50;
         grip.fire('pointerdown');
         grip.fire('pointermove', { clientX: 100 + dx, clientY: 40 });
@@ -1257,7 +1277,7 @@ test('moving in a small viewport never replaces the preferred size with the temp
     assert.equal(h.preferences.get('layout').bounds.width, 560);
     assert.equal(h.preferences.get('layout').bounds.height, 420);
     h.view.setVisible(true);
-    h.node('aflpp-panel .aflpp-move-control').fire('keydown', { key: 'ArrowUp' });
+    h.node('mtflpp-panel .mtflpp-move-control').fire('keydown', { key: 'ArrowUp' });
     assert.equal(h.preferences.get('layout').bounds.width, 560);
     assert.equal(h.preferences.get('layout').bounds.height, 420);
 });
@@ -1266,7 +1286,7 @@ for (const anchor of ['left', 'center', 'right']) {
     test(`${anchor} vertical resizing preserves the preferred horizontal geometry in a narrow viewport`, () => {
         const saved = layout({ anchor });
         const h = fixture(true, { layout: saved, width: 390, height: 800 });
-        h.node('aflpp-panel .aflpp-resize').fire('keydown', { key: 'ArrowUp' });
+        h.node('mtflpp-panel .mtflpp-resize').fire('keydown', { key: 'ArrowUp' });
         const { bounds } = h.preferences.get('layout');
         assert.equal(bounds.x, saved.bounds.x);
         assert.equal(bounds.width, saved.bounds.width);
@@ -1279,7 +1299,7 @@ for (const anchor of ['left', 'center', 'right']) {
     test(`${anchor} horizontal resizing preserves the preferred vertical geometry in a short viewport`, () => {
         const saved = layout({ anchor });
         const h = fixture(true, { layout: saved, height: 400 });
-        h.node('aflpp-panel .aflpp-resize').fire('keydown', { key: anchor === 'left' ? 'ArrowRight' : 'ArrowLeft' });
+        h.node('mtflpp-panel .mtflpp-resize').fire('keydown', { key: anchor === 'left' ? 'ArrowRight' : 'ArrowLeft' });
         const { bounds } = h.preferences.get('layout');
         assert.equal(bounds.y, saved.bounds.y);
         assert.equal(bounds.height, saved.bounds.height);
@@ -1293,7 +1313,7 @@ for (const anchor of ['left', 'center', 'right']) {
         const saved = layout({ anchor });
         const h = fixture(true, { layout: saved, width: 390, height: 400 });
         const before = h.rect();
-        const grip = h.node('aflpp-panel .aflpp-resize');
+        const grip = h.node('mtflpp-panel .mtflpp-resize');
         grip.fire('pointerdown');
         grip.fire('pointermove', { clientX: 120, clientY: 120 });
         grip.fire('pointermove', { clientX: 100, clientY: 100 });
@@ -1309,7 +1329,7 @@ for (const direction of ['ltr', 'rtl']) for (const anchor of ['left', 'center', 
     test(`${direction} ${anchor} anchor retains physical free-corner pointer resizing`, () => {
         const h = fixture(true, { layout: layout({ dock: anchor, anchor }), direction });
         const before = h.rect();
-        const grip = h.node(`aflpp-panel .aflpp-edge-${anchor === 'left' ? 'ne' : 'nw'}`);
+        const grip = h.node(`mtflpp-panel .mtflpp-edge-${anchor === 'left' ? 'ne' : 'nw'}`);
         const dx = anchor === 'left' ? 30 : -30;
         grip.fire('pointerdown');
         grip.fire('pointermove', { clientX: 100 + dx, clientY: 80 });
@@ -1344,15 +1364,15 @@ for (const event of ['pointercancel', 'lostpointercapture', 'blur']) {
         h.launcher.fire('pointerup');
         assert.equal(h.writes.length, 1);
         assert.equal(h.launcher.hasPointerCapture(1), false);
-        assert.equal(h.document.documentElement.classList.contains('aflpp-window-dragging'), false);
-        assert.equal(h.panel.classList.contains('aflpp-dragging'), false);
+        assert.equal(h.document.documentElement.classList.contains('mtflpp-window-dragging'), false);
+        assert.equal(h.panel.classList.contains('mtflpp-dragging'), false);
     });
 }
 
 test('returning a resize drag to its origin restores both original preferred dimensions', () => {
     const h = fixture(true);
     const before = h.rect();
-    const grip = h.node('aflpp-panel .aflpp-resize');
+    const grip = h.node('mtflpp-panel .mtflpp-resize');
     grip.fire('pointerdown');
     grip.fire('pointermove', { clientX: 30, clientY: 20 });
     grip.fire('pointermove', { clientX: 100, clientY: 100 });
@@ -1387,7 +1407,7 @@ test('keyboard opening focuses actions and closing focuses the launcher, without
 
 test('the single resize grip hides in expanded, fullscreen and PiP modes', async () => {
     const h = fixture(true, { pip: true });
-    const grip = h.node('aflpp-panel .aflpp-resize');
+    const grip = h.node('mtflpp-panel .mtflpp-resize');
     assert.equal(grip.hidden, false);
     h.actions.mode();
     assert.equal(grip.hidden, true);
@@ -1457,7 +1477,7 @@ for (const anchor of ['left', 'center', 'right']) for (const keyboard of [false,
 for (const launcher of [false, true]) {
     test(`the ${launcher ? 'launcher' : 'panel'} can use the full layout viewport below the actual admin bar`, () => {
         const h = fixture(!launcher, { toolbarHeight: 46, scrollbar: 15 });
-        const control = launcher ? h.launcher : h.node('aflpp-panel .aflpp-move-control');
+        const control = launcher ? h.launcher : h.node('mtflpp-panel .mtflpp-move-control');
         control.fire('pointerdown');
         control.fire('pointermove', { clientX: -2000, clientY: -2000 });
         control.fire('pointerup');

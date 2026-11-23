@@ -144,8 +144,8 @@ async function browserTests(editorSource, initAcf, nativeSource, extensionSource
                 options.onClose();
                 nativeEditor.destroy?.();
                 if (window.jQuery) {
-                    window.jQuery(document).off('.aflpp');
-                    window.jQuery(form).off('.aflpp .aflppAcf');
+                    window.jQuery(document).off('.mtflpp');
+                    window.jQuery(form).off('.mtflpp .mtflppAcf');
                 }
                 for (const { target, type, listener } of jqueryListeners) target.removeEventListener(type, listener);
                 if (jqueryMethods) Object.assign(realJQuery.fn, jqueryMethods);
@@ -307,7 +307,7 @@ async function browserTests(editorSource, initAcf, nativeSource, extensionSource
         equal(context.stale(), 1);
     }, { withWordPress: true, withTinyMce: false });
     await check('teardown unsubscribes the document readiness handler, detaches editors and ignores later readiness', (context) => {
-        const event = 'tinymce-editor-init.aflppClassicEditor';
+        const event = 'tinymce-editor-init.mtflppClassicEditor';
         const subscription = context.jqueryCalls.find(({ method, target, args }) =>
             method === 'on' && target === document && args[0] === event);
         equal(!!subscription, true);

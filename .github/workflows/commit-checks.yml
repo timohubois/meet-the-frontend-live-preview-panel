@@ -90,8 +90,8 @@ jobs:
       - name: Install disposable WordPress
         run: |
           wp core download --path="$RUNNER_TEMP/site" --version="$WORDPRESS_VERSION"
-          wp config create --path="$RUNNER_TEMP/site" --dbname=wordpress --dbuser=root --dbpass=root --dbhost=127.0.0.1 --dbprefix=aflpp_test_
-          wp core install --path="$RUNNER_TEMP/site" --url=http://aflpp.test --title=Tests --admin_user=test --admin_password=test-only-password --admin_email=test@example.test --skip-email
+          wp config create --path="$RUNNER_TEMP/site" --dbname=wordpress --dbuser=root --dbpass=root --dbhost=127.0.0.1 --dbprefix=mtflpp_test_
+          wp core install --path="$RUNNER_TEMP/site" --url=http://mtflpp.test --title=Tests --admin_user=test --admin_password=test-only-password --admin_email=test@example.test --skip-email
           if [ "$TIMBER_CONSTRAINT" != 'none' ]; then
             mkdir -p "$RUNNER_TEMP/site/wp-content/mu-plugins"
             printf '%s\n' \
@@ -117,7 +117,7 @@ jobs:
         run: npm test
       - name: Run WordPress integration tests (ACF Pro checks skipped)
         env:
-          AFLPP_TEST_UNINSTALL: '1'
+          MTFLPP_TEST_UNINSTALL: '1'
         run: |
           for fixture in tests/*.php; do
             echo "::group::$fixture"
@@ -126,7 +126,7 @@ jobs:
           done
       - name: Check multisite uninstall safety
         env:
-          AFLPP_TEST_UNINSTALL: '1'
+          MTFLPP_TEST_UNINSTALL: '1'
         run: |
           wp core multisite-convert --path="$RUNNER_TEMP/site" --base=/
           wp --path="$RUNNER_TEMP/site" eval-file "$GITHUB_WORKSPACE/tests/uninstall.php"

@@ -2,8 +2,8 @@
 
 /** Run with `wp eval-file tests/block-editor.php`; fixtures are created and removed on this single site. */
 
-use AFloatingLivePreviewPanel\LivePreview;
-use AFloatingLivePreviewPanel\FrontendPreview;
+use MeetTheFrontendLivePreviewPanel\LivePreview;
+use MeetTheFrontendLivePreviewPanel\FrontendPreview;
 
 if (!defined('WP_CLI') || !WP_CLI || !class_exists(LivePreview::class) || is_multisite()) {
     throw new RuntimeException('Run through WP-CLI on a single-site installation with this plugin active.');
@@ -19,7 +19,7 @@ $users = [];
 $posts = [];
 $disableHistory = null;
 $live = new LivePreview();
-register_post_meta('post', '_aflpp_rejected_meta', [
+register_post_meta('post', '_mtflpp_rejected_meta', [
     'single' => true, 'type' => 'string', 'show_in_rest' => true,
     'auth_callback' => '__return_false',
 ]);
@@ -35,21 +35,21 @@ $send = static function (
     $request->set_body_params($data);
     $request->set_header('X-WP-Nonce', $nonce ?? wp_create_nonce('wp_rest'));
     if ($base !== null) {
-        $request->set_header('X-AFLPP-Base', $base);
-        $request->set_header('X-AFLPP-Request', str_repeat('a', 32));
+        $request->set_header('X-MTFLPP-Base', $base);
+        $request->set_header('X-MTFLPP-Request', str_repeat('a', 32));
     }
     return apply_filters('rest_post_dispatch', rest_ensure_response(rest_do_request($request)), $server, $request);
 };
 $lateMeta = static function (WP_Post $post): void {
-    if (get_post_meta($post->ID, '_aflpp_test', true)) {
-        update_post_meta($post->ID, '_aflpp_after_rest', 'saved after the core update');
+    if (get_post_meta($post->ID, '_mtflpp_test', true)) {
+        update_post_meta($post->ID, '_mtflpp_after_rest', 'saved after the core update');
     }
 };
 add_action('rest_after_insert_post', $lateMeta);
 try {
     foreach (['administrator', 'subscriber'] as $role) {
         $id = wp_insert_user([
-            'user_login' => 'aflpp_block_' . $role . '_' . wp_generate_password(12, false, false),
+            'user_login' => 'mtflpp_block_' . $role . '_' . wp_generate_password(12, false, false),
             'user_pass' => wp_generate_password(32), 'role' => $role,
         ]);
         $check(!is_wp_error($id), 'Could not create a fixture user.');
@@ -62,7 +62,7 @@ try {
     foreach (['draft', 'publish', 'auto-draft'] as $status) {
         $id = wp_insert_post([
             'post_type' => 'post', 'post_status' => $status, 'post_author' => $admin,
-            'post_title' => 'AFLPP block editor fixture',
+            'post_title' => 'MTFLPP block editor fixture',
             'post_content' => '<!-- wp:paragraph --><p>Saved</p><!-- /wp:paragraph -->',
         ], true);
         $check(!is_wp_error($id) && $id > 0, 'Could not create a fixture post.');
@@ -72,9 +72,10 @@ try {
     $check(!wp_revisions_enabled(get_post($draft)), 'The fixture must disable core revision history.');
     $check(!$live->isAvailable(get_post($new)), 'Live previews must still require a first save.');
     $route = rest_get_route_for_post($draft);
-    update_post_meta($draft, '_aflpp_test', '1');
+    update_post_meta($draft, '_mtflpp_test', '1');
     $base = $live->fingerprint($draft);
-    $preview = $send('/a-floating-live-preview-panel/v1/posts/' . $draft . '/preview', [
+    $previewRoute = '/meet-the-frontend-live-preview-panel/v1/posts/' . $draft . '/preview';
+    $preview = $send($previewRoute, [
         'base' => $base, 'post_title' => 'Unsaved title',
         'content' => '<!-- wp:paragraph --><p>Unsaved block</p><!-- /wp:paragraph -->', 'excerpt' => 'Unsaved excerpt',
     ], null);
@@ -85,19 +86,18 @@ try {
     $check($live->fingerprint($draft) === $base, 'Preview writes must leave the saved parent untouched.');
     $check(!wp_get_post_autosave($draft, $admin), 'Preview writes must not create a recovery autosave.');
     parse_str(wp_parse_url($preview->get_data()['url'], PHP_URL_QUERY), $query);
-    $revision = get_post((int) $query['aflpp_revision']);
+    $revision = get_post((int) $query['mtflpp_revision']);
     $check(
         $revision
         && str_contains($revision->post_content, '<!-- wp:paragraph -->'),
         'Preview revisions must retain block serialization.'
     );
 
-    $previewRoute = '/a-floating-live-preview-panel/v1/posts/' . $draft . '/preview';
     update_post_meta($draft, '_edit_lock', time() . ':' . $subscriber);
     foreach ([$base, str_repeat('0', 64)] as $lockedBase) {
         $response = $send($previewRoute, ['base' => $lockedBase, 'content' => 'Locked edits'], null);
         $check(
-            $response->get_status() === 409 && $response->get_data()['code'] === 'aflpp_post_locked',
+            $response->get_status() === 409 && $response->get_data()['code'] === 'mtflpp_post_locked',
             'An edit lock must have its own recoverable response, even when the saved source also changed.'
         );
         $check(
@@ -110,7 +110,7 @@ try {
     $check($response->get_status() === 200, 'The preview must accept the new editing lock after native takeover.');
     $response = $send($previewRoute, ['base' => str_repeat('0', 64)], null);
     $check(
-        $response->get_status() === 409 && $response->get_data()['code'] === 'aflpp_preview_conflict',
+        $response->get_status() === 409 && $response->get_data()['code'] === 'mtflpp_preview_conflict',
         'Resolving an edit lock must not bypass stale-source protection.'
     );
     delete_post_meta($draft, '_edit_lock');
@@ -118,13 +118,13 @@ try {
     $images = [];
     foreach (['saved', 'edited'] as $label) {
         $upload = wp_upload_bits(
-            'aflpp-image-' . $label . '-' . wp_generate_password(8, false) . '.png',
+            'mtflpp-image-' . $label . '-' . wp_generate_password(8, false) . '.png',
             null,
             file_get_contents(ABSPATH . 'wp-includes/images/w-logo-blue.png')
         );
         $check(empty($upload['error']), 'Could not create a fixture image.');
         $image = wp_insert_attachment(
-            ['post_title' => 'AFLPP image fixture', 'post_mime_type' => 'image/png'],
+            ['post_title' => 'MTFLPP image fixture', 'post_mime_type' => 'image/png'],
             $upload['file']
         );
         $check($image > 0, 'Could not create a fixture attachment.');
@@ -141,7 +141,7 @@ try {
         $response = $send($previewRoute, $data, null);
         $check($response->get_status() === 200, 'Valid featured-image changes must preview.');
         parse_str(wp_parse_url($response->get_data()['url'], PHP_URL_QUERY), $imageQuery);
-        $imageRevision = (int) $imageQuery['aflpp_revision'];
+        $imageRevision = (int) $imageQuery['mtflpp_revision'];
         $expected = $selection ?? $images[0];
         $check(
             (int) get_post_meta($imageRevision, '_thumbnail_id', true) === $expected,
@@ -166,7 +166,7 @@ try {
                 (int) get_post_meta($draft, '_thumbnail_id', true) === $expected,
                 'Themes reading thumbnail metadata directly must see the same live source.'
             );
-            $check(get_post_meta($draft, '_aflpp_test', true) === '1', 'Unrelated metadata must not be overlaid.');
+            $check(get_post_meta($draft, '_mtflpp_test', true) === '1', 'Unrelated metadata must not be overlaid.');
             $check(get_post_thumbnail_id($published) === 0, 'Other posts must not inherit the preview image.');
         } finally {
             $_GET = $originalGet;
@@ -199,7 +199,7 @@ try {
     }
 
     $response = $send($route, ['title' => 'Native update'], $base, 'PUT');
-    $receipt = $response->get_data()['_aflpp_receipt'] ?? [];
+    $receipt = $response->get_data()['_mtflpp_receipt'] ?? [];
     $check($response->get_status() === 200, 'Receipt handling must not replace native REST saves.');
     $check(
         ($receipt['before'] ?? '') === $base
@@ -221,31 +221,31 @@ try {
     $response = $send($route, ['status' => 'not-a-valid-status'], $base, 'PUT');
     $check(
         $response->get_status() === 400
-        && ($response->get_data()['_aflpp_receipt']['after'] ?? '') === $base
+        && ($response->get_data()['_mtflpp_receipt']['after'] ?? '') === $base
         && $live->fingerprint($draft) === $base,
         'Only a correlated unchanged-state receipt can confirm that a rejected save left the baseline intact.'
     );
 
     $response = $send($route, [
         'title' => 'Saved before the metadata rejection',
-        'meta' => ['_aflpp_rejected_meta' => 'Forbidden'],
+        'meta' => ['_mtflpp_rejected_meta' => 'Forbidden'],
     ], $base, 'PUT');
     $check(
         $response->get_status() === 403
         && ($response->get_data()['code'] ?? '') === 'rest_cannot_update'
         && get_post($draft)->post_title === 'Saved before the metadata rejection'
         && $live->fingerprint($draft) !== $base
-        && !isset($response->get_data()['_aflpp_receipt']),
+        && !isset($response->get_data()['_mtflpp_receipt']),
         'A metadata 403 after wp_update_post must not confirm the old baseline or advance a failed save.'
     );
-    unregister_post_meta('post', '_aflpp_rejected_meta');
+    unregister_post_meta('post', '_mtflpp_rejected_meta');
 
     $base = $live->fingerprint($draft);
     wp_update_post(['ID' => $draft, 'post_excerpt' => 'External change']);
     $response = $send($route, ['title' => 'Native save still works'], $base, 'PUT');
     $check($response->get_status() === 200, 'A preview conflict must not reject a native save.');
     $check(
-        ($response->get_data()['_aflpp_receipt']['after'] ?? '') === 'conflict',
+        ($response->get_data()['_mtflpp_receipt']['after'] ?? '') === 'conflict',
         'An external change must never be silently rebased.'
     );
 
@@ -253,15 +253,15 @@ try {
         $response = $send($route, ['title' => 'Unmarked native save'], $base, 'PUT');
         $check(
             $response->get_status() === 200
-            && !isset($response->get_data()['_aflpp_receipt']),
+            && !isset($response->get_data()['_mtflpp_receipt']),
             'Unmarked or invalid opt-ins must leave native responses unchanged.'
         );
     }
     $response = $send($route, [], $live->fingerprint($draft), 'GET');
-    $check(!isset($response->get_data()['_aflpp_receipt']), 'Reads must never advance an editor baseline.');
+    $check(!isset($response->get_data()['_mtflpp_receipt']), 'Reads must never advance an editor baseline.');
     $response = $send($route, ['title' => 'No preview authentication'], $live->fingerprint($draft), 'PUT', 'invalid');
     $check(
-        !isset($response->get_data()['_aflpp_receipt']),
+        !isset($response->get_data()['_mtflpp_receipt']),
         'Alternative/internal REST authentication must not bypass our explicit REST nonce contract.'
     );
 
@@ -271,7 +271,7 @@ try {
     ], $base);
     $check($response->get_status() < 300, 'Native author-draft autosave must work.');
     $check(
-        ($response->get_data()['_aflpp_receipt']['after'] ?? '') === $live->fingerprint($draft),
+        ($response->get_data()['_mtflpp_receipt']['after'] ?? '') === $live->fingerprint($draft),
         'Draft autosaves must acknowledge changes to the parent.'
     );
     $check(
@@ -287,7 +287,7 @@ try {
     }
     foreach (['block-editor', 'classic-editor'] as $editor) {
         update_post_meta($published, 'classic-editor-remember', $editor);
-        $response = $send('/a-floating-live-preview-panel/v1/posts/' . $published . '/preview', [
+        $response = $send('/meet-the-frontend-live-preview-panel/v1/posts/' . $published . '/preview', [
             'base' => $base, 'post_title' => 'Preview after editor preference update',
         ], null);
         $check(
@@ -308,7 +308,7 @@ try {
     ], $base);
     $check($response->get_status() < 300, 'Published autosaves must work.');
     $check(
-        ($response->get_data()['_aflpp_receipt']['after'] ?? '') === $base
+        ($response->get_data()['_mtflpp_receipt']['after'] ?? '') === $base
         && $live->fingerprint($published) === $base,
         'Published autosaves must keep the unchanged parent baseline.'
     );
@@ -319,7 +319,7 @@ try {
         'Core must retain its recovery autosave.'
     );
     $recoveryBase = $live->fingerprint($recovery->ID);
-    $response = $send('/a-floating-live-preview-panel/v1/posts/' . $published . '/preview', [
+    $response = $send('/meet-the-frontend-live-preview-panel/v1/posts/' . $published . '/preview', [
         'base' => $base, 'post_title' => 'Unsaved changes after recovery autosave',
     ], null);
     $check(
@@ -334,7 +334,7 @@ try {
         'PUT'
     );
     $check(
-        ($response->get_data()['_aflpp_receipt']['available'] ?? false) === true,
+        ($response->get_data()['_mtflpp_receipt']['available'] ?? false) === true,
         'A first draft save must enable preview without a reload.'
     );
 
@@ -342,7 +342,7 @@ try {
     $response = $send($route, ['title' => 'Forbidden'], $live->fingerprint($draft), 'PUT');
     $check(
         $response->get_status() === 403
-        && !isset($response->get_data()['_aflpp_receipt']),
+        && !isset($response->get_data()['_mtflpp_receipt']),
         'Unauthorized saves must not receive a receipt.'
     );
     WP_CLI::success('Block-editor receipts, autosaves, first saves and isolated block previews passed.');
@@ -350,7 +350,7 @@ try {
     if ($disableHistory !== null) {
         remove_filter('wp_post_revisions_to_keep', $disableHistory);
     }
-    unregister_post_meta('post', '_aflpp_rejected_meta');
+    unregister_post_meta('post', '_mtflpp_rejected_meta');
     remove_action('rest_after_insert_post', $lateMeta);
     wp_set_current_user($users[0] ?? $originalUser);
     foreach (array_reverse($posts) as $id) {

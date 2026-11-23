@@ -126,13 +126,13 @@ wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/acf.php
 ```
 
 Uninstall checks are destructive and require both an explicit opt-in and the dedicated
-`aflpp_test_` table prefix on a disposable installation. They check revision/user batches,
+`mtflpp_test_` table prefix on a disposable installation. They check revision/user batches,
 preserved content, recovery autosaves and unrelated preferences, including multisite.
 CI runs them on single-site WordPress, then converts that disposable site to multisite
 and runs them again. Never point them at a project database:
 
 ```sh
-AFLPP_TEST_UNINSTALL=1 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/uninstall.php
+MTFLPP_TEST_UNINSTALL=1 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/uninstall.php
 ```
 
 ### Native reveal browser verification

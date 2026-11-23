@@ -84,8 +84,8 @@ async function browserFixture(editorSource, nativeSource, extensionSource) {
         cleanup = () => {
             options.onClose();
             native.destroy();
-            window.jQuery(document).off('.aflpp');
-            window.jQuery(form).off('.aflpp .validation');
+            window.jQuery(document).off('.mtflpp');
+            window.jQuery(form).off('.mtflpp .validation');
             window.jQuery(target).off('.validation');
             for (const { target, type, listener } of listeners) target.removeEventListener(type, listener);
             form.remove(); destination.remove();

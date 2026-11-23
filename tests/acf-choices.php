@@ -2,8 +2,8 @@
 
 /** Run with `wp eval-file tests/acf-choices.php` on a disposable site with ACF active. */
 
-use AFloatingLivePreviewPanel\Compatibility\Acf;
-use AFloatingLivePreviewPanel\LivePreview;
+use MeetTheFrontendLivePreviewPanel\Compatibility\Acf;
+use MeetTheFrontendLivePreviewPanel\LivePreview;
 
 if (!defined('WP_CLI') || !WP_CLI || !class_exists(LivePreview::class) || is_multisite()) {
     throw new RuntimeException('Run through WP-CLI on a disposable single site with the plugin active.');
@@ -19,25 +19,25 @@ $check = static function (bool $condition, string $message): void {
     }
 };
 $send = static function (string $subject, array $body): WP_REST_Response {
-    $request = new WP_REST_Request('POST', '/a-floating-live-preview-panel/v1/' . $subject . '/preview');
+    $request = new WP_REST_Request('POST', '/meet-the-frontend-live-preview-panel/v1/' . $subject . '/preview');
     $request->set_header('X-WP-Nonce', wp_create_nonce('wp_rest'));
     $request->set_body_params($body);
     return rest_do_request($request);
 };
 $suffix = strtolower(wp_generate_password(8, false));
-$taxonomy = 'aflpp_acf_choices';
+$taxonomy = 'mtflpp_acf_choices';
 $previousUser = get_current_user_id();
 $user = $groupId = $termId = $postId = $revisionId = 0;
 $transient = '';
 try {
     $user = wp_insert_user([
-        'user_login' => 'aflpp_choices_' . $suffix, 'user_pass' => wp_generate_password(), 'role' => 'administrator',
+        'user_login' => 'mtflpp_choices_' . $suffix, 'user_pass' => wp_generate_password(), 'role' => 'administrator',
     ]);
     $check(is_int($user), 'Create a preview editor.');
     wp_set_current_user($user);
     register_taxonomy($taxonomy, 'post', ['public' => true]);
     $group = acf_update_field_group([
-        'key' => 'group_aflpp_choices_' . $suffix, 'title' => 'Temporary preview choice fields',
+        'key' => 'group_mtflpp_choices_' . $suffix, 'title' => 'Temporary preview choice fields',
         'location' => [
             [['param' => 'taxonomy', 'operator' => '==', 'value' => $taxonomy]],
             [['param' => 'post_type', 'operator' => '==', 'value' => 'post']],
@@ -52,8 +52,8 @@ try {
     $fields = [];
     foreach ($choiceSettings as $type => $settings) {
         $fields[$type] = acf_update_field($settings + [
-            'key' => 'field_aflpp_' . $type . '_' . $suffix, 'parent' => $groupId, 'type' => $type,
-            'name' => 'aflpp_' . $type, 'label' => $type, 'choices' => ['existing' => 'Existing choice'],
+            'key' => 'field_mtflpp_' . $type . '_' . $suffix, 'parent' => $groupId, 'type' => $type,
+            'name' => 'mtflpp_' . $type, 'label' => $type, 'choices' => ['existing' => 'Existing choice'],
         ]);
     }
     $snapshot = static fn (): array => array_map(static function (array $field): array {
@@ -66,7 +66,7 @@ try {
 
     $termId = wp_insert_term('Choice preview ' . $suffix, $taxonomy)['term_id'];
     $term = get_term($termId);
-    $transient = 'aflpp_term_' . $term->term_taxonomy_id . '_' . $user;
+    $transient = 'mtflpp_term_' . $term->term_taxonomy_id . '_' . $user;
     $postId = wp_insert_post(['post_title' => 'Choice preview ' . $suffix, 'post_status' => 'publish']);
     $baseline = $snapshot();
     $termResponse = $send('terms/' . $termId, [
@@ -82,7 +82,7 @@ try {
     $check($postResponse->get_status() === 200, 'Prepare custom choices for a post.');
     $check($snapshot() === $baseline, 'A post preview must leave every shared field definition unchanged.');
     parse_str((string) wp_parse_url($postResponse->get_data()['url'], PHP_URL_QUERY), $query);
-    $revisionId = (int) $query['aflpp_revision'];
+    $revisionId = (int) $query['mtflpp_revision'];
     foreach ($fields as $field) {
         $draft = get_post_meta($revisionId, $field['name'], true);
         $check($draft !== '' && $overlay[$field['name']] === $draft, 'Draft choices must match in both previews.');

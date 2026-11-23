@@ -1,17 +1,17 @@
 <?php
 
-/** Destructive: use AFLPP_TEST_UNINSTALL=1 and prefix aflpp_test_ on a disposable WP-CLI installation only. */
+/** Destructive: use MTFLPP_TEST_UNINSTALL=1 and prefix mtflpp_test_ on a disposable WP-CLI installation only. */
 
 if (!defined('WP_CLI') || !WP_CLI) {
     throw new RuntimeException('Run this fixture through WP-CLI.');
 }
-if (getenv('AFLPP_TEST_UNINSTALL') !== '1') {
+if (getenv('MTFLPP_TEST_UNINSTALL') !== '1') {
     WP_CLI::log('Skipping destructive uninstall checks; explicitly opt in on a disposable test installation.');
     return;
 }
 global $wpdb;
-if ($wpdb->base_prefix !== 'aflpp_test_') {
-    throw new RuntimeException('Uninstall checks require the dedicated aflpp_test_ table prefix.');
+if ($wpdb->base_prefix !== 'mtflpp_test_') {
+    throw new RuntimeException('Uninstall checks require the dedicated mtflpp_test_ table prefix.');
 }
 require_once ABSPATH . 'wp-admin/includes/plugin.php';
 require_once ABSPATH . 'wp-admin/includes/user.php';
@@ -30,7 +30,7 @@ $originalUser = get_current_user_id();
 $startingSite = get_current_blog_id();
 $users = $fixtures = [];
 $createdSite = 0;
-$scope = 'a-floating-live-preview-panel';
+$scope = 'meet-the-frontend-live-preview-panel';
 $preferences = static fn (int $i): array|string => match ($i) {
     101 => ['core/edit-site' => ['keep' => true]],
     102 => 'Malformed legacy preferences',
@@ -44,7 +44,7 @@ $snapshot = static fn (int $id): array => [get_post($id, ARRAY_A), get_post_meta
 try {
     for ($i = 0; $i < 103; $i++) {
         $id = wp_insert_user([
-            'user_login' => 'aflpp_uninstall_' . wp_generate_password(16, false, false),
+            'user_login' => 'mtflpp_uninstall_' . wp_generate_password(16, false, false),
             'user_pass' => wp_generate_password(32), 'role' => 'subscriber',
         ]);
         $check(!is_wp_error($id), 'Could not create a fixture user.');
@@ -55,7 +55,7 @@ try {
     if (is_multisite()) {
         $createdSite = wpmu_create_blog(
             wp_parse_url(home_url(), PHP_URL_HOST),
-            '/aflpp-uninstall/',
+            '/mtflpp-uninstall/',
             'Uninstall fixture',
             $users[0]
         );
@@ -79,15 +79,15 @@ try {
             $history = $create($revision + ['post_title' => 'Ordinary history']);
             $recovery = $create($revision + ['post_name' => $parent . '-autosave-v1', 'post_title' => 'Recovery']);
             $otherRevision = $create(array_replace($revision, ['post_status' => 'other-preview']));
-            $otherPost = $create(['post_type' => 'post', 'post_status' => 'aflpp-preview']);
+            $otherPost = $create(['post_type' => 'post', 'post_status' => 'mtflpp-preview']);
             $check(wp_is_post_autosave($recovery) === $parent, 'The recovery fixture must be a native autosave.');
             foreach ([$parent, $history, $recovery, $otherRevision, $otherPost] as $id) {
-                add_metadata('post', $id, 'aflpp_uninstall_fixture', ['keep' => "O'Reilly \\ path"]);
+                add_metadata('post', $id, 'mtflpp_uninstall_fixture', ['keep' => "O'Reilly \\ path"]);
                 $fixtures[$siteId]['protected'][$id] = $snapshot($id);
             }
             for ($i = 0; $i < 101; $i++) {
-                $id = $create(array_replace($revision, ['post_status' => 'aflpp-preview']));
-                add_metadata('post', $id, 'aflpp_uninstall_fixture', ['remove' => true]);
+                $id = $create(array_replace($revision, ['post_status' => 'mtflpp-preview']));
+                add_metadata('post', $id, 'mtflpp_uninstall_fixture', ['remove' => true]);
                 $fixtures[$siteId]['previews'][] = $id;
             }
             $key = $wpdb->get_blog_prefix() . 'persisted_preferences';
@@ -105,7 +105,7 @@ try {
     update_user_meta($users[0], $orphanKey, [$scope => ['keep' => true]]);
     deactivate_plugins($plugin, true, $network);
     $check(get_post($fixtures[$startingSite]['previews'][0]) !== null, 'Deactivation must keep preview data.');
-    unset($GLOBALS['wp_post_statuses']['aflpp-preview']); // Uninstall must work without plugin registration.
+    unset($GLOBALS['wp_post_statuses']['mtflpp-preview']); // Uninstall must work without plugin registration.
     $check(uninstall_plugin($plugin) === true, 'WordPress must discover and execute uninstall.php.');
     foreach ($fixtures as $siteId => $fixture) {
         if (is_multisite()) {

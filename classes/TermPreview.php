@@ -1,6 +1,6 @@
 <?php
 
-namespace AFloatingLivePreviewPanel;
+namespace MeetTheFrontendLivePreviewPanel;
 
 use WP_Error;
 use WP_REST_Request;
@@ -23,7 +23,7 @@ final class TermPreview
 
     public function registerRoutes(): void
     {
-        register_rest_route('a-floating-live-preview-panel/v1', '/terms/(?P<id>\d+)/preview', [
+        register_rest_route('meet-the-frontend-live-preview-panel/v1', '/terms/(?P<id>\d+)/preview', [
             'methods' => WP_REST_Server::CREATABLE,
             'permission_callback' => [$this, 'canPreparePreview'],
             'callback' => [$this, 'preparePreview'],
@@ -55,7 +55,7 @@ final class TermPreview
         $term = get_term((int) $request->get_url_params()['id']);
         if (!$term instanceof WP_Term || !$this->canEdit($term)) {
             return new WP_Error(
-                'aflpp_cannot_preview',
+                'mtflpp_cannot_preview',
                 __('You cannot preview this term.', 'meet-the-frontend-live-preview-panel'),
                 ['status' => rest_authorization_required_code()]
             );
@@ -67,14 +67,14 @@ final class TermPreview
     {
         if (!wp_verify_nonce((string) $request->get_header('X-WP-Nonce'), 'wp_rest')) {
             return new WP_Error(
-                'aflpp_invalid_nonce',
+                'mtflpp_invalid_nonce',
                 __('This preview has expired.', 'meet-the-frontend-live-preview-panel'),
                 ['status' => 403]
             );
         }
         if (isset($this->nonPostRequests[$request])) {
             return new WP_Error(
-                'aflpp_post_required',
+                'mtflpp_post_required',
                 __('Preview writes require an HTTP POST request.', 'meet-the-frontend-live-preview-panel'),
                 ['status' => 405]
             );
@@ -83,7 +83,7 @@ final class TermPreview
         $term = get_term((int) $request->get_url_params()['id']);
         if (!$term instanceof WP_Term) {
             return new WP_Error(
-                'aflpp_cannot_preview',
+                'mtflpp_cannot_preview',
                 __('This term no longer exists.', 'meet-the-frontend-live-preview-panel'),
                 ['status' => 404]
             );
@@ -103,7 +103,7 @@ final class TermPreview
          * @param string  $description Slashed input.
          * @param WP_Term $term Saved term being previewed.
          */
-        $sanitized = apply_filters('aflpp_term_preview_pre_sanitize_description', null, $description, $term);
+        $sanitized = apply_filters('mtflpp_term_preview_pre_sanitize_description', null, $description, $term);
         $fields = [
             'name' => wp_unslash($name),
             'description' => wp_unslash($sanitized ?? sanitize_term_field(
@@ -116,7 +116,7 @@ final class TermPreview
         ];
         // Internal integrations can contribute request-local display data, never a destination or token.
         $input = $request->get_json_params() ?? $request->get_body_params();
-        $data = apply_filters('aflpp_term_preview_data', [], $term, $input);
+        $data = apply_filters('mtflpp_term_preview_data', [], $term, $input);
         if (is_wp_error($data)) {
             return $data;
         }
@@ -125,36 +125,36 @@ final class TermPreview
         $token = $key . '-' . wp_create_nonce($this->nonceAction($term, $key));
         if (!set_transient($this->storageKey($term), $fields + ['token' => $token], 15 * MINUTE_IN_SECONDS)) {
             return new WP_Error(
-                'aflpp_term_preview_failed',
+                'mtflpp_term_preview_failed',
                 __('Couldn’t prepare the term preview. Try refreshing it.', 'meet-the-frontend-live-preview-panel'),
                 ['status' => 500]
             );
         }
-        return ['url' => add_query_arg(['aflpp_term' => $term->term_id, 'aflpp_token' => $token], $url)];
+        return ['url' => add_query_arg(['mtflpp_term' => $term->term_id, 'mtflpp_token' => $token], $url)];
     }
 
     private function storageKey(WP_Term $term): string
     {
-        return 'aflpp_term_' . $term->term_taxonomy_id . '_' . get_current_user_id();
+        return 'mtflpp_term_' . $term->term_taxonomy_id . '_' . get_current_user_id();
     }
 
     private function nonceAction(WP_Term $term, string $key): string
     {
-        return 'aflpp_term_preview_' . $term->term_taxonomy_id . '_' . $key;
+        return 'mtflpp_term_preview_' . $term->term_taxonomy_id . '_' . $key;
     }
 
     public function authorizePreview(): void
     {
-        if (is_admin() || !isset($_GET['aflpp_term'])) {
+        if (is_admin() || !isset($_GET['mtflpp_term'])) {
             return;
         }
         PreviewDocument::disableCaching();
 
         // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only lookup, authorized below.
-        $id = filter_var(wp_unslash($_GET['aflpp_term']), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        $id = filter_var(wp_unslash($_GET['mtflpp_term']), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
         // phpcs:disable WordPress.Security.NonceVerification.Recommended, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Exact token contract verified below.
-        $token = isset($_GET['aflpp_token']) && is_string($_GET['aflpp_token'])
-            ? wp_unslash($_GET['aflpp_token']) : '';
+        $token = isset($_GET['mtflpp_token']) && is_string($_GET['mtflpp_token'])
+            ? wp_unslash($_GET['mtflpp_token']) : '';
         // phpcs:enable WordPress.Security.NonceVerification.Recommended, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
         $term = $id ? get_term($id) : null;
         if (
@@ -171,8 +171,8 @@ final class TermPreview
             $this->expired();
             return;
         }
-        $isolated = isset($_GET['aflpp_isolated']) && $_GET['aflpp_isolated'] === '1';
-        $capture = isset($_GET['aflpp_source']) && $_GET['aflpp_source'] === '1';
+        $isolated = isset($_GET['mtflpp_isolated']) && $_GET['mtflpp_isolated'] === '1';
+        $capture = isset($_GET['mtflpp_source']) && $_GET['mtflpp_source'] === '1';
         add_action('template_redirect', function () use ($term, $source, $isolated, $capture): void {
             $this->renderArchive($term, $source, $isolated, $capture);
         }, -1);
@@ -222,7 +222,7 @@ final class TermPreview
         }
         $wp_query->queried_object = $preview;
         // Internal adapters receive detached display and routing terms only after the authorized archive matches.
-        do_action('aflpp_frontend_term_preview_source_selected', [
+        do_action('mtflpp_frontend_term_preview_source_selected', [
             'term' => clone $preview,
             'saved' => clone $queried,
             'data' => $source['data'] ?? [],

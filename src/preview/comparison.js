@@ -176,13 +176,13 @@ function renderedElement(entry) {
 // The payload is data from this verified response, never inserted into the live DOM or executed.
 function sourceDocument(doc) {
     try {
-        const marker = doc.querySelector('meta[name="a-floating-live-preview-panel"]');
-        const payload = marker?.getAttribute('data-aflpp-source');
+        const marker = doc.querySelector('meta[name="meet-the-frontend-live-preview-panel"]');
+        const payload = marker?.getAttribute('data-mtflpp-source');
         if (!payload) return null;
         const html = JSON.parse(payload);
         if (typeof html !== 'string') return null;
         const source = new DOMParser().parseFromString(html, 'text/html');
-        return source.querySelector('meta[name="a-floating-live-preview-panel"]')?.content === marker.content ? source : null;
+        return source.querySelector('meta[name="meet-the-frontend-live-preview-panel"]')?.content === marker.content ? source : null;
     } catch { return null; } // Missing/invalid data or a restrictive Trusted Types policy uses the DOM fallback.
 }
 
@@ -198,8 +198,8 @@ function contentSnapshot(doc, live, excludedSelectors, root = doc.querySelector(
     const entries = new Map();
     const targets = new Map();
     if (doc !== live) {
-        for (const node of live.querySelectorAll('[data-aflpp-node]')) {
-            const key = node.getAttribute('data-aflpp-node');
+        for (const node of live.querySelectorAll('[data-mtflpp-node]')) {
+            const key = node.getAttribute('data-mtflpp-node');
             // Cloned markers are ambiguous; never silently choose the first matching widget.
             targets.set(key, targets.has(key) ? null : node);
         }
@@ -213,7 +213,7 @@ function contentSnapshot(doc, live, excludedSelectors, root = doc.querySelector(
             : [];
         const background = node.style?.backgroundImage || node.getAttribute('data-bg') || '';
         // Include empty wrappers: layout/structure changes need not alter text or media.
-        const target = doc === live ? node : targets.get(node.getAttribute('data-aflpp-node')) || null;
+        const target = doc === live ? node : targets.get(node.getAttribute('data-mtflpp-node')) || null;
         const entry = snapshotEntry(node, target, JSON.stringify([node.localName, text, media, background]));
         entry.text = text;
         entry.media = [...media, background];
@@ -242,7 +242,7 @@ function presentationAttributes(node) {
     const attributes = [];
     for (const { name, value } of node.attributes) {
         // Keep authored accessibility/identity values eligible; normalize reference churn separately.
-        if (name === 'data-aflpp-node' || name.startsWith('on')
+        if (name === 'data-mtflpp-node' || name.startsWith('on')
             || /(?:^|-)(nonce|token)(?:-|$)/.test(name)) continue;
         // Media sources are normalized separately, so loading a declared lazy source is not an edit.
         if (/^(?:data-)?(?:src|srcset|poster|sizes|bg)$/.test(name)) continue;

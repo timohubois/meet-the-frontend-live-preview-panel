@@ -2,9 +2,9 @@
 
 /** Run with `wp eval-file tests/author.php` on a disposable single-site installation. */
 
-use AFloatingLivePreviewPanel\Compatibility\CoreBlocks;
-use AFloatingLivePreviewPanel\FrontendPreview;
-use AFloatingLivePreviewPanel\LivePreview;
+use MeetTheFrontendLivePreviewPanel\Compatibility\CoreBlocks;
+use MeetTheFrontendLivePreviewPanel\FrontendPreview;
+use MeetTheFrontendLivePreviewPanel\LivePreview;
 
 if (!defined('WP_CLI') || !WP_CLI || !class_exists(LivePreview::class) || is_multisite()) {
     throw new RuntimeException('Run through WP-CLI on a single-site installation with this plugin active.');
@@ -55,9 +55,9 @@ $block = static fn (string $name, int $postId, array $attributes = []): WP_Block
 try {
     foreach (['administrator', 'author', 'subscriber'] as $role) {
         $id = wp_insert_user([
-            'user_login' => 'aflpp_author_' . $role . '_' . wp_generate_password(12, false, false),
+            'user_login' => 'mtflpp_author_' . $role . '_' . wp_generate_password(12, false, false),
             'user_pass' => wp_generate_password(32), 'role' => $role,
-            'display_name' => 'AFLPP ' . $role, 'description' => 'Biography ' . $role,
+            'display_name' => 'MTFLPP ' . $role, 'description' => 'Biography ' . $role,
         ]);
         $check(!is_wp_error($id), 'Could not create a fixture user.');
         $users[] = $id;
@@ -67,13 +67,13 @@ try {
     foreach ([$admin, $author] as $owner) {
         $id = wp_insert_post([
             'post_type' => 'post', 'post_status' => 'publish', 'post_author' => $owner,
-            'post_title' => 'AFLPP author fixture', 'post_content' => 'Saved content',
+            'post_title' => 'MTFLPP author fixture', 'post_content' => 'Saved content',
         ], true);
         $check(!is_wp_error($id), 'Could not create a fixture post.');
         $posts[] = $id;
     }
     [$postId, $otherId] = $posts;
-    $route = '/a-floating-live-preview-panel/v1/posts/' . $postId . '/preview';
+    $route = '/meet-the-frontend-live-preview-panel/v1/posts/' . $postId . '/preview';
     $autosaveId = _wp_put_post_revision($postId, true);
     $check(is_int($autosaveId), 'Could not create the recovery fixture.');
     $base = $live->fingerprint($postId);
@@ -86,7 +86,7 @@ try {
             $data['author'] = $selected;
         }
         $params = $query($send($route, $data));
-        $id = (int) $params['aflpp_revision'];
+        $id = (int) $params['mtflpp_revision'];
         $check(!$sourceId || $sourceId === $id, 'Changing author must reuse the editor-owned source.');
         $sourceId = $id;
         $expected = $selected ?? $admin;
@@ -96,12 +96,12 @@ try {
             'The source must retain the effective author.'
         );
         $check(
-            $live->authorizedSource($postId, $id, $params['aflpp_token']) !== null,
+            $live->authorizedSource($postId, $id, $params['mtflpp_token']) !== null,
             'The owning editor must retain access.'
         );
         if ($previous !== null) {
             $check(
-                $live->authorizedSource($postId, $id, $previous['aflpp_token']) === null,
+                $live->authorizedSource($postId, $id, $previous['mtflpp_token']) === null,
                 'Changed authors must invalidate earlier source tokens.'
             );
         }
@@ -137,12 +137,12 @@ try {
             $check($selectedBlock->context === $context, 'Real block context must remain unchanged.');
             $otherHtml = $block($name, $otherId, $attributes)->render();
             $check(
-                str_contains($otherHtml, $name === 'core/post-author-biography' ? 'Biography author' : 'AFLPP author'),
+                str_contains($otherHtml, $name === 'core/post-author-biography' ? 'Biography author' : 'MTFLPP author'),
                 'Other block contexts must keep their own author.'
             );
         }
         $explicitAvatar = $block('core/avatar', $postId, ['userId' => $subscriber])->render();
-        $check(str_contains($explicitAvatar, 'AFLPP subscriber'), 'An explicit avatar user must not be overridden.');
+        $check(str_contains($explicitAvatar, 'MTFLPP subscriber'), 'An explicit avatar user must not be overridden.');
         $check($live->fingerprint($postId) === $base, 'Author previews must never update the parent or its cache.');
         $check($live->fingerprint($autosaveId) === $recovery, 'Author previews must not change recovery data.');
     }
@@ -156,13 +156,13 @@ try {
         );
     }
     wp_set_current_user($author);
-    $ownRoute = '/a-floating-live-preview-panel/v1/posts/' . $otherId . '/preview';
+    $ownRoute = '/meet-the-frontend-live-preview-panel/v1/posts/' . $otherId . '/preview';
     $ownBase = $live->fingerprint($otherId);
     $response = $send($ownRoute, ['base' => $ownBase, 'author' => $subscriber]);
     $check($response->get_status() === 403, 'Authors without edit_others_posts must not assign other users.');
     $query($send($ownRoute, ['base' => $ownBase, 'author' => $author]));
     $check(
-        $live->authorizedSource($postId, $sourceId, $params['aflpp_token']) === null,
+        $live->authorizedSource($postId, $sourceId, $params['mtflpp_token']) === null,
         'Selecting a user must not transfer source access.'
     );
     wp_set_current_user($subscriber);
@@ -185,7 +185,7 @@ try {
         'Saved history must not use the revision editor or live-source metadata as post author.'
     );
     $check(
-        str_contains($block('core/post-author-name', $postId)->render(), 'AFLPP administrator'),
+        str_contains($block('core/post-author-name', $postId)->render(), 'MTFLPP administrator'),
         'Saved author blocks must retain the saved parent author.'
     );
     $import = apply_filters('timber/post/import_data', ['post_author' => $admin], get_post($postId));
@@ -214,7 +214,7 @@ try {
     $type->render_callback = $custom;
     $core->unbindPreview();
     $check($type->render_callback === $custom, 'Cleanup must not overwrite a later custom renderer.');
-    $core->bindPreview($postId, (int) $params['aflpp_revision']);
+    $core->bindPreview($postId, (int) $params['mtflpp_revision']);
     $check($type->render_callback === $custom, 'Custom author renderers must not be wrapped.');
     $core->unbindPreview();
     foreach ($renderers as $name => $callback) {

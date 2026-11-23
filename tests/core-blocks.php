@@ -2,9 +2,9 @@
 
 /** Run with `wp eval-file tests/core-blocks.php` on a disposable single-site installation. */
 
-use AFloatingLivePreviewPanel\Compatibility\CoreBlocks;
-use AFloatingLivePreviewPanel\FrontendPreview;
-use AFloatingLivePreviewPanel\LivePreview;
+use MeetTheFrontendLivePreviewPanel\Compatibility\CoreBlocks;
+use MeetTheFrontendLivePreviewPanel\FrontendPreview;
+use MeetTheFrontendLivePreviewPanel\LivePreview;
 
 if (!defined('WP_CLI') || !WP_CLI || !class_exists(CoreBlocks::class) || is_multisite()) {
     throw new RuntimeException('Run through WP-CLI on a single-site installation with this plugin active.');
@@ -22,14 +22,14 @@ $originalPost = $GLOBALS['post'] ?? null;
 $originalQuery = $GLOBALS['wp_query'];
 $originalHooks = [];
 $previewHooks = [
-    'aflpp_frontend_live_preview_source_selected', 'aflpp_frontend_saved_preview_source_selected',
+    'mtflpp_frontend_live_preview_source_selected', 'mtflpp_frontend_saved_preview_source_selected',
     'the_preview', 'get_post_metadata', 'shutdown',
 ];
 foreach ($previewHooks as $hook) {
     $originalHooks[$hook] = isset($GLOBALS['wp_filter'][$hook]) ? clone $GLOBALS['wp_filter'][$hook] : null;
 }
-remove_all_actions('aflpp_frontend_live_preview_source_selected');
-remove_all_actions('aflpp_frontend_saved_preview_source_selected');
+remove_all_actions('mtflpp_frontend_live_preview_source_selected');
+remove_all_actions('mtflpp_frontend_saved_preview_source_selected');
 $type = WP_Block_Type_Registry::get_instance()->get_registered('core/post-excerpt');
 $check(
     $type && $type->render_callback === 'render_block_core_post_excerpt',
@@ -52,12 +52,12 @@ $excerpt = static function (string $html): string {
     return trim($nodes->item(0)?->textContent ?? '');
 };
 $dieHandler = static fn () => static function ($message, $title, $args): void {
-    throw new RuntimeException('aflpp_denied_' . (int) ($args['response'] ?? 0));
+    throw new RuntimeException('mtflpp_denied_' . (int) ($args['response'] ?? 0));
 };
 add_filter('wp_die_handler', $dieHandler, PHP_INT_MAX);
 try {
     $user = wp_insert_user([
-        'user_login' => 'aflpp_core_blocks_' . wp_generate_password(12, false, false),
+        'user_login' => 'mtflpp_core_blocks_' . wp_generate_password(12, false, false),
         'user_pass' => wp_generate_password(32), 'role' => 'administrator',
     ]);
     $check(!is_wp_error($user), 'Could not create a fixture user.');
@@ -65,7 +65,7 @@ try {
     foreach (['Selected', 'Other', 'Another', 'Control'] as $name) {
         $id = wp_insert_post([
             'post_type' => 'post', 'post_status' => 'publish', 'post_author' => $user,
-            'post_title' => 'AFLPP core excerpt ' . $name,
+            'post_title' => 'MTFLPP core excerpt ' . $name,
             'post_content' => '<!-- wp:paragraph --><p>Saved content ' . $name . '</p><!-- /wp:paragraph -->',
             'post_excerpt' => 'Saved excerpt ' . $name,
         ], true);
@@ -101,7 +101,8 @@ try {
         'The native Query Loop fixture must render its own post contexts.'
     );
     $bind = static function (string $text, string $content) use ($live, $frontend, $postId, $check): int {
-        $request = new WP_REST_Request('POST', '/a-floating-live-preview-panel/v1/posts/' . $postId . '/preview');
+        $route = '/meet-the-frontend-live-preview-panel/v1/posts/' . $postId . '/preview';
+        $request = new WP_REST_Request('POST', $route);
         $request->set_header('X-WP-Nonce', wp_create_nonce('wp_rest'));
         $request->set_body_params([
             'base' => $live->fingerprint($postId), 'post_title' => 'Preview title',
@@ -112,7 +113,7 @@ try {
         parse_str(wp_parse_url($response->get_data()['url'], PHP_URL_QUERY), $query);
         $_GET = $query;
         $frontend->authorizePreview();
-        return (int) $query['aflpp_revision'];
+        return (int) $query['mtflpp_revision'];
     };
     $content = '<!-- wp:paragraph --><p>Preview <strong>generated</strong> alpha beta gamma delta.</p>'
         . '<!-- /wp:paragraph --><!-- wp:post-excerpt /-->';
@@ -167,7 +168,7 @@ try {
     remove_filter('get_the_excerpt', $after, 10);
     // Compare against a real saved control post, letting each core version own its length/more behavior.
     $longContent = '<!-- wp:paragraph --><p>' . str_repeat('Preview word ', 120)
-        . '[aflpp_excerpt_fixture]</p><!-- /wp:paragraph -->';
+        . '[mtflpp_excerpt_fixture]</p><!-- /wp:paragraph -->';
     wp_update_post(['ID' => $controlId, 'post_excerpt' => '', 'post_content' => $longContent]);
     $sourceId = $bind('', $longContent);
     $contentCalls = 0;
@@ -182,7 +183,7 @@ try {
     };
     $length = static fn (): int => 4;
     $more = static fn (): string => ' [theme-more]';
-    add_shortcode('aflpp_excerpt_fixture', $shortcode);
+    add_shortcode('mtflpp_excerpt_fixture', $shortcode);
     add_filter('the_content', $contentFilter, 20);
     add_filter('excerpt_length', $length);
     add_filter('excerpt_more', $more);
@@ -193,7 +194,7 @@ try {
         );
         $check($contentCalls === 2 && $shortcodeCalls === 0, 'Native content processing must run once per excerpt.');
     } finally {
-        remove_shortcode('aflpp_excerpt_fixture');
+        remove_shortcode('mtflpp_excerpt_fixture');
         remove_filter('the_content', $contentFilter, 20);
         remove_filter('excerpt_length', $length);
         remove_filter('excerpt_more', $more);
@@ -265,12 +266,12 @@ try {
         'Repeated cleanup must restore native rendering without leaking the previous source.'
     );
     // A rejected fresh request must not activate this owner.
-    $_GET = ['aflpp_post' => $postId, 'aflpp_revision' => $sourceId, 'aflpp_token' => 'invalid'];
+    $_GET = ['mtflpp_post' => $postId, 'mtflpp_revision' => $sourceId, 'mtflpp_token' => 'invalid'];
     try {
         $frontend->authorizePreview();
         throw new RuntimeException('An invalid preview token was accepted.');
     } catch (RuntimeException $error) {
-        $check($error->getMessage() === 'aflpp_denied_403', 'An invalid preview must be rejected.');
+        $check($error->getMessage() === 'mtflpp_denied_403', 'An invalid preview must be rejected.');
     }
     $check($type->render_callback === $originalRenderer, 'Rejected requests must leave the native renderer inactive.');
     $core->bindPreview($postId, 0);

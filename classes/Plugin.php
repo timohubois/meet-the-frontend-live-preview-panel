@@ -1,11 +1,11 @@
 <?php
 
-namespace AFloatingLivePreviewPanel;
+namespace MeetTheFrontendLivePreviewPanel;
 
-use AFloatingLivePreviewPanel\Compatibility\Acf;
-use AFloatingLivePreviewPanel\Compatibility\CoreBlocks;
-use AFloatingLivePreviewPanel\Compatibility\Timber;
-use AFloatingLivePreviewPanel\Compatibility\Yoast;
+use MeetTheFrontendLivePreviewPanel\Compatibility\Acf;
+use MeetTheFrontendLivePreviewPanel\Compatibility\CoreBlocks;
+use MeetTheFrontendLivePreviewPanel\Compatibility\Timber;
+use MeetTheFrontendLivePreviewPanel\Compatibility\Yoast;
 
 /** Connect the feature owners without registering their hooks or implementing their behavior. */
 final class Plugin

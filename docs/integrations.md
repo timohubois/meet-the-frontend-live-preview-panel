@@ -1,5 +1,9 @@
 # Integration hooks
 
+Use the `mtflpp_` PHP hooks and `mtflpp.` browser setup actions documented here.
+Integrations using the previous names must update their registrations; no hook
+aliases are provided.
+
 ## Editor integration hooks
 
 Plugins and themes may ship their own adapters. There is no discovery mechanism,
@@ -42,9 +46,9 @@ Only the selected screen's hooks run:
 
 | Configuration filter | Arguments and contract |
 | --- | --- |
-| `aflpp_classic_editor_preview_config` | `array $config, array $context`. Extend Classic Editor live-preview configuration before JSON encoding. |
-| `aflpp_block_editor_preview_config` | `array $config, array $context`. Extend Block Editor live-preview configuration before JSON encoding. |
-| `aflpp_revision_browser_preview_config` | `array $config, array $context`. Extend read-only revision-browser configuration; this screen does not capture edits or prepare live previews. |
+| `mtflpp_classic_editor_preview_config` | `array $config, array $context`. Extend Classic Editor live-preview configuration before JSON encoding. |
+| `mtflpp_block_editor_preview_config` | `array $config, array $context`. Extend Block Editor live-preview configuration before JSON encoding. |
+| `mtflpp_revision_browser_preview_config` | `array $config, array $context`. Extend read-only revision-browser configuration; this screen does not capture edits or prepare live previews. |
 
 Configuration context contains `post` and a null `source`. Preserve the configuration's core
 identity, endpoint, nonce, baseline and availability values where present, existing
@@ -52,9 +56,9 @@ integration keys and labels. Shared panel labels are merged afterward.
 
 | Script-dependency filter | Arguments and contract |
 | --- | --- |
-| `aflpp_classic_editor_preview_script_dependencies` | `string[] $dependencies, array $context`. Add scripts for Classic Editor preview. |
-| `aflpp_block_editor_preview_script_dependencies` | `string[] $dependencies, array $context`. Add scripts for Block Editor preview. |
-| `aflpp_revision_browser_preview_script_dependencies` | `string[] $dependencies, array $context`. Add scripts for the read-only revision browser. |
+| `mtflpp_classic_editor_preview_script_dependencies` | `string[] $dependencies, array $context`. Add scripts for Classic Editor preview. |
+| `mtflpp_block_editor_preview_script_dependencies` | `string[] $dependencies, array $context`. Add scripts for Block Editor preview. |
+| `mtflpp_revision_browser_preview_script_dependencies` | `string[] $dependencies, array $context`. Add scripts for the read-only revision browser. |
 
 Dependency context contains `post`, a null `source` and `config`: that screen's
 already-filtered configuration. Register scripts with `wp_register_script()` and append
@@ -70,7 +74,7 @@ The setup callback receives the complete configuration later. Register it at scr
 execution, not in a DOM-ready callback, asynchronous import or timer.
 
 ```php
-add_filter('aflpp_classic_editor_preview_script_dependencies', function (
+add_filter('mtflpp_classic_editor_preview_script_dependencies', function (
     array $dependencies,
     array $context
 ): array {
@@ -92,9 +96,9 @@ as a dependency: WordPress will also withhold the dependent entry.
 
 ### Comparison exclusions
 
-`aflpp_preview_comparison_excluded_selectors` filters the complete `string[]` exclusion
+`mtflpp_preview_comparison_excluded_selectors` filters the complete `string[]` exclusion
 policy for Classic, Block Editor and read-only revision previews. The term editor
-uses the separate opt-in `aflpp_term_preview_comparison_excluded_selectors` filter.
+uses the separate opt-in `mtflpp_term_preview_comparison_excluded_selectors` filter.
 Each runs once for its selected screen. On post screens it runs after the
 configuration filter and before the script-dependency filter. Both receive
 `array $selectors, array $context`. The post filter receives `post.id` and
@@ -113,7 +117,7 @@ authored-value changes rather than triggering following on their own.
 A site-specific plugin, MU plugin or theme can extend the policy without browser code:
 
 ```php
-add_filter('aflpp_preview_comparison_excluded_selectors', static function (
+add_filter('mtflpp_preview_comparison_excluded_selectors', static function (
     array $selectors,
     array $context
 ): array {
@@ -140,8 +144,8 @@ region will not trigger change-following.
 
 Register synchronously with the action for the editor you support:
 
-- `wp.hooks.addAction('aflpp.classicEditor.previewSetup', 'vendor/integration', callback)`
-- `wp.hooks.addAction('aflpp.blockEditor.previewSetup', 'vendor/integration', callback)`
+- `wp.hooks.addAction('mtflpp.classicEditor.previewSetup', 'vendor/integration', callback)`
+- `wp.hooks.addAction('mtflpp.blockEditor.previewSetup', 'vendor/integration', callback)`
 
 Only that editor's setup action runs, once per live editor session. The term editor
 and the read-only revision browser have no browser setup action. An adapter supporting
@@ -189,7 +193,7 @@ For example, a classic field integration can contribute without changing any cor
 editor file or checking an editor type:
 
 ```js
-wp.hooks.addAction('aflpp.classicEditor.previewSetup', 'vendor/note', ({ form, hooks, changed, onDestroy }) => {
+wp.hooks.addAction('mtflpp.classicEditor.previewSetup', 'vendor/note', ({ form, hooks, changed, onDestroy }) => {
     const input = form.querySelector('[name="vendor_note"]');
     if (!input) return;
     input.addEventListener('input', changed);
@@ -208,13 +212,13 @@ autosave. Check optional capabilities when used; an absent integration should no
 subscribe or contribute assets. If PHP detects an integration but its browser API is
 missing, fail visibly rather than silently dropping its fields.
 
-Thrown setup/lifecycle errors stop preview writes with `aflpp_integration_failed` and
+Thrown setup/lifecycle errors stop preview writes with `mtflpp_integration_failed` and
 retain the last frame where available. Invalid capture results, including removed or
 overwritten Classic core fields, fail the same way. Native WordPress saving remains
 independent; in particular, a failed post-save observer must not reject the native
 save response.
 Capture contracts that would discard or misencode form data also fail closed. A known
-integration failure may throw an `Error` with code `aflpp_integration_failed` and a
+integration failure may throw an `Error` with code `mtflpp_integration_failed` and a
 translated user-facing message; unexpected exceptions receive the shared explanation.
 Reloading creates a fresh session. Local hook instances are not reused after teardown.
 
@@ -245,10 +249,10 @@ enters this workflow.
 
 | Hook | Arguments and contract |
 | --- | --- |
-| `aflpp_live_preview_form_values` (filter) | `array\|WP_Error $formValues, array $context`. Context contains `post`, null `source` and `input` (the original unslashed editor request). Extend unslashed native form values before slashing/writing, or reject with `WP_Error`; preserve an earlier error. Validate your own input. This is form-save data, not a universal metadata map. |
-| `aflpp_live_preview_custom_fields_initialized` (action) | `array $context`, containing `post` and initialized `source` identities. Saved custom-field values are available as the preview's starting point. Invalidate integration caches or apply previously validated values. Submitted changes and native save hooks still follow; this does not mean the preview is ready. |
-| `aflpp_live_preview_preparation_error` (filter) | `?WP_Error $error, array $context`, containing `post` and the established `source` identity, or null if no source identity was established. Verify contributions and preserve earlier errors. Runs after success, rejection or exceptions. Rejected form values pass their `WP_Error`. Core write errors still take precedence. |
-| `aflpp_live_preview_preparation_finished` (action) | `array $context`, with the same identities as the verification filter. Release temporary state here, even if verification threw and later verifiers did not run. Cleanup should be idempotent and must not throw. |
+| `mtflpp_live_preview_form_values` (filter) | `array\|WP_Error $formValues, array $context`. Context contains `post`, null `source` and `input` (the original unslashed editor request). Extend unslashed native form values before slashing/writing, or reject with `WP_Error`; preserve an earlier error. Validate your own input. This is form-save data, not a universal metadata map. |
+| `mtflpp_live_preview_custom_fields_initialized` (action) | `array $context`, containing `post` and initialized `source` identities. Saved custom-field values are available as the preview's starting point. Invalidate integration caches or apply previously validated values. Submitted changes and native save hooks still follow; this does not mean the preview is ready. |
+| `mtflpp_live_preview_preparation_error` (filter) | `?WP_Error $error, array $context`, containing `post` and the established `source` identity, or null if no source identity was established. Verify contributions and preserve earlier errors. Runs after success, rejection or exceptions. Rejected form values pass their `WP_Error`. Core write errors still take precedence. |
+| `mtflpp_live_preview_preparation_finished` (action) | `array $context`, with the same identities as the verification filter. Release temporary state here, even if verification threw and later verifiers did not run. Cleanup should be idempotent and must not throw. |
 
 For example, preparation context is:
 
@@ -265,7 +269,7 @@ For example, preparation context is:
 ```
 
 Core chooses the write target independently of context or the form's `post_ID`.
-A preview write dispatched during another preview write returns `aflpp_preview_busy`
+A preview write dispatched during another preview write returns `mtflpp_preview_busy`
 without starting preparation. The preview does not expose caller uploads to native
 save hooks. Native WordPress saving remains independent of this lifecycle.
 
@@ -295,8 +299,8 @@ identities only. There is no read-only boolean: the action identifies the mode.
 
 | Action | Contract |
 | --- | --- |
-| `aflpp_frontend_live_preview_source_selected` | Bind reads for the original post to the authorized source containing unsaved edits. |
-| `aflpp_frontend_saved_preview_source_selected` | Bind read-only reads for the original post to the selected saved version or current saved post. |
+| `mtflpp_frontend_live_preview_source_selected` | Bind reads for the original post to the authorized source containing unsaved edits. |
+| `mtflpp_frontend_saved_preview_source_selected` | Bind read-only reads for the original post to the selected saved version or current saved post. |
 
 For example, `['post' => ['id' => 42], 'source' => ['id' => 901]]` identifies the
 post and its selected source. These are identities, not a mutable preview object or
@@ -310,7 +314,7 @@ metadata writes must not use helpers that redirect revision IDs to the saved par
 
 Hook lifetime is part of each compatibility owner's contract:
 
-- Lifecycle subscriptions (`aflpp_live_preview_*` and `aflpp_frontend_*_preview_source_selected`)
+- Lifecycle subscriptions (`mtflpp_live_preview_*` and `mtflpp_frontend_*_preview_source_selected`)
   remain registered for the PHP request so the owner can handle later operations.
   Registering these does not call optional APIs.
 - ACF's save monitor and side-effect guards exist only for an initialized owned

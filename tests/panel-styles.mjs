@@ -8,9 +8,9 @@ function browserTests({ core, panel, strings }) {
     style.textContent = `${core}\n${panel}`;
     document.head.append(style);
     const shell = document.createElement('section');
-    shell.className = 'aflpp-panel';
-    shell.innerHTML = `<header class="aflpp-header"><button class="components-button has-icon is-compact aflpp-icon" type="button" aria-label="${strings.refresh}"><svg width="24" height="24" viewBox="0 0 24 24"><path d="M4 4h16v16H4z" /></svg></button></header>
-        <footer class="aflpp-devicebar"></footer>`;
+    shell.className = 'mtflpp-panel';
+    shell.innerHTML = `<header class="mtflpp-header"><button class="components-button has-icon is-compact mtflpp-icon" type="button" aria-label="${strings.refresh}"><svg width="24" height="24" viewBox="0 0 24 24"><path d="M4 4h16v16H4z" /></svg></button></header>
+        <footer class="mtflpp-devicebar"></footer>`;
     const reference = document.createElement('button');
     reference.type = 'button';
     reference.className = 'components-button has-icon is-compact';
@@ -22,8 +22,8 @@ function browserTests({ core, panel, strings }) {
     const properties = ['color', 'backgroundColor', 'cursor', 'outlineStyle', 'outlineColor', 'outlineWidth', 'boxShadow', 'opacity', 'width', 'minWidth', 'height', 'padding', 'borderRadius'];
     const appearance = (element) => properties.map((property) => getComputedStyle(element)[property]);
     const shortcut = document.createElement('div');
-    shortcut.className = 'aflpp-pip-control';
-    shortcut.innerHTML = '<div class="aflpp-pip-surface"><button class="components-button has-icon aflpp-pip-button" aria-label="Keep on top">' + reference.innerHTML + '</button></div>';
+    shortcut.className = 'mtflpp-pip-control';
+    shortcut.innerHTML = '<div class="mtflpp-pip-surface"><button class="components-button has-icon mtflpp-pip-button" aria-label="Keep on top">' + reference.innerHTML + '</button></div>';
     shell.append(shortcut);
     const pip = shortcut.querySelector('button');
     const nativeAction = reference.cloneNode(true);
@@ -61,9 +61,9 @@ function browserTests({ core, panel, strings }) {
             if (getComputedStyle(shell).backgroundColor !== 'rgb(255, 255, 255)') {
                 throw new Error('Keep the panel surface opaque and white.');
             }
-            for (const mode of ['', 'aflpp-expanded', 'aflpp-pip']) {
-                shell.className = `aflpp-panel ${mode}`;
-                for (const [selector, edge] of [['.aflpp-header', 'Bottom'], ['.aflpp-devicebar', 'Top']]) {
+            for (const mode of ['', 'mtflpp-expanded', 'mtflpp-pip']) {
+                shell.className = `mtflpp-panel ${mode}`;
+                for (const [selector, edge] of [['.mtflpp-header', 'Bottom'], ['.mtflpp-devicebar', 'Top']]) {
                     const chrome = getComputedStyle(shell.querySelector(selector));
                     if (chrome.backgroundColor !== 'rgba(0, 0, 0, 0)' || chrome.backgroundImage !== 'none') {
                         throw new Error(`${mode} ${selector} must use the panel surface without its own background.`);
@@ -71,17 +71,17 @@ function browserTests({ core, panel, strings }) {
                     if (chrome[`border${edge}Width`] !== '1px' || chrome[`border${edge}Style`] !== 'solid') {
                         throw new Error(`${mode} ${selector} must retain its thin separator border.`);
                     }
-                    if (mode === 'aflpp-pip' && chrome.borderRadius !== '0px') {
+                    if (mode === 'mtflpp-pip' && chrome.borderRadius !== '0px') {
                         throw new Error('Keep PiP chrome flush with the browser window.');
                     }
                 }
-                if (mode === 'aflpp-pip' && getComputedStyle(shell).boxShadow !== 'none') {
+                if (mode === 'mtflpp-pip' && getComputedStyle(shell).boxShadow !== 'none') {
                     throw new Error('PiP must not retain the floating panel shadow.');
                 }
             }
             results.push({ name });
         } catch (error) { results.push({ name, error: error.message }); }
-        finally { shell.className = 'aflpp-panel'; }
+        finally { shell.className = 'mtflpp-panel'; }
     }
     {
         const name = 'floating panel follows the native popover surface and WordPress design tokens';
@@ -102,7 +102,7 @@ function browserTests({ core, panel, strings }) {
             shell.style.setProperty('--wpds-color-stroke-surface-neutral', 'rgb(120, 120, 120)');
             shell.style.setProperty('--wpds-color-background-surface-neutral-strong', 'rgb(250, 250, 250)');
             if (actual.borderRadius !== '8px' || actual.backgroundColor !== 'rgb(250, 250, 250)'
-                || getComputedStyle(shell.querySelector('.aflpp-header')).borderBottomColor !== 'rgb(120, 120, 120)') {
+                || getComputedStyle(shell.querySelector('.mtflpp-header')).borderBottomColor !== 'rgb(120, 120, 120)') {
                 throw new Error('Follow WordPress surface tokens when provided.');
             }
             results.push({ name });
@@ -113,7 +113,7 @@ function browserTests({ core, panel, strings }) {
         const name = 'retained-preview notices preserve native padding, typography and text wrapping';
         const content = '<div class="components-notice is-warning"><div class="components-notice__content"><p>Preview could not refresh.</p></div><div class="components-notice__actions"></div></div>';
         const feedback = document.createElement('div');
-        feedback.className = 'aflpp-feedback';
+        feedback.className = 'mtflpp-feedback';
         feedback.innerHTML = content;
         shell.append(feedback);
         const comparison = document.createElement('div');
@@ -142,18 +142,18 @@ function browserTests({ core, panel, strings }) {
     }
     const name = 'shared recovery text balances without changing captions or preview content';
     try {
-        shell.innerHTML = `<h2 id="aflpp-title" class="aflpp-caption">Preview title</h2>
-            <div class="aflpp-placeholder"><h3 class="aflpp-empty-title">${strings.failed}</h3>
+        shell.innerHTML = `<h2 id="mtflpp-title" class="mtflpp-caption">Preview title</h2>
+            <div class="mtflpp-placeholder"><h3 class="mtflpp-empty-title">${strings.failed}</h3>
                 <div class="components-placeholder__instructions">${strings.reviewBeforeReload}</div>
-                <p class="aflpp-empty-note">${strings.tabEdits}</p></div>
-            <div class="aflpp-feedback"><div class="components-notice__content"><p>${strings.refreshFailed}</p></div></div>
-            <div class="aflpp-viewport"><p>Preview content is not panel status text.</p></div>`;
-        for (const selector of ['.aflpp-empty-title', '.components-placeholder__instructions', '.aflpp-empty-note']) {
+                <p class="mtflpp-empty-note">${strings.tabEdits}</p></div>
+            <div class="mtflpp-feedback"><div class="components-notice__content"><p>${strings.refreshFailed}</p></div></div>
+            <div class="mtflpp-viewport"><p>Preview content is not panel status text.</p></div>`;
+        for (const selector of ['.mtflpp-empty-title', '.components-placeholder__instructions', '.mtflpp-empty-note']) {
             if (getComputedStyle(shell.querySelector(selector)).textWrap !== 'balance') {
                 throw new Error(`${selector} must use balanced wrapping.`);
             }
         }
-        const captionStyle = getComputedStyle(shell.querySelector('.aflpp-caption'));
+        const captionStyle = getComputedStyle(shell.querySelector('.mtflpp-caption'));
         const panelStyle = getComputedStyle(shell);
         if (captionStyle.whiteSpace !== 'nowrap') {
             throw new Error('Keep the toolbar caption on one line.');
@@ -161,7 +161,7 @@ function browserTests({ core, panel, strings }) {
         if (captionStyle.font !== panelStyle.font || captionStyle.color !== panelStyle.color || captionStyle.margin !== '0px') {
             throw new Error('The semantic heading must retain the caption typography and spacing.');
         }
-        if (getComputedStyle(shell.querySelector('.aflpp-viewport p')).textWrap === 'balance') {
+        if (getComputedStyle(shell.querySelector('.mtflpp-viewport p')).textWrap === 'balance') {
             throw new Error('Do not apply message wrapping to preview content.');
         }
         results.push({ name });

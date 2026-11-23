@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 
 // Share local pages and isolated profiles, not the suites' different input drivers.
 export async function withChromiumPage(html, run) {
-    const directory = await mkdtemp(join(tmpdir(), 'aflpp-chromium-'));
+    const directory = await mkdtemp(join(tmpdir(), 'mtflpp-chromium-'));
     try {
         const page = join(directory, 'test.html');
         await writeFile(page, html);

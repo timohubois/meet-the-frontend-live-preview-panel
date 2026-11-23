@@ -1,8 +1,8 @@
 <?php
 
-namespace AFloatingLivePreviewPanel\Compatibility;
+namespace MeetTheFrontendLivePreviewPanel\Compatibility;
 
-use AFloatingLivePreviewPanel\LivePreview;
+use MeetTheFrontendLivePreviewPanel\LivePreview;
 use WP_Error;
 use WP_Post;
 use WP_Term;
@@ -25,22 +25,22 @@ final class Yoast
 
     public function __construct()
     {
-        add_filter('aflpp_block_editor_preview_config', [$this, 'configureEditor'], 10, 2);
-        add_filter('aflpp_term_preview_pre_sanitize_description', [$this, 'sanitizeTermDescription'], 10, 3);
-        add_filter('aflpp_live_preview_form_values', [$this, 'preparePayload'], 10, 2);
-        add_action('aflpp_live_preview_custom_fields_initialized', fn (array $context) =>
+        add_filter('mtflpp_block_editor_preview_config', [$this, 'configureEditor'], 10, 2);
+        add_filter('mtflpp_term_preview_pre_sanitize_description', [$this, 'sanitizeTermDescription'], 10, 3);
+        add_filter('mtflpp_live_preview_form_values', [$this, 'preparePayload'], 10, 2);
+        add_action('mtflpp_live_preview_custom_fields_initialized', fn (array $context) =>
             $this->savePrimaryTerms($context['source']['id'], $context['post']['id']));
-        add_filter('aflpp_live_preview_preparation_error', [$this, 'verifySave'], 10, 2);
-        add_action('aflpp_frontend_live_preview_source_selected', fn (array $context) => $this->bindPreview(
+        add_filter('mtflpp_live_preview_preparation_error', [$this, 'verifySave'], 10, 2);
+        add_action('mtflpp_frontend_live_preview_source_selected', fn (array $context) => $this->bindPreview(
             $context['post']['id'],
             $context['source']['id']
         ));
-        add_action('aflpp_frontend_saved_preview_source_selected', fn (array $context) => $this->bindPreview(
+        add_action('mtflpp_frontend_saved_preview_source_selected', fn (array $context) => $this->bindPreview(
             $context['post']['id'],
             $context['source']['id'],
             true
         ));
-        add_action('aflpp_frontend_term_preview_source_selected', fn (array $context) => $this->bindTermPreview(
+        add_action('mtflpp_frontend_term_preview_source_selected', fn (array $context) => $this->bindTermPreview(
             $context['term']
         ));
     }
@@ -189,7 +189,7 @@ final class Yoast
         foreach (get_object_vars($primary) as $taxonomy => $id) {
             if (!in_array($taxonomy, $allowed, true)) {
                 return new WP_Error(
-                    'aflpp_yoast_primary_forbidden',
+                    'mtflpp_yoast_primary_forbidden',
                     __(
                         'You cannot change this primary taxonomy in the preview.',
                         'meet-the-frontend-live-preview-panel'
@@ -211,7 +211,7 @@ final class Yoast
                 }
                 if (!current_user_can('assign_term', $id)) {
                     return new WP_Error(
-                        'aflpp_yoast_primary_forbidden',
+                        'mtflpp_yoast_primary_forbidden',
                         __('You cannot assign this primary term.', 'meet-the-frontend-live-preview-panel'),
                         ['status' => 403]
                     );
@@ -226,7 +226,7 @@ final class Yoast
     private function invalidInput(): WP_Error
     {
         return new WP_Error(
-            'aflpp_invalid_yoast_primary_terms',
+            'mtflpp_invalid_yoast_primary_terms',
             __('Choose a valid assigned primary term for the preview.', 'meet-the-frontend-live-preview-panel'),
             ['status' => 400]
         );
@@ -257,7 +257,7 @@ final class Yoast
                     || (int) get_post_meta($revisionId, $key, true) !== $id
                 ) {
                     return new WP_Error(
-                        'aflpp_yoast_primary_not_saved',
+                        'mtflpp_yoast_primary_not_saved',
                         __('We couldn’t prepare the primary-term preview.', 'meet-the-frontend-live-preview-panel'),
                         ['status' => 409]
                     );
@@ -450,7 +450,7 @@ final class Yoast
         foreach ($ids as $id) {
             $ancestor = get_term($id, $taxonomy);
             if (!$ancestor instanceof WP_Term) {
-                return new WP_Error('aflpp_yoast_missing_ancestor');
+                return new WP_Error('mtflpp_yoast_missing_ancestor');
             }
             $url = get_term_link($ancestor);
             if (is_wp_error($url)) {

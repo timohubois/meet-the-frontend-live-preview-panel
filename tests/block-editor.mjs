@@ -39,7 +39,7 @@ function fixture({ ready = true, loaded = true, available = true, route = '/wp/v
     const config = {
         postId: 123, postType: 'post', postRoute: route, restRoot: 'http://site.test/wp-json/',
         postFormUrl: 'http://site.test/wp-admin/post.php',
-        endpoint: 'http://site.test/wp-json/a-floating-live-preview-panel/v1/posts/123/preview',
+        endpoint: 'http://site.test/wp-json/meet-the-frontend-live-preview-panel/v1/posts/123/preview',
         base: 'a'.repeat(64), available, acfEnabled, taxonomies, yoastPrimaryTaxonomies, adminCookiePath: '/wp-admin/', strings: { loading: 'Loading preview…', nativeSaveFailed: 'Reload editor', postOnly: 'Return to post', acfRefreshing: 'Waiting for ACF fields', integrationFailed: 'Integration failed', acfUnavailable: 'ACF unavailable' },
     };
     const document = {
@@ -85,7 +85,7 @@ function fixture({ ready = true, loaded = true, available = true, route = '/wp/v
         request: (options, next) => middleware(options, next),
         setPending: (value) => { pending = value; },
         receipt: (options, after = 'b'.repeat(64), available = true) => ({
-            request: options.headers['X-AFLPP-Request'], before: options.headers['X-AFLPP-Base'], after, available,
+            request: options.headers['X-MTFLPP-Request'], before: options.headers['X-MTFLPP-Base'], after, available,
         }),
         metaBody() { const body = new FormData(); body.set('post_ID', '123'); body.set('action', 'editpost'); body.set('acf[field_test]', 'Value'); return body; },
     };
@@ -110,7 +110,7 @@ test('block comparison values are frozen at capture and never sent to the endpoi
 
 test('external snapshot contributors refresh on changes and removal without serializing core content', async () => {
     const h = fixture({ extend(hooks) {
-        hooks.addAction('aflpp.blockEditor.previewSetup', 'vendor/snapshot', ({ hooks }) => {
+        hooks.addAction('mtflpp.blockEditor.previewSetup', 'vendor/snapshot', ({ hooks }) => {
             hooks.addFilter('additionalPreviewValues', 'vendor/snapshot', (values, state) => state.getEditedPostAttribute('vendor') === undefined
                 ? values : { ...values, vendor: state.getEditedPostAttribute('vendor') });
         });
@@ -132,21 +132,21 @@ test('external snapshot contributors refresh on changes and removal without seri
 test('an integration failure after an acknowledged meta-box save never rejects WordPress saving', async () => {
     let cleaned = 0;
     const h = fixture({ extend(hooks) {
-        hooks.addAction('aflpp.blockEditor.previewSetup', 'vendor/failure', ({ hooks, onDestroy }) => {
+        hooks.addAction('mtflpp.blockEditor.previewSetup', 'vendor/failure', ({ hooks, onDestroy }) => {
             hooks.addAction('nativeMetaboxSaveAcknowledged', 'vendor/failure', () => { throw new Error('Adapter save observer failed'); });
             onDestroy(() => cleaned++);
         });
     } });
     const response = {};
     const result = await h.request({ url: 'http://site.test/wp-admin/post.php?meta-box-loader=1', method: 'POST', body: h.metaBody() }, async (options) => {
-        h.cookies.set(`aflpp_preview_${options.body.get('aflpp_preview')}`, `${h.config.base}.${'c'.repeat(64)}`);
+        h.cookies.set(`mtflpp_preview_${options.body.get('mtflpp_preview')}`, `${h.config.base}.${'c'.repeat(64)}`);
         return response;
     });
     await flush();
     assert.equal(result, response, 'preserve the original native response');
     assert.equal(h.config.base, 'c'.repeat(64));
     assert.equal(h.native.ready, false);
-    assert.equal(h.calls.resumes.at(-1).code, 'aflpp_integration_failed');
+    assert.equal(h.calls.resumes.at(-1).code, 'mtflpp_integration_failed');
     h.native.destroy(); h.native.destroy();
     assert.equal(cleaned, 1);
 });
@@ -155,7 +155,7 @@ test('missing browser ACF APIs leave a controlled preview error and native saves
     const h = fixture({ acfEnabled: true, browserAcf: false });
     assert.equal(h.native.ready, false);
     assert.equal(h.calls.resumes.at(-1).message, 'ACF unavailable');
-    assert.throws(() => h.native.preparePreview(), (error) => error.code === 'aflpp_integration_failed');
+    assert.throws(() => h.native.preparePreview(), (error) => error.code === 'mtflpp_integration_failed');
     assert.equal(h.calls.requests.length, 0);
     const edits = { id: 123, content: 'Native save' };
     assert.equal(await h.beforeSave(edits), edits);
@@ -324,7 +324,7 @@ test('publication dates, resets and omitted dates use the native editor attribut
 });
 
 test('taxonomy assignments use configured native REST attributes, including custom bases and clearing', async () => {
-    const h = fixture({ taxonomies: { category: 'categories', post_tag: 'tags', aflpp_topic: 'topics' } });
+    const h = fixture({ taxonomies: { category: 'categories', post_tag: 'tags', mtflpp_topic: 'topics' } });
     h.state.categories = [11];
     h.state.tags = [12];
     h.state.topics = [13];
@@ -335,7 +335,7 @@ test('taxonomy assignments use configured native REST attributes, including cust
     assert.equal(h.calls.contentReads, 0);
     await h.native.preparePreview();
     assert.deepEqual(JSON.parse(h.calls.requests.at(-1).data.terms), {
-        category: [11], post_tag: [12], aflpp_topic: [13],
+        category: [11], post_tag: [12], mtflpp_topic: [13],
     });
     h.state.categories = [];
     h.state.topics = [14];
@@ -343,7 +343,7 @@ test('taxonomy assignments use configured native REST attributes, including cust
     assert.equal(h.calls.changes, changes + 1);
     await h.native.preparePreview();
     assert.deepEqual(JSON.parse(h.calls.requests.at(-1).data.terms), {
-        category: [], post_tag: [12], aflpp_topic: [14],
+        category: [], post_tag: [12], mtflpp_topic: [14],
     });
     delete h.state.tags;
     await h.native.preparePreview();
@@ -382,7 +382,7 @@ test('ACF native row reload pauses capture and resumes only after field replacem
     const h = fixture({ acfEnabled: true });
     h.acfFields.waitAfterSave = true;
     await h.request({ url: 'http://site.test/wp-admin/post.php?post=123&meta-box-loader=1', method: 'POST', body: h.metaBody(), parse: false }, async (options) => {
-        h.cookies.set(`aflpp_preview_${options.body.get('aflpp_preview')}`, `${h.config.base}.${'c'.repeat(64)}`);
+        h.cookies.set(`mtflpp_preview_${options.body.get('mtflpp_preview')}`, `${h.config.base}.${'c'.repeat(64)}`);
         return {};
     });
     await h.emit();
@@ -404,7 +404,7 @@ test('unacknowledged ACF saves never assume native row reload succeeded', async 
     await h.request({ url: 'http://site.test/wp-admin/post.php?post=123&meta-box-loader=1', method: 'POST', body: h.metaBody(), parse: false }, async () => ({}));
     await h.emit();
     assert.equal(h.acfFields.saved, 0);
-    assert.equal(h.calls.resumes.at(-1)?.code, 'aflpp_source_changed');
+    assert.equal(h.calls.resumes.at(-1)?.code, 'mtflpp_source_changed');
 });
 
 test('block references and raw code edits schedule capture without serializing', async () => {
@@ -453,7 +453,7 @@ for (const route of ['/wp/v2/posts/123', '/custom/v1/articles/123', '/wp/v2/post
         const h = fixture({ route: route.replace('/autosaves', '') });
         h.state.saving = true;
         await h.emit();
-        const result = await h.request({ path: `${route}?context=edit`, method: 'POST', data: { title: 'Native' } }, async (options) => ({ id: 123, title: 'Native', _aflpp_receipt: h.receipt(options) }));
+        const result = await h.request({ path: `${route}?context=edit`, method: 'POST', data: { title: 'Native' } }, async (options) => ({ id: 123, title: 'Native', _mtflpp_receipt: h.receipt(options) }));
         assert.deepEqual(JSON.parse(JSON.stringify(result)), { id: 123, title: 'Native' });
         assert.equal(h.config.base, 'b'.repeat(64));
         h.state.saving = false;
@@ -468,12 +468,12 @@ for (const bad of ['missing', 'request', 'before', 'after', 'available']) {
         const result = await h.request({ path: h.config.postRoute, method: 'PUT' }, async (options) => {
             const receipt = h.receipt(options);
             if (bad !== 'missing') receipt[bad] = 'invalid';
-            return { id: 123, _aflpp_receipt: bad === 'missing' ? undefined : receipt };
+            return { id: 123, _mtflpp_receipt: bad === 'missing' ? undefined : receipt };
         });
         await flush();
         assert.equal(result.id, 123, 'WordPress still receives its saved record');
         assert.equal(h.config.base, 'a'.repeat(64));
-        assert.equal(h.calls.resumes.at(-1)?.code, 'aflpp_source_changed');
+        assert.equal(h.calls.resumes.at(-1)?.code, 'mtflpp_source_changed');
     });
 }
 
@@ -482,7 +482,7 @@ for (const parse of [true, false]) {
         const h = fixture();
         let response;
         const result = await h.request({ path: h.config.postRoute, method: 'PUT', parse }, async (options) => {
-            const record = { id: 123, _aflpp_receipt: h.receipt(options, ['b'.repeat(64)]) };
+            const record = { id: 123, _mtflpp_receipt: h.receipt(options, ['b'.repeat(64)]) };
             response = parse ? record : new Response(JSON.stringify(record));
             return response;
         });
@@ -493,13 +493,13 @@ for (const parse of [true, false]) {
             assert.equal((await response.json()).id, 123, 'receipt inspection must not consume the native response');
         }
         assert.equal(h.config.base, 'a'.repeat(64));
-        assert.equal(h.calls.resumes.at(-1)?.code, 'aflpp_source_changed');
+        assert.equal(h.calls.resumes.at(-1)?.code, 'mtflpp_source_changed');
     });
 }
 
 test('the first acknowledged draft save enables preview without a reload', async () => {
     const h = fixture({ available: false });
-    await h.request({ path: h.config.postRoute, method: 'PUT' }, async (options) => ({ id: 123, _aflpp_receipt: h.receipt(options) }));
+    await h.request({ path: h.config.postRoute, method: 'PUT' }, async (options) => ({ id: 123, _mtflpp_receipt: h.receipt(options) }));
     await flush();
     assert.equal(h.config.available, true);
     assert.equal(h.calls.resumes.at(-1), undefined);
@@ -509,17 +509,17 @@ test('legacy meta-box saving chains the REST base and preserves native FormData 
     const h = fixture();
     h.state.saving = true;
     await h.emit();
-    await h.request({ path: h.config.postRoute, method: 'PUT' }, async (options) => ({ id: 123, _aflpp_receipt: h.receipt(options) }));
+    await h.request({ path: h.config.postRoute, method: 'PUT' }, async (options) => ({ id: 123, _mtflpp_receipt: h.receipt(options) }));
     const body = h.metaBody(), response = { native: true };
     const resumes = h.calls.resumes.length;
     const result = await h.request({ url: 'http://site.test/wp-admin/post.php?post=123&meta-box-loader=1', method: 'POST', body, parse: false }, async (options) => {
-        assert.equal(options.body.get('aflpp_base'), 'b'.repeat(64));
+        assert.equal(options.body.get('mtflpp_base'), 'b'.repeat(64));
         assert.equal(options.body.get('acf[field_test]'), 'Value');
-        h.cookies.set(`aflpp_preview_${options.body.get('aflpp_preview')}`, `${'b'.repeat(64)}.${'c'.repeat(64)}`);
+        h.cookies.set(`mtflpp_preview_${options.body.get('mtflpp_preview')}`, `${'b'.repeat(64)}.${'c'.repeat(64)}`);
         return response;
     });
     assert.equal(result, response);
-    assert.equal(body.has('aflpp_base'), false, 'never modify the native FormData object');
+    assert.equal(body.has('mtflpp_base'), false, 'never modify the native FormData object');
     assert.equal(h.cookies.size, 0);
     assert.equal(h.config.base, 'c'.repeat(64));
     await flush();
@@ -538,13 +538,13 @@ test('native meta-box receipts use WordPress-provided admin paths without a priv
         method: 'POST', body, parse: false,
     }, async (options) => {
         assert.equal(options.body.get('post_ID'), '123');
-        assert.equal(options.body.get('aflpp_base'), 'a'.repeat(64));
+        assert.equal(options.body.get('mtflpp_base'), 'a'.repeat(64));
         assert.match(options.url, /meta-box-loader-nonce=rotated-native-nonce$/);
-        h.cookies.set(`aflpp_preview_${options.body.get('aflpp_preview')}`, `${'a'.repeat(64)}.${'b'.repeat(64)}`);
+        h.cookies.set(`mtflpp_preview_${options.body.get('mtflpp_preview')}`, `${'a'.repeat(64)}.${'b'.repeat(64)}`);
         return {};
     });
     assert.equal(h.config.base, 'b'.repeat(64));
-    assert.equal(body.has('aflpp_preview'), false);
+    assert.equal(body.has('mtflpp_preview'), false);
 });
 
 for (const target of ['another-origin', 'another-admin-path', 'another-post', 'another-action', 'not-meta-boxes', 'no-form-url']) {
@@ -563,7 +563,7 @@ for (const target of ['another-origin', 'another-admin-path', 'another-post', 'a
         const result = await h.request(options, async (forwarded) => {
             assert.equal(forwarded, options);
             assert.equal(forwarded.body, body);
-            assert.equal(forwarded.body.has('aflpp_preview'), false);
+            assert.equal(forwarded.body.has('mtflpp_preview'), false);
             return response;
         });
         assert.equal(result, response);
@@ -576,7 +576,7 @@ test('a missing meta-box receipt cannot silently accept metadata changes', async
     const h = fixture();
     await h.request({ url: 'http://site.test/wp-admin/post.php?post=123&meta-box-loader=1', method: 'POST', body: h.metaBody(), parse: false }, async () => ({}));
     await flush();
-    assert.equal(h.calls.resumes.at(-1)?.code, 'aflpp_source_changed');
+    assert.equal(h.calls.resumes.at(-1)?.code, 'mtflpp_source_changed');
 });
 
 for (const [error, uncertain] of [
@@ -596,7 +596,7 @@ for (const [error, uncertain] of [
         await assert.rejects(h.request({ path: h.config.postRoute, method: 'PUT' }, async () => { throw error; }), (received) => received === error);
         await flush();
         assert.equal(h.config.base, 'a'.repeat(64), 'a rejection never advances the saved fingerprint');
-        assert.equal(h.calls.resumes.at(-1)?.code, uncertain ? 'aflpp_source_changed' : undefined);
+        assert.equal(h.calls.resumes.at(-1)?.code, uncertain ? 'mtflpp_source_changed' : undefined);
     });
 }
 
@@ -607,17 +607,17 @@ for (const bad of [null, 'request', 'before', 'after', 'available']) {
         await assert.rejects(h.request({ path: h.config.postRoute, method: 'PUT' }, async (options) => {
             const receipt = h.receipt(options, h.config.base);
             if (bad) receipt[bad] = bad === 'after' ? 'b'.repeat(64) : 'invalid';
-            error = { code: 'rest_invalid_param', data: { status: 400 }, _aflpp_receipt: receipt };
+            error = { code: 'rest_invalid_param', data: { status: 400 }, _mtflpp_receipt: receipt };
             throw error;
         }), (received) => received === error);
         await flush();
-        assert.equal('_aflpp_receipt' in error, false, 'private receipts never reach core');
+        assert.equal('_mtflpp_receipt' in error, false, 'private receipts never reach core');
         assert.equal(h.config.base, 'a'.repeat(64), 'a rejected request never advances the baseline');
-        assert.equal(h.calls.resumes.at(-1)?.code, bad ? 'aflpp_source_changed' : undefined);
+        assert.equal(h.calls.resumes.at(-1)?.code, bad ? 'mtflpp_source_changed' : undefined);
         if (!bad) {
             const edits = { id: 123, title: 'Retry' };
             assert.equal(await h.beforeSave(edits), edits);
-            await h.request({ path: h.config.postRoute, method: 'PUT' }, async (options) => ({ id: 123, _aflpp_receipt: h.receipt(options) }));
+            await h.request({ path: h.config.postRoute, method: 'PUT' }, async (options) => ({ id: 123, _mtflpp_receipt: h.receipt(options) }));
             await flush();
             assert.equal(h.config.base, 'b'.repeat(64));
             assert.equal(h.calls.resumes.at(-1), undefined);
@@ -632,13 +632,13 @@ for (const immutable of ['frozen', 'non-configurable']) {
         await assert.rejects(h.request({ path: h.config.postRoute, method: 'PUT' }, async (options) => {
             error = { code: 'rest_invalid_param', data: { status: 400 } };
             const receipt = h.receipt(options, h.config.base);
-            if (immutable === 'frozen') error = Object.freeze({ ...error, _aflpp_receipt: receipt });
-            else Object.defineProperty(error, '_aflpp_receipt', { value: receipt, configurable: false });
+            if (immutable === 'frozen') error = Object.freeze({ ...error, _mtflpp_receipt: receipt });
+            else Object.defineProperty(error, '_mtflpp_receipt', { value: receipt, configurable: false });
             throw error;
         }), (received) => received === error);
         await flush();
         assert.equal(h.config.base, 'a'.repeat(64));
-        assert.equal(h.calls.resumes.at(-1)?.code, 'aflpp_source_changed');
+        assert.equal(h.calls.resumes.at(-1)?.code, 'mtflpp_source_changed');
         assert.equal(await h.beforeSave({ id: 123 }).then((edits) => edits.id), 123, 'native retry remains available');
     });
 }
@@ -652,7 +652,7 @@ test('a post update followed by a metadata 403 cannot resume against the old bas
     }), (received) => received === error);
     await flush();
     assert.equal(h.config.base, 'a'.repeat(64));
-    assert.equal(h.calls.resumes.at(-1)?.code, 'aflpp_source_changed');
+    assert.equal(h.calls.resumes.at(-1)?.code, 'mtflpp_source_changed');
     const edits = { id: 123, title: 'Native retry remains available' };
     assert.equal(await h.beforeSave(edits), edits);
 });
@@ -836,7 +836,7 @@ for (const url of [
 ]) {
     test(`native receipt handling supports absolute REST URLs: ${url}`, async () => {
         const h = fixture();
-        const result = await h.request({ url, method: 'POST' }, async (options) => ({ id: 123, _aflpp_receipt: h.receipt(options) }));
+        const result = await h.request({ url, method: 'POST' }, async (options) => ({ id: 123, _mtflpp_receipt: h.receipt(options) }));
         assert.equal(result.id, 123);
         assert.equal(h.config.base, 'b'.repeat(64));
         await h.request({ url: url.replace('site.test', 'elsewhere.test'), method: 'POST' }, async (options) => {
@@ -853,7 +853,7 @@ for (const fail of [false, true]) {
         const session = {};
         const native = { connect: (value) => { assert.equal(value, session); calls.push('connect'); }, destroy: () => calls.push('destroy') };
         vm.runInNewContext(entry, {
-            window: { aFloatingLivePreviewPanel: { strings: { bootFailed: 'Unavailable' } } },
+            window: { meetTheFrontendLivePreviewPanel: { strings: { bootFailed: 'Unavailable' } } },
             imports: {
                 './screens/block-editor.js': { createBlockEditor: () => { calls.push('observePreviewInputs'); return native; } },
                 './preview/live-preview.js': { createLivePreview: (config, editor) => {

@@ -6,9 +6,9 @@ import { panelStrings } from './helpers/panel-strings.mjs';
 
 const source = await previewSourceForVm(new URL('../src/screens/revision-browser.js', import.meta.url));
 const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
-const url = (id) => `http://site.local/?preview=true&aflpp_saved=1&aflpp_revision=${id}&aflpp_token=token-${id}`;
+const url = (id) => `http://site.local/?preview=true&mtflpp_saved=1&mtflpp_revision=${id}&mtflpp_token=token-${id}`;
 const revision = (id, address = url(id)) => ({
-    id, get: (key) => ({ aflppPreviewUrl: address, dateShort: `Date ${id}`, author: { name: `Author ${id}` } })[key],
+    id, get: (key) => ({ mtflppPreviewUrl: address, dateShort: `Date ${id}`, author: { name: `Author ${id}` } })[key],
 });
 
 function fixture({ visible = true, selected = revision(11), isolated = false, excludedSelectors = [], deferRestore = false } = {}) {
@@ -100,7 +100,7 @@ function fixture({ visible = true, selected = revision(11), isolated = false, ex
         async load(frame = allFrames.at(-1), marked = true) {
             const declarations = new Map();
             frame.contentDocument = marked === null ? null : {
-                querySelector: () => marked ? { content: new URL(frame.src).searchParams.get('aflpp_token') } : null,
+                querySelector: () => marked ? { content: new URL(frame.src).searchParams.get('mtflpp_token') } : null,
                 documentElement: { style: {
                     setProperty: (name, value, priority) => declarations.set(name, { value, priority }),
                     getPropertyValue: (name) => declarations.get(name)?.value ?? '',
@@ -226,7 +226,7 @@ test('enabling following during a disabled load establishes a baseline even with
     h.view.followChanges = false;
     h.options.onOpen(); await h.load();
     h.select(revision(12)); await h.runTimers();
-    assert.equal(new URL(h.children.at(-1).src).searchParams.has('aflpp_source'), false);
+    assert.equal(new URL(h.children.at(-1).src).searchParams.has('mtflpp_source'), false);
     h.view.followChanges = true;
     await h.load();
     assert.equal(h.captures.length, 1);
@@ -240,7 +240,7 @@ test('enabling following during a disabled load establishes a baseline even with
 
 test('disabling following during an initial load skips snapshots even when source was requested', async () => {
     const h = fixture();
-    assert.equal(new URL(h.children[0].src).searchParams.get('aflpp_source'), '1');
+    assert.equal(new URL(h.children[0].src).searchParams.get('mtflpp_source'), '1');
     h.view.followChanges = false;
     await h.load();
     assert.equal(h.captures.length, 0);
@@ -283,7 +283,7 @@ test('disabled change following leaves iframe navigation on the native preview U
 test('revision browsing loads the native To source without editor APIs or Web Locks', async () => {
     const h = fixture();
     assert.equal(h.children.length, 1);
-    assert.equal(h.children[0].src, `${url(11)}&aflpp_source=1`);
+    assert.equal(h.children[0].src, `${url(11)}&mtflpp_source=1`);
     await h.load();
     assert.equal(h.last.state, 'ready');
     assert.equal(h.last.hasPreview, true);
@@ -295,9 +295,9 @@ for (const isolated of [false, true]) {
     test(`preview documents opt into matching isolation only for isolated editors: ${isolated}`, async () => {
         const h = fixture({ isolated });
         const address = new URL(h.children[0].src);
-        assert.equal(address.searchParams.get('aflpp_isolated'), isolated ? '1' : null);
-        assert.equal(address.searchParams.get('aflpp_token'), 'token-11');
-        assert.equal(address.searchParams.get('aflpp_source'), '1');
+        assert.equal(address.searchParams.get('mtflpp_isolated'), isolated ? '1' : null);
+        assert.equal(address.searchParams.get('mtflpp_token'), 'token-11');
+        assert.equal(address.searchParams.get('mtflpp_source'), '1');
         await h.load();
         assert.equal(h.last.state, 'ready');
     });
@@ -312,7 +312,7 @@ test('rapid slider changes cancel old loads, debounce and display only the lates
     assert.notEqual(h.last.state, 'ready');
     await h.runTimers();
     assert.equal(h.allFrames.length, 2);
-    assert.equal(h.children[0].src, `${url(14)}&aflpp_source=1`);
+    assert.equal(h.children[0].src, `${url(14)}&mtflpp_source=1`);
     await h.load();
     assert.equal(h.title, 'Date 14 — Author 14');
     assert.equal(h.timers.size, 0);
@@ -356,12 +356,12 @@ test('remembered closed panels do not load until explicitly opened', async () =>
     h.select(revision(12)); await h.runTimers();
     assert.equal(h.allFrames.length, 0);
     h.options.onOpen(); await h.load();
-    assert.equal(h.children[0].src, `${url(12)}&aflpp_source=1`);
+    assert.equal(h.children[0].src, `${url(12)}&mtflpp_source=1`);
 });
 
 test('only the actual parent entry uses the current saved-post URL', async () => {
     const h = fixture({ selected: revision(1, null) }); await h.load();
-    assert.equal(h.children[0].src, `${url(1)}&aflpp_source=1`);
+    assert.equal(h.children[0].src, `${url(1)}&mtflpp_source=1`);
     assert.equal(h.title, 'Current version — Date 1 — Author 1');
     h.select(revision(20, null)); await h.runTimers();
     assert.equal(h.children.length, 0);
@@ -372,9 +372,9 @@ test('only the actual parent entry uses the current saved-post URL', async () =>
 });
 
 for (const [address, origin] of [
-    ['http://name:secret@other.example/private-path?aflpp_token=private-token#private-fragment', 'http://other.example'],
-    ['https://site.local/?aflpp_token=token', 'https://site.local'],
-    ['http://site.local:8080/?aflpp_token=token', 'http://site.local:8080'],
+    ['http://name:secret@other.example/private-path?mtflpp_token=private-token#private-fragment', 'http://other.example'],
+    ['https://site.local/?mtflpp_token=token', 'https://site.local'],
+    ['http://site.local:8080/?mtflpp_token=token', 'http://site.local:8080'],
 ]) {
     test(`revision preview explains a different address (${origin}) without creating a frame`, async () => {
         const h = fixture({ selected: revision(11, address) }); await flush();
@@ -390,7 +390,7 @@ for (const [address, origin] of [
 test('a revision from a different address leaves the last preview and its title intact', async () => {
     const h = fixture(); await h.load();
     const lastFrame = h.children[0];
-    h.select(revision(12, 'https://other.example/?aflpp_token=token')); await h.runTimers();
+    h.select(revision(12, 'https://other.example/?mtflpp_token=token')); await h.runTimers();
     assert.equal(h.allFrames.length, 1);
     assert.equal(h.children[0], lastFrame);
     assert.equal(h.title, 'Date 11 — Author 11');
@@ -405,7 +405,7 @@ for (const [address, reason] of [
     ['not-a-url', ''],
     ['data:text/html,preview', 'unsupported-url'],
     ['file:///page.html', 'unsupported-url'],
-    ['blob:http://site.local/preview?aflpp_token=token', 'unsupported-url'],
+    ['blob:http://site.local/preview?mtflpp_token=token', 'unsupported-url'],
 ]) {
     test(`an invalid revision preview URL does not claim an address mismatch (${address.split(':')[0]})`, async () => {
         const h = fixture({ selected: revision(11, address) }); await flush();
@@ -422,7 +422,7 @@ test('PiP adoption reloads the selected source and does not reopen a closed pane
     const h = fixture(); await h.load();
     h.options.beforeMove(); assert.equal(h.children.length, 0);
     h.options.afterMove(); await h.load();
-    assert.equal(h.children[0].src, `${url(11)}&aflpp_source=1`);
+    assert.equal(h.children[0].src, `${url(11)}&mtflpp_source=1`);
     h.options.onClose(); h.options.afterMove();
     assert.equal(h.allFrames.length, 2);
 });

@@ -4,7 +4,7 @@ import { showStartupError } from './panel/startup-error.js';
 import './compatibility/acf-editor.js';
 import './panel/panel.css';
 
-const config = window.aFloatingLivePreviewPanel;
+const config = window.meetTheFrontendLivePreviewPanel;
 const form = document.getElementById('post');
 if (config && form) {
     // Bind native observers first. All plugin modules are bundled, so initialization cannot yield to a save.

@@ -14,23 +14,23 @@ export function createPreviewLauncher(container) {
     flushSync(() => createRoot(container).render(h(Button, {
         ref: (element) => { button = element; },
         variant: 'secondary', label: title, title, description: moveHelp,
-        'aria-controls': 'aflpp-panel', 'aria-expanded': false,
+        'aria-controls': 'mtflpp-panel', 'aria-expanded': false,
     },
-    h('span', { className: 'aflpp-launcher-label' }, title),
+    h('span', { className: 'mtflpp-launcher-label' }, title),
     )));
     return button;
 }
 
 // Public WordPress UI only. The shell owns geometry, recovery decisions and preview state.
 export function createPreviewControls(panel, strings, callbacks) {
-    const container = panel.querySelector('.aflpp-controls');
-    const refreshContainer = panel.querySelector('.aflpp-refresh-control');
-    const moveContainer = panel.querySelector('.aflpp-move-control');
-    const devicesContainer = panel.querySelector('.aflpp-device-controls');
-    const zoomContainer = panel.querySelector('.aflpp-fit-control');
-    const pipContainer = panel.querySelector('.aflpp-pip-control');
-    const emptyContainer = panel.querySelector('.aflpp-empty');
-    const feedbackContainer = panel.querySelector('.aflpp-feedback');
+    const container = panel.querySelector('.mtflpp-controls');
+    const refreshContainer = panel.querySelector('.mtflpp-refresh-control');
+    const moveContainer = panel.querySelector('.mtflpp-move-control');
+    const devicesContainer = panel.querySelector('.mtflpp-device-controls');
+    const zoomContainer = panel.querySelector('.mtflpp-fit-control');
+    const pipContainer = panel.querySelector('.mtflpp-pip-control');
+    const emptyContainer = panel.querySelector('.mtflpp-empty');
+    const feedbackContainer = panel.querySelector('.mtflpp-feedback');
     let root = createRoot(container);
     let state;
     let open = false;
@@ -40,7 +40,7 @@ export function createPreviewControls(panel, strings, callbacks) {
     const noticeActions = InlineNotices ? dispatch(noticesStore) : null;
     // wp-notices loads wp-theme when needed; that handle is absent in older core.
     const ThemeProvider = panel.ownerDocument.defaultView?.wp?.theme?.ThemeProvider;
-    const noticeContext = 'a-floating-live-preview-panel';
+    const noticeContext = 'meet-the-frontend-live-preview-panel';
     const noticeId = 'preview-feedback';
     let lastNotice = '';
 
@@ -82,7 +82,7 @@ export function createPreviewControls(panel, strings, callbacks) {
     function renderNotice() {
         if (!state.notice) return null;
         if (noticeActions) {
-            const content = h(InlineNotices, { context: noticeContext, className: 'aflpp-inline-notices' });
+            const content = h(InlineNotices, { context: noticeContext, className: 'mtflpp-inline-notices' });
             return ThemeProvider ? h(ThemeProvider, { cornerRadius: 'none' }, content) : content;
         }
         const { message, ...props } = noticeProps();
@@ -104,15 +104,15 @@ export function createPreviewControls(panel, strings, callbacks) {
                 }
                 render();
             },
-            contentClassName: 'aflpp-zoom-popover',
+            contentClassName: 'mtflpp-zoom-popover',
             focusOnMount: 'firstElement',
             popoverProps: { placement: 'top-end', offset: 8, shift: true, resize: false, role: 'dialog', 'aria-label': strings.fitting },
             renderToggle: ({ isOpen, onToggle }) => h(Button, {
-                className: 'aflpp-zoom-toggle', variant: 'secondary', size: 'compact',
+                className: 'mtflpp-zoom-toggle', variant: 'secondary', size: 'compact',
                 label, showTooltip: true, 'aria-label': `${strings.fitting}: ${label}`,
                 'aria-haspopup': 'dialog', 'aria-expanded': isOpen, onClick: onToggle, 'data-action': 'zoom',
-            }, h('span', { className: 'aflpp-zoom-value' }, label), icons.chevron),
-            renderContent: () => h('div', { className: 'aflpp-zoom-content' },
+            }, h('span', { className: 'mtflpp-zoom-value' }, label), icons.chevron),
+            renderContent: () => h('div', { className: 'mtflpp-zoom-content' },
                 h(RadioControl, {
                     label: strings.zoomMode, selected: fit,
                     options: [
@@ -123,7 +123,7 @@ export function createPreviewControls(panel, strings, callbacks) {
                         if (!focusZoomField) return;
                         focusZoomField = false;
                         // Native opening focuses the checked radio after recording the focus-return target.
-                        const field = event.currentTarget.closest('.aflpp-zoom-content')?.querySelector('.aflpp-custom-zoom input[type="number"]');
+                        const field = event.currentTarget.closest('.mtflpp-zoom-content')?.querySelector('.mtflpp-custom-zoom input[type="number"]');
                         field?.focus({ preventScroll: true });
                         const content = field?.closest('.components-popover__content');
                         if (content) {
@@ -144,7 +144,7 @@ export function createPreviewControls(panel, strings, callbacks) {
                     },
                 }),
                 fit === 'custom' && h('div', {
-                    className: 'aflpp-custom-zoom',
+                    className: 'mtflpp-custom-zoom',
                     onKeyDown(event) {
                         if (event.key !== 'Enter') return;
                         event.preventDefault();
@@ -159,9 +159,9 @@ export function createPreviewControls(panel, strings, callbacks) {
                         if (Number.isInteger(value) && value >= 10 && value <= 400) callbacks.zoom(value);
                     },
                 })),
-                h('div', { className: 'aflpp-dpr-note', role: 'group', 'aria-label': strings.displayInformation },
-                    h('span', { className: 'aflpp-dpr-value' }, `${strings.displayDpr}: ${Number(dpr.toFixed(2))}`),
-                    h('span', { className: 'aflpp-pixel-note' }, strings.pixelZoomHelp),
+                h('div', { className: 'mtflpp-dpr-note', role: 'group', 'aria-label': strings.displayInformation },
+                    h('span', { className: 'mtflpp-dpr-value' }, `${strings.displayDpr}: ${Number(dpr.toFixed(2))}`),
+                    h('span', { className: 'mtflpp-pixel-note' }, strings.pixelZoomHelp),
                 ),
             ),
         });
@@ -177,14 +177,14 @@ export function createPreviewControls(panel, strings, callbacks) {
     function actionsMenu() {
         const { canPip, canFullscreen, inPage, inPip, dock, rememberVisibility, rememberPosition, followChanges } = state;
         return h(DropdownMenu, {
-            className: 'aflpp-actions', label: strings.actions, icon: icons.more, open,
+            className: 'mtflpp-actions', label: strings.actions, icon: icons.more, open,
             onToggle(value) {
                 open = value;
                 if (value) zoomOpen = false;
                 render();
             },
-            toggleProps: { className: 'aflpp-icon', size: 'compact', 'data-action': 'actions' },
-            popoverProps: { placement: 'bottom-end', offset: 6, shift: true, className: 'aflpp-menu-popover' },
+            toggleProps: { className: 'mtflpp-icon', size: 'compact', 'data-action': 'actions' },
+            popoverProps: { placement: 'bottom-end', offset: 6, shift: true, className: 'mtflpp-menu-popover' },
         }, () => h(Fragment, null,
             (canPip || canFullscreen) && h(MenuGroup, { label: strings.display },
                 canPip && h(MenuItem, {
@@ -235,14 +235,14 @@ export function createPreviewControls(panel, strings, callbacks) {
 
     function deviceToolbar() {
         const { device, orientation } = state;
-        return h(Toolbar, { className: 'aflpp-devices', label: strings.viewport, variant: 'unstyled' },
+        return h(Toolbar, { className: 'mtflpp-devices', label: strings.viewport, variant: 'unstyled' },
             ...['desktop', 'tablet', 'mobile'].map((name) => {
                 const selected = device === name;
                 const rotatable = selected && name !== 'desktop';
                 const rotated = rotatable && orientation === 'landscape';
                 const rotateLabel = orientation === 'portrait' ? strings.rotateLandscape : strings.rotatePortrait;
                 return h(ToolbarButton, {
-                    key: name, icon: icons[name], className: rotated ? 'aflpp-device-rotated' : undefined,
+                    key: name, icon: icons[name], className: rotated ? 'mtflpp-device-rotated' : undefined,
                     label: rotatable ? `${strings[name]} — ${rotateLabel}` : strings[name],
                     isPressed: selected, 'data-viewport': name, onClick: () => callbacks.device(name),
                 });
@@ -254,15 +254,15 @@ export function createPreviewControls(panel, strings, callbacks) {
         const { empty } = state;
         if (!empty) return null;
         return h(Placeholder, {
-            className: 'aflpp-placeholder', icon: empty.busy ? h(Spinner) : icons[empty.icon],
-            label: h('h3', { className: 'aflpp-empty-title', tabIndex: -1, 'data-action': 'empty-title' }, empty.heading),
+            className: 'mtflpp-placeholder', icon: empty.busy ? h(Spinner) : icons[empty.icon],
+            label: h('h3', { className: 'mtflpp-empty-title', tabIndex: -1, 'data-action': 'empty-title' }, empty.heading),
             instructions: empty.description,
         },
         empty.retry && h(Button, {
             key: 'retry', variant: 'primary', disabled: empty.disabled, onClick: callbacks.retry, 'data-action': 'retry',
         }, empty.action),
         empty.close && h(Button, { key: 'close', variant: 'secondary', onClick: callbacks.close, 'data-action': 'close' }, strings.close),
-        empty.note && h('p', { className: 'aflpp-empty-note' }, empty.note),
+        empty.note && h('p', { className: 'mtflpp-empty-note' }, empty.note),
         );
     }
 
@@ -272,26 +272,26 @@ export function createPreviewControls(panel, strings, callbacks) {
         } = state;
         return h(SlotFillProvider, null,
             createPortal(movable && inPage && h(Button, {
-                className: 'aflpp-icon aflpp-move', size: 'compact', icon: icons.move, label: strings.move, showTooltip: true, tooltipPosition: 'bottom',
+                className: 'mtflpp-icon mtflpp-move', size: 'compact', icon: icons.move, label: strings.move, showTooltip: true, tooltipPosition: 'bottom',
                 'data-action': 'move',
             }), moveContainer),
             createPortal(h(Button, {
-                className: 'aflpp-icon', size: 'compact', icon: busy ? h(Spinner) : icons.refresh,
+                className: 'mtflpp-icon', size: 'compact', icon: busy ? h(Spinner) : icons.refresh,
                 label: strings.refresh, showTooltip: true,
                 // Loading must not move focus from Refresh to the panel's fallback action.
                 accessibleWhenDisabled: true, disabled: !canRefresh, onClick: callbacks.refresh, 'data-action': 'refresh',
             }), refreshContainer),
-            createPortal(canPip && hasPreview && h('div', { className: 'aflpp-pip-surface' }, h(Button, {
-                className: 'aflpp-pip-button', icon: icons.pip, label: strings.popOutHelp, 'aria-label': strings.popOut,
+            createPortal(canPip && hasPreview && h('div', { className: 'mtflpp-pip-surface' }, h(Button, {
+                className: 'mtflpp-pip-button', icon: icons.pip, label: strings.popOutHelp, 'aria-label': strings.popOut,
                 description: strings.popOutHelp, showTooltip: true, onClick: callbacks.popOut, 'data-action': 'pop-out',
             })), pipContainer),
             actionsMenu(),
             !inPip && h(Button, {
-                className: 'aflpp-icon aflpp-mode', size: 'compact', icon: icons[mode], label: modeLabel, showTooltip: true,
+                className: 'mtflpp-icon mtflpp-mode', size: 'compact', icon: icons[mode], label: modeLabel, showTooltip: true,
                 onClick: callbacks.mode, 'data-action': 'mode',
             }),
             !inPip && h(Button, {
-                className: 'aflpp-icon', size: 'compact', icon: icons.close, label: strings.close, showTooltip: true,
+                className: 'mtflpp-icon', size: 'compact', icon: icons.close, label: strings.close, showTooltip: true,
                 onClick: callbacks.close, 'data-action': 'close',
             }),
             createPortal(deviceToolbar(), devicesContainer),
@@ -324,7 +324,7 @@ export function createPreviewControls(panel, strings, callbacks) {
     return {
         update(next) {
             const recoverZoomFocus = zoomOpen && !next.hasPreview
-                && panel.ownerDocument.activeElement?.closest('.aflpp-zoom-popover');
+                && panel.ownerDocument.activeElement?.closest('.mtflpp-zoom-popover');
             if (!next.hasPreview) zoomOpen = false;
             state = next;
             render();

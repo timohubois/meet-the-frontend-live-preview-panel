@@ -1,6 +1,6 @@
 <?php
 
-namespace AFloatingLivePreviewPanel;
+namespace MeetTheFrontendLivePreviewPanel;
 
 use WP_Error;
 use WP_Post;
@@ -11,10 +11,10 @@ use WP_REST_Server;
 /** Own isolated live-preview revisions, integrity checks and native-save coordination. */
 final class LivePreview
 {
-    private const POST_STATUS = 'aflpp-preview';
-    public const AUTHOR_META = '_aflpp_post_author';
-    public const DATE_META = '_aflpp_post_date';
-    public const TERMS_META = '_aflpp_terms';
+    private const POST_STATUS = 'mtflpp-preview';
+    public const AUTHOR_META = '_mtflpp_post_author';
+    public const DATE_META = '_mtflpp_post_date';
+    public const TERMS_META = '_mtflpp_terms';
 
     private int $autosavePostId = 0;
 
@@ -57,7 +57,7 @@ final class LivePreview
 
     public function registerRoutes(): void
     {
-        register_rest_route('a-floating-live-preview-panel/v1', '/posts/(?P<id>\d+)/preview', [
+        register_rest_route('meet-the-frontend-live-preview-panel/v1', '/posts/(?P<id>\d+)/preview', [
             'methods' => WP_REST_Server::CREATABLE,
             'permission_callback' => [$this, 'canPreparePreview'],
             'callback' => [$this, 'preparePreview'],
@@ -93,7 +93,7 @@ final class LivePreview
             || !current_user_can('edit_post', $post->ID)
         ) {
             return new WP_Error(
-                'aflpp_cannot_preview',
+                'mtflpp_cannot_preview',
                 __('You cannot preview this post.', 'meet-the-frontend-live-preview-panel'),
                 ['status' => rest_authorization_required_code()]
             );
@@ -131,9 +131,9 @@ final class LivePreview
         $postId = isset($data['wp_autosave']['post_id']) && is_scalar($data['wp_autosave']['post_id'])
             ? absint($data['wp_autosave']['post_id']) : 0;
         if (
-            $postId && isset($data['aflpp_base']) && is_string($data['aflpp_base'])
+            $postId && isset($data['mtflpp_base']) && is_string($data['mtflpp_base'])
             && current_user_can('edit_post', $postId)
-            && hash_equals($this->fingerprint($postId), $data['aflpp_base'])
+            && hash_equals($this->fingerprint($postId), $data['mtflpp_base'])
         ) {
             $this->autosavePostId = $postId;
         }
@@ -143,7 +143,7 @@ final class LivePreview
     public function rebaseAutosave(array $response): array
     {
         if ($this->autosavePostId && !empty($response['wp_autosave']['success'])) {
-            $response['aflpp_base'] = $this->fingerprint($this->autosavePostId);
+            $response['mtflpp_base'] = $this->fingerprint($this->autosavePostId);
         }
         return $response;
     }
@@ -153,8 +153,8 @@ final class LivePreview
     {
         $postId = (int) $request->get_param('id');
         $post = $postId ? get_post($postId) : null;
-        $base = (string) $request->get_header('X-AFLPP-Base');
-        $token = (string) $request->get_header('X-AFLPP-Request');
+        $base = (string) $request->get_header('X-MTFLPP-Base');
+        $token = (string) $request->get_header('X-MTFLPP-Request');
         if (
             !$post || !in_array($request->get_method(), ['POST', 'PUT', 'PATCH'], true)
             || !preg_match('/^[a-f0-9]{64}$/D', $base) || !preg_match('/^[a-f0-9]{32}$/D', $token)
@@ -197,7 +197,7 @@ final class LivePreview
         if ($status >= 400 && $after !== $save['base']) {
             return $response;
         }
-        $data['_aflpp_receipt'] = [
+        $data['_mtflpp_receipt'] = [
             'request' => $save['request'],
             'before' => $save['base'],
             'after' => $after,
@@ -212,14 +212,14 @@ final class LivePreview
     {
         $postId = isset($_POST['post_ID']) && is_scalar($_POST['post_ID']) ? absint($_POST['post_ID']) : 0;
         // phpcs:disable WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Exact string contracts below.
-        $token = isset($_POST['aflpp_preview']) && is_string($_POST['aflpp_preview'])
-            ? wp_unslash($_POST['aflpp_preview']) : '';
-        $base = isset($_POST['aflpp_base']) && is_string($_POST['aflpp_base'])
-            ? wp_unslash($_POST['aflpp_base']) : '';
+        $token = isset($_POST['mtflpp_preview']) && is_string($_POST['mtflpp_preview'])
+            ? wp_unslash($_POST['mtflpp_preview']) : '';
+        $base = isset($_POST['mtflpp_base']) && is_string($_POST['mtflpp_base'])
+            ? wp_unslash($_POST['mtflpp_base']) : '';
         $action = isset($_POST['wp-preview']) && is_string($_POST['wp-preview'])
             ? wp_unslash($_POST['wp-preview']) : '';
-        $metaSave = isset($_POST['aflpp_metabox'], $_GET['meta-box-loader'], $_POST['action'])
-            && $_POST['aflpp_metabox'] === '1' && $_POST['action'] === 'editpost';
+        $metaSave = isset($_POST['mtflpp_metabox'], $_GET['meta-box-loader'], $_POST['action'])
+            && $_POST['mtflpp_metabox'] === '1' && $_POST['action'] === 'editpost';
         // phpcs:enable WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
         $nonce = isset($_POST['_wpnonce']) && is_string($_POST['_wpnonce'])
             ? sanitize_text_field(wp_unslash($_POST['_wpnonce'])) : '';
@@ -235,7 +235,7 @@ final class LivePreview
             if ($location && !headers_sent()) {
                 // A short-lived, tab/request-specific receipt also works for redirects and non-HTML previews.
                 $receipt = $matches ? $base . '.' . $this->fingerprint($postId) : 'conflict';
-                setcookie('aflpp_preview_' . $token, $receipt, [
+                setcookie('mtflpp_preview_' . $token, $receipt, [
                     'expires' => time() + MINUTE_IN_SECONDS,
                     'path' => ADMIN_COOKIE_PATH,
                     'secure' => is_ssl(),
@@ -254,7 +254,7 @@ final class LivePreview
 
     private function stateAction(int $postId, int $revisionId): string
     {
-        return 'aflpp_read_' . $postId . '_' . $revisionId . '_' . $this->fingerprint($postId)
+        return 'mtflpp_read_' . $postId . '_' . $revisionId . '_' . $this->fingerprint($postId)
             . ($revisionId ? $this->fingerprint($revisionId) : '');
     }
 
@@ -377,7 +377,7 @@ final class LivePreview
         // Editor writes require their REST nonce, including internal or alternative-auth requests.
         if (!wp_verify_nonce((string) $request->get_header('X-WP-Nonce'), 'wp_rest')) {
             return new WP_Error(
-                'aflpp_invalid_nonce',
+                'mtflpp_invalid_nonce',
                 __('This preview has expired.', 'meet-the-frontend-live-preview-panel'),
                 ['status' => 403]
             );
@@ -385,21 +385,21 @@ final class LivePreview
         $httpPost = $this->httpPostRequests[$request] ?? null;
         if ($httpPost === false) {
             return new WP_Error(
-                'aflpp_post_required',
+                'mtflpp_post_required',
                 __('Preview writes require an HTTP POST request.', 'meet-the-frontend-live-preview-panel'),
                 ['status' => 405]
             );
         }
         if ($request->get_file_params()) {
             return new WP_Error(
-                'aflpp_upload_not_supported',
+                'mtflpp_upload_not_supported',
                 __('File uploads aren’t supported in live previews.', 'meet-the-frontend-live-preview-panel'),
                 ['status' => 400]
             );
         }
         if (self::$preparingPreview) {
             return new WP_Error(
-                'aflpp_preview_busy',
+                'mtflpp_preview_busy',
                 __('A live preview is already being prepared.', 'meet-the-frontend-live-preview-panel'),
                 ['status' => 409]
             );
@@ -428,7 +428,7 @@ final class LivePreview
 
         if (wp_check_post_lock($postId)) {
             return new WP_Error(
-                'aflpp_post_locked',
+                'mtflpp_post_locked',
                 __(
                     'Another user is editing this post. Take over editing to continue.',
                     'meet-the-frontend-live-preview-panel'
@@ -438,7 +438,7 @@ final class LivePreview
         }
         if (!$this->isAvailable($post) || !hash_equals($this->fingerprint($postId), $input['base'])) {
             return new WP_Error(
-                'aflpp_preview_conflict',
+                'mtflpp_preview_conflict',
                 __(
                     'The saved post has changed or is no longer available for live preview.',
                     'meet-the-frontend-live-preview-panel'
@@ -463,7 +463,7 @@ final class LivePreview
             || get_post_meta($revisionId, self::TERMS_META, true) !== $fields['terms']
         ) {
             return new WP_Error(
-                'aflpp_preview_fields_not_saved',
+                'mtflpp_preview_fields_not_saved',
                 __(
                     'Some preview fields couldn’t be prepared. Please try again.',
                     'meet-the-frontend-live-preview-panel'
@@ -473,7 +473,7 @@ final class LivePreview
         }
         if (!hash_equals($base, $this->fingerprint($postId))) {
             return new WP_Error(
-                'aflpp_source_changed',
+                'mtflpp_source_changed',
                 __('The saved post changed while the preview was loading.', 'meet-the-frontend-live-preview-panel'),
                 ['status' => 409]
             );
@@ -482,9 +482,9 @@ final class LivePreview
         return new WP_REST_Response([
             // Our state token authorizes this revision; native autosave parameters would select recovery data.
             'url' => get_preview_post_link($post, [
-                'aflpp_post' => $postId,
-                'aflpp_revision' => $revisionId,
-                'aflpp_token' => wp_create_nonce($action),
+                'mtflpp_post' => $postId,
+                'mtflpp_revision' => $revisionId,
+                'mtflpp_token' => wp_create_nonce($action),
             ]),
         ]);
     }
@@ -600,7 +600,7 @@ final class LivePreview
              * @param array|WP_Error $payload Native form values or a prior error.
              * @param array          $context Post identity, null source and untrusted unslashed input.
              */
-            $payload = apply_filters('aflpp_live_preview_form_values', $payload, $context + ['input' => $input]);
+            $payload = apply_filters('mtflpp_live_preview_form_values', $payload, $context + ['input' => $input]);
             if (is_wp_error($payload)) {
                 $preparationError = $payload;
                 return $payload;
@@ -636,7 +636,7 @@ final class LivePreview
                  * @param WP_Error|null $error   A prior integration error, or null.
                  * @param array         $context Post and source identities, with a null source if none was established.
                  */
-                $saveError = apply_filters('aflpp_live_preview_preparation_error', $preparationError, $context);
+                $saveError = apply_filters('mtflpp_live_preview_preparation_error', $preparationError, $context);
             } finally {
                 /**
                  * Release integration state after verification, including when a verifier throws.
@@ -644,11 +644,11 @@ final class LivePreview
                  *
                  * @param array $context Post and source identities, with a null source if none was established.
                  */
-                do_action('aflpp_live_preview_preparation_finished', $context);
+                do_action('mtflpp_live_preview_preparation_finished', $context);
             }
         }
         if (is_wp_error($revisionId)) {
-            return new WP_Error('aflpp_preview_failed', $revisionId->get_error_message(), ['status' => 400]);
+            return new WP_Error('mtflpp_preview_failed', $revisionId->get_error_message(), ['status' => 400]);
         }
         if ($saveError) {
             return $saveError;
@@ -656,7 +656,7 @@ final class LivePreview
         $revisionId = (int) $revisionId;
         if (!$revisionId || !$this->ownsRevision($postId, $revisionId)) {
             return new WP_Error(
-                'aflpp_revision_unavailable',
+                'mtflpp_revision_unavailable',
                 __('We couldn’t prepare the preview.', 'meet-the-frontend-live-preview-panel'),
                 ['status' => 409]
             );
@@ -684,7 +684,7 @@ final class LivePreview
 
     private function revisionName(int $postId): string
     {
-        return $postId . '-aflpp-preview-' . get_current_user_id();
+        return $postId . '-mtflpp-preview-' . get_current_user_id();
     }
 
     /** Reuse one internal revision per post/user without reading or overwriting recovery autosaves. */
@@ -764,7 +764,7 @@ final class LivePreview
          *
          * @param array $context Core-owned post and initialized source identities.
          */
-        do_action('aflpp_live_preview_custom_fields_initialized', [
+        do_action('mtflpp_live_preview_custom_fields_initialized', [
             'post' => ['id' => $postId],
             'source' => ['id' => $revisionId],
         ]);

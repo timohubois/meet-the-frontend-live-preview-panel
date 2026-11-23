@@ -1,8 +1,8 @@
 <?php
 
-namespace AFloatingLivePreviewPanel\Compatibility;
+namespace MeetTheFrontendLivePreviewPanel\Compatibility;
 
-use AFloatingLivePreviewPanel\LivePreview;
+use MeetTheFrontendLivePreviewPanel\LivePreview;
 use WP_Block;
 use WP_Block_Type;
 use WP_Block_Type_Registry;
@@ -35,16 +35,16 @@ final class CoreBlocks
 
     public function __construct()
     {
-        add_action('aflpp_frontend_live_preview_source_selected', fn (array $context) => $this->bindPreview(
+        add_action('mtflpp_frontend_live_preview_source_selected', fn (array $context) => $this->bindPreview(
             $context['post']['id'],
             $context['source']['id']
         ));
-        add_action('aflpp_frontend_saved_preview_source_selected', fn (array $context) => $this->bindPreview(
+        add_action('mtflpp_frontend_saved_preview_source_selected', fn (array $context) => $this->bindPreview(
             $context['post']['id'],
             $context['source']['id'],
             true
         ));
-        add_action('aflpp_frontend_term_preview_source_selected', fn (array $context) => $this->bindTermPreview(
+        add_action('mtflpp_frontend_term_preview_source_selected', fn (array $context) => $this->bindTermPreview(
             $context['term'],
             $context['saved']
         ));

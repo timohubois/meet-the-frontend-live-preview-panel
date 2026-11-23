@@ -17,17 +17,17 @@ async function browserTests(source) {
             frame.style.cssText = 'width:640px;height:320px;border:0';
             frames.push(frame);
             const loaded = new Promise((resolve) => { frame.onload = resolve; });
-            let html = `<!doctype html><html><head><meta name="a-floating-live-preview-panel" content="source-token"><style>p{height:100px;margin:0}img{width:20px;height:20px}</style></head><body><main>${content}</main><script>${script}</script></body></html>`;
+            let html = `<!doctype html><html><head><meta name="meet-the-frontend-live-preview-panel" content="source-token"><style>p{height:100px;margin:0}img{width:20px;height:20px}</style></head><body><main>${content}</main><script>${script}</script></body></html>`;
             if (captured) {
                 // Model the PHP wire format; the PHP fixture separately verifies the actual buffer/HTML API.
                 const source = new DOMParser().parseFromString(html, 'text/html');
                 for (const node of source.querySelectorAll('*')) {
                     if (!['base', 'head', 'link', 'meta', 'script', 'style', 'title'].includes(node.localName)) {
-                        node.setAttribute('data-aflpp-node', String(++offset));
+                        node.setAttribute('data-mtflpp-node', String(++offset));
                     }
                 }
                 const original = `<!doctype html>${source.documentElement.outerHTML}`;
-                source.querySelector('meta').setAttribute('data-aflpp-source', JSON.stringify(original));
+                source.querySelector('meta').setAttribute('data-mtflpp-source', JSON.stringify(original));
                 html = `<!doctype html>${source.documentElement.outerHTML}`;
             }
             frame.srcdoc = html;
@@ -410,7 +410,7 @@ async function browserTests(source) {
         const previous = await doc(content());
         for (const payload of ['invalid JSON', JSON.stringify({ html: 'wrong shape' }), JSON.stringify('<main>Missing authorization marker</main>')]) {
             const next = await doc(content('Changed paragraph'));
-            next.querySelector('meta').setAttribute('data-aflpp-source', payload);
+            next.querySelector('meta').setAttribute('data-mtflpp-source', payload);
             equal(scrolling.findTarget(previous, next), next.querySelector('#edited'), 'Invalid source data must not break an otherwise usable HTML preview.');
         }
     });
@@ -433,15 +433,15 @@ async function browserTests(source) {
         equal(scrolling.findTarget(previous, next), next.querySelector('#edited'), 'Payload size must not silently reintroduce frontend initialization noise.');
     });
     await check('reading captured snapshots never executes their scripts a second time', async (scrolling, doc) => {
-        window.aflppSourceScriptRuns = 0;
-        const script = 'parent.aflppSourceScriptRuns += 1;';
+        window.mtflppSourceScriptRuns = 0;
+        const script = 'parent.mtflppSourceScriptRuns += 1;';
         const previous = await doc(content(), { captured: true, script });
         const next = await doc(content('Changed paragraph'), { captured: true, script });
-        equal(window.aflppSourceScriptRuns, 2, 'Normal iframe initialization still executes once per page.');
+        equal(window.mtflppSourceScriptRuns, 2, 'Normal iframe initialization still executes once per page.');
         const target = scrolling.findTarget(previous, next);
         await scrolling.restore(next, target);
-        equal(window.aflppSourceScriptRuns, 2, 'Parsing and caching the source must not execute it.');
-        delete window.aflppSourceScriptRuns;
+        equal(window.mtflppSourceScriptRuns, 2, 'Parsing and caching the source must not execute it.');
+        delete window.mtflppSourceScriptRuns;
     });
     // All author evidence is tied to the actual before/after submissions, not the latest UI state.
     const hints = (value, type = 'text') => ({ field: { type, value } });

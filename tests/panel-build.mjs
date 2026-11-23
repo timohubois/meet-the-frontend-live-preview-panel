@@ -69,7 +69,7 @@ test('the shipped editor bundle uses WordPress runtime globals and bundles exact
     // No editor form: loading the compiled entry must be safe, without booting coordination or React.
     vm.runInNewContext(bundle, { window, document: { getElementById: () => null } });
     assert.deepEqual(bundledIcons.map(shape).sort(), Object.values(icons).map(shape).sort());
-    assert.equal(window.aFloatingLivePreviewPanelIcons, undefined, 'icons are module-local, not a plugin global');
+    assert.equal(window.meetTheFrontendLivePreviewPanelIcons, undefined, 'icons are module-local, not a plugin global');
 });
 
 test('all admin entries emit the same panel stylesheet without a separate shared runtime', async () => {
@@ -77,8 +77,8 @@ test('all admin entries emit the same panel stylesheet without a separate shared
         readFile(new URL(`../build/${entry}.css`, import.meta.url), 'utf8')
     ));
     for (const css of others) assert.equal(editor, css);
-    assert.match(editor, /\.aflpp-panel/);
-    assert.match(editor, /\.aflpp-pip-document/);
+    assert.match(editor, /\.mtflpp-panel/);
+    assert.match(editor, /\.mtflpp-pip-document/);
 });
 
 test('the standalone frontend build preserves hash navigation but blocks links and form submissions', async () => {
@@ -86,7 +86,7 @@ test('the standalone frontend build preserves hash navigation but blocks links a
     const asset = await readFile(new URL('../build/preview-navigation.asset.php', import.meta.url), 'utf8');
     assert.match(asset, /'dependencies'\s*=>\s*array\(\s*\)/);
     const handlers = new Map();
-    const href = 'https://site.test/post/?preview=true&aflpp_token=token';
+    const href = 'https://site.test/post/?preview=true&mtflpp_token=token';
     vm.runInNewContext(source, {
         URL, window: { location: { href } },
         document: { addEventListener: (type, callback) => handlers.set(type, callback) },

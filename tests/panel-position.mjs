@@ -30,14 +30,14 @@ function browserTests({ core, css, geometry, source }) {
                 ${css}
                 </style></head><body><div id="wpadminbar"></div>
                 <div id="wpcontent"><div id="wpbody-content"><div class="wrap">Editor content</div></div></div>
-                <div id="aflpp-toggle" class="aflpp-launcher" hidden><button type="button" class="components-button is-secondary"><span class="aflpp-launcher-label">Revision preview</span></button></div>
-                <section id="aflpp-panel" class="aflpp-panel" aria-labelledby="aflpp-title" hidden>
-                    <header class="aflpp-header"><div class="aflpp-move-control"><button>Move</button></div>
-                        <div class="aflpp-titlebar"><h2 id="aflpp-title" class="aflpp-caption">Live preview</h2></div>
-                        <div class="aflpp-controls"><button data-action="actions">Actions</button></div></header>
-                    <div class="aflpp-feedback" hidden></div><div class="aflpp-viewport"><div class="aflpp-canvas" role="region" aria-label="Preview canvas" tabindex="-1"><div class="aflpp-canvas-space"><div class="aflpp-stage"></div></div></div><div class="aflpp-empty"></div></div>
-                    <footer class="aflpp-devicebar"><span class="aflpp-dimensions"></span></footer>
-                    <button class="aflpp-resize"></button><span role="status"></span>
+                <div id="mtflpp-toggle" class="mtflpp-launcher" hidden><button type="button" class="components-button is-secondary"><span class="mtflpp-launcher-label">Revision preview</span></button></div>
+                <section id="mtflpp-panel" class="mtflpp-panel" aria-labelledby="mtflpp-title" hidden>
+                    <header class="mtflpp-header"><div class="mtflpp-move-control"><button>Move</button></div>
+                        <div class="mtflpp-titlebar"><h2 id="mtflpp-title" class="mtflpp-caption">Live preview</h2></div>
+                        <div class="mtflpp-controls"><button data-action="actions">Actions</button></div></header>
+                    <div class="mtflpp-feedback" hidden></div><div class="mtflpp-viewport"><div class="mtflpp-canvas" role="region" aria-label="Preview canvas" tabindex="-1"><div class="mtflpp-canvas-space"><div class="mtflpp-stage"></div></div></div><div class="mtflpp-empty"></div></div>
+                    <footer class="mtflpp-devicebar"><span class="mtflpp-dimensions"></span></footer>
+                    <button class="mtflpp-resize"></button><span role="status"></span>
                 </section></body></html>`);
             doc.close();
             const win = doc.defaultView;
@@ -49,7 +49,7 @@ function browserTests({ core, css, geometry, source }) {
             let actions;
             const imports = {
                 '@wordpress/data': {
-                    select: () => ({ get: (scope, key) => preferences.get(key) }),
+                    select: () => ({ get: (scope, key) => scope === 'meet-the-frontend-live-preview-panel' ? preferences.get(key) : undefined }),
                     dispatch: () => ({ setDefaults() {}, set: (scope, key, value) => preferences.set(key, value) }),
                 },
                 '@wordpress/preferences': { store: {} },
@@ -72,9 +72,9 @@ function browserTests({ core, css, geometry, source }) {
                 postTitle: 'Initial post title',
                 onOpen: () => view.setVisible(true), onClose: () => view.setVisible(false),
             });
-            const launcher = doc.querySelector('#aflpp-toggle button');
-            const panel = doc.getElementById('aflpp-panel');
-            const caption = panel.querySelector('.aflpp-caption');
+            const launcher = doc.querySelector('#mtflpp-toggle button');
+            const panel = doc.getElementById('mtflpp-panel');
+            const caption = panel.querySelector('.mtflpp-caption');
             if (caption.tagName !== 'H2' || caption.tabIndex !== -1
                 || doc.getElementById(panel.getAttribute('aria-labelledby')) !== caption
                 || caption.textContent !== 'preview — Initial post title') {
@@ -120,7 +120,7 @@ function browserTests({ core, css, geometry, source }) {
             launcher.dispatchEvent(new win.MouseEvent('click', { detail: 0 }));
             if (focusCalls.join() !== 'actions' || doc.activeElement?.dataset.action !== 'actions') throw new Error('Keyboard opening retains accessible focus transfer.');
             actions.close();
-            launcher.querySelector('.aflpp-launcher-label').textContent = 'A long translated live preview label '.repeat(8);
+            launcher.querySelector('.mtflpp-launcher-label').textContent = 'A long translated live preview label '.repeat(8);
             win.dispatchEvent(new win.Event('resize'));
             const long = launcher.getBoundingClientRect();
             if (long.left < viewportLeft - 1 || long.right > viewportRight + 1) throw new Error('Real translated launcher dimensions must fit independently.');
@@ -131,7 +131,7 @@ function browserTests({ core, css, geometry, source }) {
                 win.requestAnimationFrame = (callback) => paints.push(callback);
                 win.cancelAnimationFrame = () => {};
                 const paint = () => { for (const callback of paints.splice(0)) callback(); };
-                const move = panel.querySelector('.aflpp-move-control');
+                const move = panel.querySelector('.mtflpp-move-control');
                 move.setPointerCapture = () => {};
                 move.hasPointerCapture = () => false;
                 let start;
@@ -183,5 +183,7 @@ test('responsive panel and launcher geometry in Chromium', async (t) => {
         sourceForVm(new URL('../src/panel/geometry.js', import.meta.url)),
         sourceForVm(new URL('../src/panel/window.js', import.meta.url)),
     ]);
-    await runChromiumTests(t, { script: `(${browserTests.toString()})(${JSON.stringify({ core, css, geometry, source })})`, count: 10 });
+    await runChromiumTests(t, {
+        script: `(${browserTests.toString()})(${JSON.stringify({ core, css, geometry, source })})`, count: 10,
+    });
 });

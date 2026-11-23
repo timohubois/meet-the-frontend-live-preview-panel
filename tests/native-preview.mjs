@@ -72,7 +72,7 @@ async function fixture(pending) {
         setTimeout: (callback) => { timers.set(++nextTimer, callback); return nextTimer; },
         clearTimeout: (id) => timers.delete(id),
         window: {
-            aFloatingLivePreviewPanel: config, crypto: webcrypto,
+            meetTheFrontendLivePreviewPanel: config, crypto: webcrypto,
             open: () => { popups++; },
             jQuery: () => ({
                 on(events, callback) { for (const name of events.split(' ')) heartbeat.set(name.split('.')[0], callback); return this; },
@@ -89,9 +89,9 @@ async function fixture(pending) {
         config, nativeEditor, fields, cookies, cookieWrites, outcomes, click,
         get posts() { return posts; }, get popups() { return popups; },
         receipt(value) {
-            const token = fields.find((field) => field.name === 'aflpp_preview').value;
+            const token = fields.find((field) => field.name === 'mtflpp_preview').value;
             assert.match(token, /^[a-f0-9]{32}$/);
-            cookies.set(`aflpp_preview_${token}`, value);
+            cookies.set(`mtflpp_preview_${token}`, value);
         },
         async tick(elapsed = 100) {
             now += elapsed;
@@ -113,7 +113,7 @@ async function fixture(pending) {
 
 test('idle native Preview is not treated as editor navigation and accepts exactly its receipt', async () => {
     const h = await fixture();
-    h.cookies.set('aflpp_preview_another_tab', `${h.config.base}.${'f'.repeat(64)}`);
+    h.cookies.set('mtflpp_preview_another_tab', `${h.config.base}.${'f'.repeat(64)}`);
     h.click();
     assert.equal(h.posts, 1);
     assert.equal(h.nativeEditor.saving, false);
@@ -142,13 +142,13 @@ for (const failed of [false, true]) {
         assert.equal(h.posts, 0);
         assert.equal(h.popups, 1);
         assert.equal(h.fields.length, 0);
-        h.fire('heartbeat-tick', { aflpp_base: 'c'.repeat(64) });
+        h.fire('heartbeat-tick', { mtflpp_base: 'c'.repeat(64) });
         if (failed) pending.reject(new Error('Live write failed'));
         else pending.resolve();
         await flush();
         assert.equal(h.posts, 1);
         assert.equal(h.popups, 1);
-        assert.equal(h.fields.find((field) => field.name === 'aflpp_base').value, 'c'.repeat(64));
+        assert.equal(h.fields.find((field) => field.name === 'mtflpp_base').value, 'c'.repeat(64));
         h.receipt(`${h.config.base}.${'d'.repeat(64)}`);
         await h.tick();
         assert.equal(h.config.base, 'd'.repeat(64));
@@ -162,7 +162,7 @@ for (const value of ['conflict', 'malformed', `${'f'.repeat(64)}.${'b'.repeat(64
         await h.nativeEditor.idle;
         assert.equal(h.config.base, 'a'.repeat(64));
         assert.equal(h.nativeEditor.previewing, false);
-        assert.equal(h.outcomes[0].code, 'aflpp_source_changed');
+        assert.equal(h.outcomes[0].code, 'mtflpp_source_changed');
         assert.equal(h.fields.length, 0);
         assert.equal(h.cookies.size, 0);
         assert.equal(h.posts, 1);
@@ -173,7 +173,7 @@ test('missing native acknowledgement expires without an infinite pause or anothe
     const h = await fixture();
     h.click(); await h.tick(30001); await h.nativeEditor.idle;
     assert.equal(h.nativeEditor.previewing, false);
-    assert.equal(h.outcomes[0].code, 'aflpp_source_changed');
+    assert.equal(h.outcomes[0].code, 'mtflpp_source_changed');
     assert.equal(h.config.base, 'a'.repeat(64));
     assert.equal(h.fields.length, 0);
     assert.equal(h.posts, 1);
@@ -189,9 +189,9 @@ test('heartbeat uses a received Preview baseline and waits for both native opera
     const data = {};
     h.fire('heartbeat-send', data);
     await flush();
-    assert.equal(data.aflpp_base, 'b'.repeat(64));
+    assert.equal(data.mtflpp_base, 'b'.repeat(64));
     assert.equal(idle, false);
-    h.fire('heartbeat-tick', { aflpp_base: 'c'.repeat(64), rest_nonce: 'renewed' });
+    h.fire('heartbeat-tick', { mtflpp_base: 'c'.repeat(64), rest_nonce: 'renewed' });
     await flush();
     assert.equal(idle, true);
     assert.equal(h.config.base, 'c'.repeat(64));

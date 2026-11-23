@@ -2,9 +2,9 @@
 
 /** Run with `wp eval-file tests/editor-extensions.php`; no database fixtures are created. */
 
-use AFloatingLivePreviewPanel\Compatibility\Acf;
-use AFloatingLivePreviewPanel\Compatibility\Yoast;
-use AFloatingLivePreviewPanel\Panel;
+use MeetTheFrontendLivePreviewPanel\Compatibility\Acf;
+use MeetTheFrontendLivePreviewPanel\Compatibility\Yoast;
+use MeetTheFrontendLivePreviewPanel\Panel;
 
 if (!defined('WP_CLI') || !WP_CLI || !class_exists(Panel::class)) {
     throw new RuntimeException('Run through WP-CLI with Meet the Frontend – Live Preview Panel active.');
@@ -15,9 +15,9 @@ $check = static function (bool $condition, string $message): void {
     }
 };
 $screenHooks = [
-    'classic-editor' => 'aflpp_classic_editor_preview_config',
-    'block-editor' => 'aflpp_block_editor_preview_config',
-    'revision-browser' => 'aflpp_revision_browser_preview_config',
+    'classic-editor' => 'mtflpp_classic_editor_preview_config',
+    'block-editor' => 'mtflpp_block_editor_preview_config',
+    'revision-browser' => 'mtflpp_revision_browser_preview_config',
 ];
 $dependencyHooks = [];
 foreach ($screenHooks as $entry => $hook) {
@@ -26,10 +26,10 @@ foreach ($screenHooks as $entry => $hook) {
 $hooks = [];
 foreach (
     array_merge(array_values($screenHooks), array_values($dependencyHooks), [
-        'aflpp_live_preview_form_values', 'aflpp_live_preview_custom_fields_initialized',
-        'aflpp_live_preview_preparation_error', 'aflpp_frontend_live_preview_source_selected',
-        'aflpp_frontend_saved_preview_source_selected', 'aflpp_preview_comparison_excluded_selectors',
-        'aflpp_term_preview_comparison_excluded_selectors', 'aflpp_term_preview_pre_sanitize_description',
+        'mtflpp_live_preview_form_values', 'mtflpp_live_preview_custom_fields_initialized',
+        'mtflpp_live_preview_preparation_error', 'mtflpp_frontend_live_preview_source_selected',
+        'mtflpp_frontend_saved_preview_source_selected', 'mtflpp_preview_comparison_excluded_selectors',
+        'mtflpp_term_preview_comparison_excluded_selectors', 'mtflpp_term_preview_pre_sanitize_description',
     ]) as $hook
 ) {
     $hooks[$hook] = isset($GLOBALS['wp_filter'][$hook]) ? clone $GLOBALS['wp_filter'][$hook] : null;
@@ -55,7 +55,7 @@ try {
         '[role="navigation"]', '[aria-live]', 'input[type="hidden"]', 'table.xdebug-error',
     ];
     $comparisonContexts = [];
-    add_filter('aflpp_preview_comparison_excluded_selectors', static function (
+    add_filter('mtflpp_preview_comparison_excluded_selectors', static function (
         array $selectors,
         array $received
     ) use (
@@ -71,7 +71,7 @@ try {
     }, 5, 2);
     $revisionDependencies = apply_filters($dependencyHooks['revision-browser'], ['revisions'], $context);
     $check(
-        apply_filters('aflpp_revision_browser_preview_config', $base, $context) === $base
+        apply_filters('mtflpp_revision_browser_preview_config', $base, $context) === $base
         && $revisionDependencies === ['revisions'],
         'Read-only revision screens must not acquire live field assets or configuration.'
     );
@@ -111,12 +111,12 @@ try {
                 'Asset context must preserve core identities separately from the contributed configuration.'
             );
             $seen[] = [$entry, $received['config']['vendorOne']];
-            wp_register_script('aflpp-fixture-one', false, ['wp-hooks']);
-            return array_merge($dependencies, ['aflpp-fixture-one']);
+            wp_register_script('mtflpp-fixture-one', false, ['wp-hooks']);
+            return array_merge($dependencies, ['mtflpp-fixture-one']);
         }, 20, 2);
         add_filter($dependencyHooks[$entry], static function (array $dependencies): array {
-            wp_register_script('aflpp-fixture-two', false, ['wp-hooks']);
-            return array_merge($dependencies, ['aflpp-fixture-two']);
+            wp_register_script('mtflpp-fixture-two', false, ['wp-hooks']);
+            return array_merge($dependencies, ['mtflpp-fixture-two']);
         }, 30);
     }
     foreach (
@@ -126,13 +126,13 @@ try {
             'revision-browser' => ['revisions'],
         ] as $entry => $deps
     ) {
-        wp_deregister_script('a-floating-live-preview-panel');
+        wp_deregister_script('meet-the-frontend-live-preview-panel');
         $panel->enqueue($entry, $base, $deps);
-        $script = wp_scripts()->registered['a-floating-live-preview-panel'];
-        foreach (array_merge($deps, ['aflpp-fixture-one', 'aflpp-fixture-two']) as $dependency) {
+        $script = wp_scripts()->registered['meet-the-frontend-live-preview-panel'];
+        foreach (array_merge($deps, ['mtflpp-fixture-one', 'mtflpp-fixture-two']) as $dependency) {
             $check(in_array($dependency, $script->deps, true), 'Extensions must preserve existing dependencies.');
         }
-        $inline = implode("\n", wp_scripts()->get_data('a-floating-live-preview-panel', 'before'));
+        $inline = implode("\n", wp_scripts()->get_data('meet-the-frontend-live-preview-panel', 'before'));
         $json = substr($inline, strpos($inline, ' = ') + 3, -1);
         $config = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
         $check($config['vendorOne'] === $entry && $config['vendorTwo']['empty'] === '', 'Both contributors must run.');
@@ -164,11 +164,11 @@ try {
     );
     $check(count($comparisonContexts) === 3, 'Shared policy must run once per selected screen.');
     $readConfig = static function (string $entry, int $postId = 123) use ($panel, $base): array {
-        wp_deregister_script('a-floating-live-preview-panel');
+        wp_deregister_script('meet-the-frontend-live-preview-panel');
         $config = $base;
         $config['postId'] = $postId;
         $panel->enqueue($entry, $config);
-        $inline = implode("\n", wp_scripts()->get_data('a-floating-live-preview-panel', 'before'));
+        $inline = implode("\n", wp_scripts()->get_data('meet-the-frontend-live-preview-panel', 'before'));
         return json_decode(substr($inline, strpos($inline, ' = ') + 3, -1), true, 512, JSON_THROW_ON_ERROR);
     };
     $one = static function (array $selectors, array $received) use ($context, $check): array {
@@ -182,8 +182,8 @@ try {
         // Preserve sparse keys here: the configuration owner must serialize a JSON list.
         return array_filter($selectors, static fn (string $selector): bool => $selector !== 'nav');
     };
-    add_filter('aflpp_preview_comparison_excluded_selectors', $one, 20, 2);
-    add_filter('aflpp_preview_comparison_excluded_selectors', $two, 30, 2);
+    add_filter('mtflpp_preview_comparison_excluded_selectors', $one, 20, 2);
+    add_filter('mtflpp_preview_comparison_excluded_selectors', $two, 30, 2);
     $expected = array_values(array_filter(
         array_merge($comparisonDefaults, ['[data-vendor-note="</script>"]']),
         static fn (string $selector): bool => $selector !== 'nav'
@@ -192,12 +192,12 @@ try {
         $config = $readConfig($entry);
         $check($config['comparisonExcludedSelectors'] === $expected, 'Contributors may add and remove selectors.');
         $check(array_is_list($config['comparisonExcludedSelectors']), 'Sparse PHP keys must not become a JSON object.');
-        $inline = implode("\n", wp_scripts()->get_data('a-floating-live-preview-panel', 'before'));
+        $inline = implode("\n", wp_scripts()->get_data('meet-the-frontend-live-preview-panel', 'before'));
         $check(!str_contains($inline, '</script>'), 'Selector values must retain inline JSON escaping.');
     }
     foreach ([[], ['.only-this']] as $policy) {
         $replace = static fn (): array => $policy;
-        add_filter('aflpp_preview_comparison_excluded_selectors', $replace, 40);
+        add_filter('mtflpp_preview_comparison_excluded_selectors', $replace, 40);
         foreach (array_keys($screenHooks) as $entry) {
             $config = $readConfig($entry);
             $check(
@@ -205,25 +205,25 @@ try {
                 'Intentional empty/replacement policies stay exact.'
             );
         }
-        remove_filter('aflpp_preview_comparison_excluded_selectors', $replace, 40);
+        remove_filter('mtflpp_preview_comparison_excluded_selectors', $replace, 40);
     }
     foreach ([null, false, 'nav', [123], [''], ['  ']] as $invalid) {
         $replace = static fn () => $invalid;
-        add_filter('aflpp_preview_comparison_excluded_selectors', $replace, 40);
+        add_filter('mtflpp_preview_comparison_excluded_selectors', $replace, 40);
         $config = $readConfig('classic-editor');
         $check(
             $config['comparisonExcludedSelectors'] === $comparisonDefaults,
             'Invalid policy shapes retain safe defaults.'
         );
-        remove_filter('aflpp_preview_comparison_excluded_selectors', $replace, 40);
+        remove_filter('mtflpp_preview_comparison_excluded_selectors', $replace, 40);
     }
     // One site-wide contribution must follow its markup, not require maintained post-ID lists.
     foreach (array_merge(array_values($screenHooks), array_values($dependencyHooks)) as $hook) {
         remove_all_filters($hook);
     }
-    remove_all_filters('aflpp_preview_comparison_excluded_selectors');
+    remove_all_filters('mtflpp_preview_comparison_excluded_selectors');
     $postsSeen = [];
-    add_filter('aflpp_preview_comparison_excluded_selectors', static function (
+    add_filter('mtflpp_preview_comparison_excluded_selectors', static function (
         array $selectors,
         array $received
     ) use (&$postsSeen): array {
@@ -241,7 +241,7 @@ try {
     $check($postsSeen === [456, 457, 458], 'Context remains available without imposing post-specific policy.');
 
     $termContexts = [];
-    add_filter('aflpp_term_preview_comparison_excluded_selectors', static function (
+    add_filter('mtflpp_term_preview_comparison_excluded_selectors', static function (
         array $selectors,
         array $received
     ) use (
@@ -254,9 +254,9 @@ try {
         $selectors[] = '.vendor-term-runtime';
         return $selectors;
     }, 10, 2);
-    wp_deregister_script('a-floating-live-preview-panel');
+    wp_deregister_script('meet-the-frontend-live-preview-panel');
     $panel->enqueue('term-editor', ['termId' => 789, 'taxonomy' => 'category']);
-    $inline = implode("\n", wp_scripts()->get_data('a-floating-live-preview-panel', 'before'));
+    $inline = implode("\n", wp_scripts()->get_data('meet-the-frontend-live-preview-panel', 'before'));
     $termConfig = json_decode(substr($inline, strpos($inline, ' = ') + 3, -1), true, 512, JSON_THROW_ON_ERROR);
     $check(
         $termContexts === [['term' => ['id' => 789, 'taxonomy' => 'category'], 'source' => null]],

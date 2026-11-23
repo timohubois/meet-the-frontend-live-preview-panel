@@ -2,9 +2,9 @@
 
 /** Run with `wp eval-file tests/compatibility.php`; optional dependencies are not required. */
 
-use AFloatingLivePreviewPanel\Compatibility\Acf;
-use AFloatingLivePreviewPanel\Compatibility\Timber;
-use AFloatingLivePreviewPanel\LivePreview;
+use MeetTheFrontendLivePreviewPanel\Compatibility\Acf;
+use MeetTheFrontendLivePreviewPanel\Compatibility\Timber;
+use MeetTheFrontendLivePreviewPanel\LivePreview;
 
 if (!defined('WP_CLI') || !WP_CLI || !class_exists(LivePreview::class) || is_multisite()) {
     throw new RuntimeException('Run through WP-CLI on a single-site installation with this plugin active.');
@@ -18,10 +18,10 @@ $check = static function (bool $condition, string $message): void {
 $originalUser = get_current_user_id();
 $originalHooks = [];
 $hooks = [
-    'aflpp_live_preview_form_values', 'aflpp_live_preview_custom_fields_initialized',
-    'aflpp_live_preview_preparation_error', 'aflpp_live_preview_preparation_finished',
-    'aflpp_frontend_live_preview_source_selected',
-    'aflpp_frontend_saved_preview_source_selected',
+    'mtflpp_live_preview_form_values', 'mtflpp_live_preview_custom_fields_initialized',
+    'mtflpp_live_preview_preparation_error', 'mtflpp_live_preview_preparation_finished',
+    'mtflpp_frontend_live_preview_source_selected',
+    'mtflpp_frontend_saved_preview_source_selected',
 ];
 foreach ($hooks as $hook) {
     $originalHooks[$hook] = isset($GLOBALS['wp_filter'][$hook]) ? clone $GLOBALS['wp_filter'][$hook] : null;
@@ -32,7 +32,7 @@ $postId = 0;
 $live = new LivePreview();
 // phpcs:ignore WordPress.Security.NonceVerification.Missing -- Snapshot request globals in the CLI fixture.
 [$originalPost, $originalFiles] = [$_POST, $_FILES];
-$fixturePost = ['aflpp_compatibility_fixture' => 'Existing form state'];
+$fixturePost = ['mtflpp_compatibility_fixture' => 'Existing form state'];
 $fixtureFiles = ['file' => [
     'name' => 'fixture.txt', 'type' => 'text/plain', 'tmp_name' => '/tmp/fixture', 'error' => UPLOAD_ERR_OK,
     'size' => 1,
@@ -40,20 +40,20 @@ $fixtureFiles = ['file' => [
 try {
     $check(!defined('DOING_AUTOSAVE'), 'Run this fixture before any native autosave.');
     $user = wp_insert_user([
-        'user_login' => 'aflpp_compatibility_' . wp_generate_password(12, false, false),
+        'user_login' => 'mtflpp_compatibility_' . wp_generate_password(12, false, false),
         'user_pass' => wp_generate_password(32), 'role' => 'administrator',
     ]);
     $check(!is_wp_error($user), 'Could not create a fixture user.');
     wp_set_current_user($user);
     $postId = wp_insert_post([
         'post_type' => 'post', 'post_status' => 'draft', 'post_author' => $user,
-        'post_title' => 'AFLPP compatibility fixture', 'post_content' => 'Saved content',
+        'post_title' => 'MTFLPP compatibility fixture', 'post_content' => 'Saved content',
     ], true);
     $check(!is_wp_error($postId) && $postId > 0, 'Could not create a fixture post.');
-    update_post_meta($postId, 'aflpp_compatibility_seed', 'Saved metadata');
+    update_post_meta($postId, 'mtflpp_compatibility_seed', 'Saved metadata');
     $base = $live->fingerprint($postId);
     $input = ['base' => $base, 'post_title' => "Editor's draft", 'content' => '<p>Unsaved content</p>'];
-    $route = '/a-floating-live-preview-panel/v1/posts/' . $postId . '/preview';
+    $route = '/meet-the-frontend-live-preview-panel/v1/posts/' . $postId . '/preview';
     $send = static function (array $data, ?string $nonce = null, array $files = []) use ($route): WP_REST_Response {
         $request = new WP_REST_Request('POST', $route);
         $request->set_header('X-WP-Nonce', $nonce ?? wp_create_nonce('wp_rest'));
@@ -63,7 +63,7 @@ try {
     };
     $revisionId = static function (WP_REST_Response $response): int {
         parse_str(wp_parse_url($response->get_data()['url'], PHP_URL_QUERY), $query);
-        return (int) $query['aflpp_revision'];
+        return (int) $query['mtflpp_revision'];
     };
 
     // Serve the HTTP request through core so method overrides and file params follow its real boundary.
@@ -109,7 +109,7 @@ try {
         ];
         foreach ($overridden as $response) {
             $check(
-                $response->get_status() === 405 && $response->get_data()['code'] === 'aflpp_post_required',
+                $response->get_status() === 405 && $response->get_data()['code'] === 'mtflpp_post_required',
                 "$method must not become a preview write through a core REST method override."
             );
         }
@@ -121,7 +121,7 @@ try {
     ];
     foreach ($uploadResponses as $response) {
         $check(
-            $response->get_status() === 400 && $response->get_data()['code'] === 'aflpp_upload_not_supported',
+            $response->get_status() === 400 && $response->get_data()['code'] === 'mtflpp_upload_not_supported',
             'HTTP and internal preview requests must both reject file params.'
         );
     }
@@ -145,7 +145,7 @@ try {
     $check($response->get_status() === 200, 'HTTP POST with string form values must still work.');
     $response = $serve('POST', headers: ['CONTENT_TYPE' => 'application/json'], body: wp_json_encode($input));
     $check($response->get_status() === 200, 'HTTP POST with JSON must still work.');
-    $internalPath = '/aflpp-fixture/v1/internal';
+    $internalPath = '/mtflpp-fixture/v1/internal';
     $dispatchInternal = static function (
         $result,
         WP_REST_Server $server,
@@ -187,7 +187,7 @@ try {
     $events = [];
     $saveError = null;
     $lastSave = null;
-    add_filter('aflpp_live_preview_form_values', static function (
+    add_filter('mtflpp_live_preview_form_values', static function (
         $payload,
         array $context
     ) use (
@@ -210,7 +210,7 @@ try {
         $payload['content'] = '<p>Adapted editor content</p>';
         return $payload;
     }, 10, 2);
-    add_action('aflpp_live_preview_custom_fields_initialized', static function (
+    add_action('mtflpp_live_preview_custom_fields_initialized', static function (
         array $context
     ) use (
         $check,
@@ -230,12 +230,12 @@ try {
         $check(
             array_keys($context) === ['post', 'source']
             && $context['post'] === ['id' => $postId] && $revision->post_type === 'revision'
-            && $revision->post_status === 'aflpp-preview' && (int) $revision->post_parent === $postId
-            && get_post_meta($id, 'aflpp_compatibility_seed', true) === 'Saved metadata',
+            && $revision->post_status === 'mtflpp-preview' && (int) $revision->post_parent === $postId
+            && get_post_meta($id, 'mtflpp_compatibility_seed', true) === 'Saved metadata',
             'Cache hooks must receive only identities after saved fields initialize the owned source.'
         );
     });
-    add_filter('aflpp_live_preview_preparation_error', static function (
+    add_filter('mtflpp_live_preview_preparation_error', static function (
         $error,
         array $context
     ) use (
@@ -259,7 +259,7 @@ try {
         return $error ?? $saveError;
     }, 20, 2);
     $finishedContexts = [];
-    add_action('aflpp_live_preview_preparation_finished', static function (array ...$args) use (
+    add_action('mtflpp_live_preview_preparation_finished', static function (array ...$args) use (
         $check,
         &$events,
         &$finishedContexts
@@ -294,7 +294,7 @@ try {
     $check($events === $before, 'Rejected permissions, nonces and conflicts must not run compatibility hooks.');
 
     // Try both an otherwise successful and an otherwise rejected reentrant preparation during the native write.
-    $rejected = new WP_Error('aflpp_test_payload', 'Fixture payload rejection.', ['status' => 400]);
+    $rejected = new WP_Error('mtflpp_test_payload', 'Fixture payload rejection.', ['status' => 400]);
     $rejectNested = static fn ($payload, array $context) => isset($context['input']['fixture_reject'])
         ? $rejected : $payload;
     $attempted = false;
@@ -309,7 +309,7 @@ try {
         foreach ([$nested, $nested + ['fixture_reject' => true]] as $data) {
             $response = $send($data);
             $check(
-                $response->get_status() === 409 && $response->get_data()['code'] === 'aflpp_preview_busy',
+                $response->get_status() === 409 && $response->get_data()['code'] === 'mtflpp_preview_busy',
                 'Reentrant writes must be rejected before payload filters or cleanup callbacks run.'
             );
         }
@@ -319,8 +319,8 @@ try {
             'Rejected nested writes must leave outer preview globals in place.'
         );
     };
-    add_filter('aflpp_live_preview_form_values', $rejectNested, 5, 2);
-    add_action('aflpp_live_preview_custom_fields_initialized', $dispatchNested, 20);
+    add_filter('mtflpp_live_preview_form_values', $rejectNested, 5, 2);
+    add_action('mtflpp_live_preview_custom_fields_initialized', $dispatchNested, 20);
     $events = [];
     try {
         $response = $send($input);
@@ -332,18 +332,21 @@ try {
             'Rejected nested writes must leave the outer preview write and cleanup intact.'
         );
     } finally {
-        remove_filter('aflpp_live_preview_form_values', $rejectNested, 5);
-        remove_action('aflpp_live_preview_custom_fields_initialized', $dispatchNested, 20);
+        remove_filter('mtflpp_live_preview_form_values', $rejectNested, 5);
+        remove_action('mtflpp_live_preview_custom_fields_initialized', $dispatchNested, 20);
     }
 
     // Model an integration that must remove its temporary hook even if a public verifier never reaches it.
     $temporaryHook = static fn () => null;
     $install = static fn () => add_action('save_post', $temporaryHook);
     $cleanup = static fn () => remove_action('save_post', $temporaryHook);
-    add_action('aflpp_live_preview_custom_fields_initialized', $install);
-    add_action('aflpp_live_preview_preparation_finished', $cleanup, PHP_INT_MIN, 0);
+    add_action('mtflpp_live_preview_custom_fields_initialized', $install);
+    add_action('mtflpp_live_preview_preparation_finished', $cleanup, PHP_INT_MIN, 0);
     try {
-        $throwingHooks = ['aflpp_live_preview_preparation_error' => 5, 'aflpp_live_preview_preparation_finished' => 20];
+        $throwingHooks = [
+            'mtflpp_live_preview_preparation_error' => 5,
+            'mtflpp_live_preview_preparation_finished' => 20,
+        ];
         foreach ($throwingHooks as $hook => $priority) {
             $expected = new RuntimeException('Fixture exception in ' . $hook);
             $fail = static function () use ($expected, $check, $priority, $temporaryHook): void {
@@ -378,15 +381,15 @@ try {
             $check($send($input)->get_status() === 200, 'Sequential previews must work after lifecycle exceptions.');
         }
     } finally {
-        remove_action('aflpp_live_preview_custom_fields_initialized', $install);
-        remove_action('aflpp_live_preview_preparation_finished', $cleanup, PHP_INT_MIN);
+        remove_action('mtflpp_live_preview_custom_fields_initialized', $install);
+        remove_action('mtflpp_live_preview_preparation_finished', $cleanup, PHP_INT_MIN);
         $cleanup();
     }
 
     // ACF's adapter is present even when ACF itself is not installed: it must preserve prior errors.
     $acf = new Acf();
     $reject = static fn () => $rejected;
-    add_filter('aflpp_live_preview_form_values', $reject, 5);
+    add_filter('mtflpp_live_preview_form_values', $reject, 5);
     $events = [];
     $finishedContexts = [];
     $response = $send($input);
@@ -398,24 +401,24 @@ try {
         && $finishedContexts === [$lastSave[1]] && $_FILES === $fixtureFiles,
         'Payload errors must survive later adapters and finish preparation without seeding or writing.'
     );
-    remove_filter('aflpp_live_preview_form_values', $reject, 5);
+    remove_filter('mtflpp_live_preview_form_values', $reject, 5);
 
     if (function_exists('acf_save_post')) {
         // A later adapter may reject after ACF has prepared its native save monitor.
-        add_filter('aflpp_live_preview_form_values', $reject, 20);
+        add_filter('mtflpp_live_preview_form_values', $reject, 20);
         $response = $send($input + ['acf' => [], '_acf_nonce' => wp_create_nonce('post')]);
         $check(
             $response->get_data()['code'] === $rejected->get_error_code()
             && !has_action('acf/save_post', [$acf, 'recordSave']),
             'Rejected payloads must clean up ACF preparation state and preserve the rejection.'
         );
-        remove_filter('aflpp_live_preview_form_values', $reject, 20);
+        remove_filter('mtflpp_live_preview_form_values', $reject, 20);
     }
 
     $throw = static function (): void {
         throw new RuntimeException('Fixture preparation exception.');
     };
-    add_filter('aflpp_live_preview_form_values', $throw, 20);
+    add_filter('mtflpp_live_preview_form_values', $throw, 20);
     $finishedContexts = [];
     try {
         $data = function_exists('acf_save_post') ? ['acf' => [], '_acf_nonce' => wp_create_nonce('post')] : [];
@@ -434,7 +437,7 @@ try {
             'Exceptions before source initialization must keep a null cleanup source.'
         );
     } finally {
-        remove_filter('aflpp_live_preview_form_values', $throw, 20);
+        remove_filter('mtflpp_live_preview_form_values', $throw, 20);
     }
 
     $live->deletePreviews($postId);
@@ -448,7 +451,7 @@ try {
             $context['source']['id'] = 999;
             throw new RuntimeException('Fixture initialized-source exception.');
         };
-        add_action('aflpp_live_preview_custom_fields_initialized', $throwInitialized, 20);
+        add_action('mtflpp_live_preview_custom_fields_initialized', $throwInitialized, 20);
         try {
             $send($input + $data);
             throw new RuntimeException('The initialized-source exception was swallowed.');
@@ -480,7 +483,7 @@ try {
             $check(!wp_get_post_autosave($postId, $user), 'Failed initialization must not create recovery autosaves.');
             $previousSource = $initializedSource;
         } finally {
-            remove_action('aflpp_live_preview_custom_fields_initialized', $throwInitialized, 20);
+            remove_action('mtflpp_live_preview_custom_fields_initialized', $throwInitialized, 20);
         }
     }
     $response = $send($input);
@@ -488,9 +491,9 @@ try {
     $id = $revisionId($response);
     $check(!has_action('acf/save_post', [$acf, 'recordSave']), 'Successful writes must remove the save monitor.');
 
-    $saveError = new WP_Error('aflpp_test_save', 'Fixture save verification failure.', ['status' => 409]);
+    $saveError = new WP_Error('mtflpp_test_save', 'Fixture save verification failure.', ['status' => 409]);
     $finishedContexts = [];
-    add_filter('aflpp_live_preview_preparation_error', static fn () => $saveError, 5);
+    add_filter('mtflpp_live_preview_preparation_error', static fn () => $saveError, 5);
     $response = $send($input);
     $check(
         $response->get_status() === 409 && $response->get_data()['code'] === $saveError->get_error_code()

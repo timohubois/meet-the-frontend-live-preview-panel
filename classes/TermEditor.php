@@ -1,6 +1,6 @@
 <?php
 
-namespace AFloatingLivePreviewPanel;
+namespace MeetTheFrontendLivePreviewPanel;
 
 use WP_Term;
 
@@ -38,7 +38,7 @@ final class TermEditor
         }
 
         $this->panel->enqueue('term-editor', [
-            'endpoint' => rest_url('a-floating-live-preview-panel/v1/terms/' . $term->term_id . '/preview'),
+            'endpoint' => rest_url('meet-the-frontend-live-preview-panel/v1/terms/' . $term->term_id . '/preview'),
             'termId' => $term->term_id,
             'taxonomy' => $term->taxonomy,
             'userId' => get_current_user_id(),

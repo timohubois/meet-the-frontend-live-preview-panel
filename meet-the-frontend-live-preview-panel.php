@@ -14,7 +14,7 @@
  * License URI:       https://www.gnu.org/licenses/gpl-3.0.html
  */
 
-namespace AFloatingLivePreviewPanel;
+namespace MeetTheFrontendLivePreviewPanel;
 
 defined('ABSPATH') || exit;
 

@@ -3,7 +3,7 @@ import { select, subscribe } from '@wordpress/data';
 import { addFilter, removeFilter } from '@wordpress/hooks';
 import { createEditorExtensions } from './editor-extensions.js';
 
-const scope = 'a-floating-live-preview-panel';
+const scope = 'meet-the-frontend-live-preview-panel';
 const fingerprint = /^[a-f0-9]{64}$/;
 
 // Use public editor selectors/hooks. Never replace savePost or inspect the block canvas.
@@ -16,14 +16,14 @@ export function createBlockEditor(config) {
     let requests = 0;
     let failure;
     let settleQueued = false;
-    const extensions = createEditorExtensions('aflpp.blockEditor.previewSetup', {
+    const extensions = createEditorExtensions('mtflpp.blockEditor.previewSetup', {
         config,
         changed() { preview?.changed(); scheduleObserve(); },
     });
     const editor = () => select('core/editor');
     const ownsPost = () => Number(editor()?.getCurrentPostId()) === config.postId
         && editor()?.getCurrentPostType() === config.postType;
-    const fail = () => { failure = Object.assign(new Error(config.strings.nativeSaveFailed), { code: 'aflpp_source_changed' }); };
+    const fail = () => { failure = Object.assign(new Error(config.strings.nativeSaveFailed), { code: 'mtflpp_source_changed' }); };
     const token = () => Array.from(window.crypto.getRandomValues(new Uint8Array(16)),
         (byte) => byte.toString(16).padStart(2, '0')).join('');
 
@@ -177,27 +177,27 @@ export function createBlockEditor(config) {
         try {
             if (restSave) {
                 const response = await next({ ...options, headers: {
-                    ...options.headers, 'X-AFLPP-Base': base, 'X-AFLPP-Request': request,
+                    ...options.headers, 'X-MTFLPP-Base': base, 'X-MTFLPP-Request': request,
                 } });
                 // Core's native saves use parsed records. Preserve parse:false for other opted-in callers too.
                 if (options.parse === false) {
                     try {
                         const data = await response.clone().json();
-                        accept(data?._aflpp_receipt, request, base);
+                        accept(data?._mtflpp_receipt, request, base);
                     } catch { fail(); }
                     return response;
                 }
                 if (!response || typeof response !== 'object') { fail(); return response; }
-                const { _aflpp_receipt: receipt, ...record } = response;
+                const { _mtflpp_receipt: receipt, ...record } = response;
                 accept(receipt, request, base);
                 return record;
             }
             const body = new FormData();
             for (const [key, value] of options.body) body.append(key, value);
-            body.set('aflpp_base', base);
-            body.set('aflpp_preview', request);
-            body.set('aflpp_metabox', '1');
-            cookieName = `aflpp_preview_${request}`;
+            body.set('mtflpp_base', base);
+            body.set('mtflpp_preview', request);
+            body.set('mtflpp_metabox', '1');
+            cookieName = `mtflpp_preview_${request}`;
             const response = await next({ ...options, body });
             const cookie = document.cookie.split(';').map((part) => part.trim()).find((part) => part.startsWith(`${cookieName}=`));
             const receipt = cookie?.slice(cookieName.length + 1);
@@ -207,9 +207,9 @@ export function createBlockEditor(config) {
         } catch (error) {
             // Even a REST 4xx can follow wp_update_post(). Retry preview only when the server
             // confirms this request left its baseline unchanged; never advance a rejected save.
-            let receipt = error?._aflpp_receipt;
+            let receipt = error?._mtflpp_receipt;
             try {
-                if (receipt !== undefined) delete error._aflpp_receipt;
+                if (receipt !== undefined) delete error._mtflpp_receipt;
             } catch {
                 // Read-only errors must keep WordPress's original rejection; pause without trusting the receipt.
                 receipt = undefined;

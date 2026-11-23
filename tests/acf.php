@@ -2,8 +2,8 @@
 
 /** Run with `wp eval-file tests/acf.php` on a single site; skips without ACF Pro. */
 
-use AFloatingLivePreviewPanel\Compatibility\Acf;
-use AFloatingLivePreviewPanel\LivePreview;
+use MeetTheFrontendLivePreviewPanel\Compatibility\Acf;
+use MeetTheFrontendLivePreviewPanel\LivePreview;
 
 if (!defined('WP_CLI') || !WP_CLI || !class_exists(LivePreview::class) || is_multisite()) {
     throw new RuntimeException('Run through WP-CLI on a single-site installation with this plugin active.');
@@ -29,10 +29,10 @@ $related = [];
 $independent = [];
 $media = [];
 $terms = [];
-$taxonomy = 'aflpp_acf_test';
+$taxonomy = 'mtflpp_acf_test';
 $live = new LivePreview();
 $send = static function (int $postId, array $data): WP_REST_Response {
-    $request = new WP_REST_Request('POST', '/a-floating-live-preview-panel/v1/posts/' . $postId . '/preview');
+    $request = new WP_REST_Request('POST', '/meet-the-frontend-live-preview-panel/v1/posts/' . $postId . '/preview');
     $request->set_header('X-WP-Nonce', wp_create_nonce('wp_rest'));
     $request->set_body_params($data);
     return rest_do_request($request);
@@ -42,7 +42,7 @@ $untrusted = static fn () => false;
 add_filter('acf/is_trusted_save_context', $untrusted);
 try {
     $user = wp_insert_user([
-        'user_login' => 'aflpp_acf_' . wp_generate_password(12, false, false),
+        'user_login' => 'mtflpp_acf_' . wp_generate_password(12, false, false),
         'user_pass' => wp_generate_password(32), 'role' => 'administrator',
     ]);
     $check(!is_wp_error($user), 'Could not create a fixture user.');
@@ -65,7 +65,7 @@ try {
     foreach (['pdf' => 'application/pdf', 'png' => 'image/png'] as $extension => $mime) {
         $attachment = wp_insert_attachment(
             ['post_title' => 'Unattached ACF fixture', 'post_mime_type' => $mime],
-            'aflpp-fixture-' . wp_generate_uuid4() . '.' . $extension,
+            'mtflpp-fixture-' . wp_generate_uuid4() . '.' . $extension,
             0,
             true
         );
@@ -73,47 +73,50 @@ try {
         $media[] = $attachment;
     }
     acf_add_local_field_group([
-        'key' => 'group_aflpp_acf_test', 'title' => 'Temporary ACF preview test',
+        'key' => 'group_mtflpp_acf_test', 'title' => 'Temporary ACF preview test',
         // Unsigned form inputs must belong to a matching field group in ACF 6.8.11+.
         'location' => [[['param' => 'post_type', 'operator' => '==', 'value' => 'page']]],
         'fields' => [
-            ['key' => 'field_aflpp_acf_test_text', 'name' => 'aflpp_acf_test_text', 'type' => 'text'],
+            ['key' => 'field_mtflpp_acf_test_text', 'name' => 'mtflpp_acf_test_text', 'type' => 'text'],
             [
-                'key' => 'field_aflpp_acf_forward', 'name' => 'aflpp_acf_forward', 'type' => 'relationship',
-                'return_format' => 'id', 'bidirectional' => 1, 'bidirectional_target' => ['field_aflpp_acf_back'],
+                'key' => 'field_mtflpp_acf_forward', 'name' => 'mtflpp_acf_forward', 'type' => 'relationship',
+                'return_format' => 'id', 'bidirectional' => 1, 'bidirectional_target' => ['field_mtflpp_acf_back'],
             ],
-            ['key' => 'field_aflpp_acf_back', 'name' => 'aflpp_acf_back', 'type' => 'relationship'],
-            ['key' => 'field_aflpp_acf_file', 'name' => 'aflpp_acf_file', 'type' => 'file', 'return_format' => 'id'],
-            ['key' => 'field_aflpp_acf_image', 'name' => 'aflpp_acf_image', 'type' => 'image', 'return_format' => 'id'],
+            ['key' => 'field_mtflpp_acf_back', 'name' => 'mtflpp_acf_back', 'type' => 'relationship'],
+            ['key' => 'field_mtflpp_acf_file', 'name' => 'mtflpp_acf_file', 'type' => 'file', 'return_format' => 'id'],
             [
-                'key' => 'field_aflpp_acf_terms', 'name' => 'aflpp_acf_terms', 'type' => 'taxonomy',
+                'key' => 'field_mtflpp_acf_image', 'name' => 'mtflpp_acf_image',
+                'type' => 'image', 'return_format' => 'id',
+            ],
+            [
+                'key' => 'field_mtflpp_acf_terms', 'name' => 'mtflpp_acf_terms', 'type' => 'taxonomy',
                 'taxonomy' => $taxonomy, 'load_terms' => 1, 'save_terms' => 1,
             ],
             [
-                'key' => 'field_aflpp_acf_terms_extra', 'name' => 'aflpp_acf_terms_extra', 'type' => 'taxonomy',
+                'key' => 'field_mtflpp_acf_terms_extra', 'name' => 'mtflpp_acf_terms_extra', 'type' => 'taxonomy',
                 'taxonomy' => $taxonomy, 'save_terms' => 1,
             ],
             [
-                'key' => 'field_aflpp_acf_test_rows', 'name' => 'aflpp_acf_test_rows', 'type' => 'repeater',
+                'key' => 'field_mtflpp_acf_test_rows', 'name' => 'mtflpp_acf_test_rows', 'type' => 'repeater',
                 'pagination' => 1, 'rows_per_page' => 1,
                 'sub_fields' => [
-                    ['key' => 'field_aflpp_acf_test_row', 'name' => 'text', 'type' => 'text'],
+                    ['key' => 'field_mtflpp_acf_test_row', 'name' => 'text', 'type' => 'text'],
                 ],
             ],
         ],
     ]);
     $postId = wp_insert_post([
         'post_type' => 'page', 'post_status' => 'publish', 'post_author' => $user,
-        'post_title' => 'AFLPP ACF preview fixture',
+        'post_title' => 'MTFLPP ACF preview fixture',
     ], true);
     $check(!is_wp_error($postId) && $postId > 0, 'Could not create a fixture page.');
-    update_field('field_aflpp_acf_test_text', 'Saved text', $postId);
-    update_field('field_aflpp_acf_test_rows', [['text' => 'First row'], ['text' => 'Second row']], $postId);
-    update_field('field_aflpp_acf_forward', [$related[0]], $postId);
-    update_field('field_aflpp_acf_terms', [$terms[0]], $postId);
+    update_field('field_mtflpp_acf_test_text', 'Saved text', $postId);
+    update_field('field_mtflpp_acf_test_rows', [['text' => 'First row'], ['text' => 'Second row']], $postId);
+    update_field('field_mtflpp_acf_forward', [$related[0]], $postId);
+    update_field('field_mtflpp_acf_terms', [$terms[0]], $postId);
     $relatedMeta = array_map('get_post_meta', $related);
     $check(
-        array_map('intval', get_post_meta($related[0], 'aflpp_acf_back', true)) === [$postId]
+        array_map('intval', get_post_meta($related[0], 'mtflpp_acf_back', true)) === [$postId]
         && wp_get_object_terms($postId, $taxonomy, ['fields' => 'ids']) === [$terms[0]],
         'Fixture setup must exercise native bidirectional and term assignment APIs.'
     );
@@ -122,7 +125,7 @@ try {
         true
     );
     $check(is_int($recovery) && $recovery > 0, 'Could not create a native recovery autosave.');
-    update_metadata('post', $recovery, 'aflpp_acf_test_text', 'Recovery field');
+    update_metadata('post', $recovery, 'mtflpp_acf_test_text', 'Recovery field');
     $recoveryBase = [$live->fingerprint($recovery), wp_get_post_autosave($postId, $user)->ID];
     $base = $live->fingerprint($postId);
     $unchanged = static function (int $revisionId) use (
@@ -172,33 +175,33 @@ try {
     $data = [
         'base' => $base, '_acf_nonce' => wp_create_nonce('post'),
         'acf' => [
-            'field_aflpp_acf_test_text' => 'Unsaved text',
-            'field_aflpp_acf_forward' => [$related[1]],
-            'field_aflpp_acf_file' => $media[0],
-            'field_aflpp_acf_image' => $media[1],
-            'field_aflpp_acf_terms' => [$terms[1]],
-            'field_aflpp_acf_terms_extra' => [$terms[2]],
-            'field_aflpp_acf_test_rows' => [
-                'row-0' => ['field_aflpp_acf_test_row' => 'Unsaved first row'],
+            'field_mtflpp_acf_test_text' => 'Unsaved text',
+            'field_mtflpp_acf_forward' => [$related[1]],
+            'field_mtflpp_acf_file' => $media[0],
+            'field_mtflpp_acf_image' => $media[1],
+            'field_mtflpp_acf_terms' => [$terms[1]],
+            'field_mtflpp_acf_terms_extra' => [$terms[2]],
+            'field_mtflpp_acf_test_rows' => [
+                'row-0' => ['field_mtflpp_acf_test_row' => 'Unsaved first row'],
             ],
         ],
     ];
     $nestedResponses = [];
     $nested = static function ($id) use ($check, $send, $postId, $data, $independent, &$nestedResponses): void {
-        if (get_post_status($id) !== 'aflpp-preview') {
+        if (get_post_status($id) !== 'mtflpp-preview') {
             return;
         }
         // phpcs:ignore WordPress.Security.NonceVerification.Missing -- Inspect isolation, not uploaded data.
         $check($_FILES === [], 'A preview save must not inherit caller uploads.');
         $nestedResponses[] = $send($postId, $data);
         $nestedResponses[] = $send($postId, array_replace($data, ['_acf_nonce' => 'invalid']));
-        update_field('field_aflpp_acf_forward', [$independent[1]], $independent[0]);
+        update_field('field_mtflpp_acf_forward', [$independent[1]], $independent[0]);
     };
-    $injectZero = static fn ($value, $id, $field) => $field['key'] === 'field_aflpp_acf_terms_extra'
+    $injectZero = static fn ($value, $id, $field) => $field['key'] === 'field_mtflpp_acf_terms_extra'
         ? [0, ...$value] : $value;
     $observed = [];
     $observe = static function ($value, $id, $field) use (&$observed) {
-        if ($field['key'] === 'field_aflpp_acf_terms_extra') {
+        if ($field['key'] === 'field_mtflpp_acf_terms_extra') {
             $value = array_values($value);
             $observed[] = $value;
         }
@@ -209,14 +212,14 @@ try {
     add_filter('acf/update_value/type=taxonomy', $observe, $nativeTaxonomyPriority, 3);
     // phpcs:ignore WordPress.Security.NonceVerification.Missing -- Preserve the test runner's original form state.
     $originalFiles = $_FILES;
-    $callerFiles = ['aflpp_fixture' => ['error' => UPLOAD_ERR_NO_FILE]];
+    $callerFiles = ['mtflpp_fixture' => ['error' => UPLOAD_ERR_NO_FILE]];
     try {
         $_FILES = $callerFiles;
         $response = $send($postId, $data);
         // phpcs:ignore WordPress.Security.NonceVerification.Missing -- Inspect isolation, not uploaded data.
         $check($_FILES === $callerFiles, 'Preview must restore caller uploads.');
         // Probe the same filter after cleanup without enqueueing an assignment.
-        $field = acf_get_field('field_aflpp_acf_terms_extra');
+        $field = acf_get_field('field_mtflpp_acf_terms_extra');
         $field['save_terms'] = 0;
         apply_filters('acf/update_value/type=taxonomy', [0, $terms[2]], $postId, $field);
     } finally {
@@ -232,29 +235,29 @@ try {
     $check(count($nestedResponses) === 2, 'The outer ACF preview must exercise both nested requests.');
     foreach ($nestedResponses as $nestedResponse) {
         $check(
-            $nestedResponse->get_status() === 409 && $nestedResponse->get_data()['code'] === 'aflpp_preview_busy',
+            $nestedResponse->get_status() === 409 && $nestedResponse->get_data()['code'] === 'mtflpp_preview_busy',
             'Nested preview requests, including invalid ACF payloads, must not enter the save lifecycle.'
         );
     }
     $check($observed === [[$terms[2]], [$terms[2]]], 'Same-priority taxonomy callbacks must retain their order.');
     $check(
-        array_map('intval', get_post_meta($independent[1], 'aflpp_acf_back', true)) === [$independent[0]],
+        array_map('intval', get_post_meta($independent[1], 'mtflpp_acf_back', true)) === [$independent[0]],
         'A bidirectional update from an unrelated origin must still work during an owned preview save.'
     );
     parse_str(wp_parse_url($response->get_data()['url'], PHP_URL_QUERY), $query);
-    $revisionId = (int) $query['aflpp_revision'];
+    $revisionId = (int) $query['mtflpp_revision'];
     $check(
-        get_post($revisionId)->post_status === 'aflpp-preview'
-        && get_metadata('post', $revisionId, 'aflpp_acf_test_text', true) === 'Unsaved text',
+        get_post($revisionId)->post_status === 'mtflpp-preview'
+        && get_metadata('post', $revisionId, 'mtflpp_acf_test_text', true) === 'Unsaved text',
         'Native ACF hooks must save the unsaved value only to the isolated preview revision.'
     );
     $check(
-        get_metadata('post', $revisionId, 'aflpp_acf_test_rows_0_text', true) === 'Unsaved first row'
-        && get_metadata('post', $revisionId, 'aflpp_acf_test_rows_1_text', true) === 'Second row',
+        get_metadata('post', $revisionId, 'mtflpp_acf_test_rows_0_text', true) === 'Unsaved first row'
+        && get_metadata('post', $revisionId, 'mtflpp_acf_test_rows_1_text', true) === 'Second row',
         'A partial paginated repeater must merge edited rows with the saved rows.'
     );
     $check(
-        $live->fingerprint($postId) === $base && get_field('aflpp_acf_test_text', $postId) === 'Saved text',
+        $live->fingerprint($postId) === $base && get_field('mtflpp_acf_test_text', $postId) === 'Saved text',
         'Previewing ACF values must not alter the saved page or its metadata.'
     );
     $unchanged($revisionId);
@@ -268,7 +271,7 @@ try {
         $response = $send($postId, array_replace($data, $invalid));
         $check(
             $response->get_status() === 400
-            && ($response->get_data()['code'] ?? '') === 'aflpp_acf_unavailable',
+            && ($response->get_data()['code'] ?? '') === 'mtflpp_acf_unavailable',
             'Invalid ACF form data or nonces must still be rejected.'
         );
         $check(
@@ -278,37 +281,37 @@ try {
     }
     // ACF 6.8.11 accepts a parent-signed field rendered outside matching location rules, not a tampered list.
     if (function_exists('_acf_get_field_list_nonce_action')) {
-        $key = 'field_aflpp_acf_signed';
+        $key = 'field_mtflpp_acf_signed';
         acf_add_local_field_group([
-            'key' => 'group_aflpp_acf_signed', 'title' => 'Temporary signed fixture',
+            'key' => 'group_mtflpp_acf_signed', 'title' => 'Temporary signed fixture',
             'location' => [[['param' => 'post_type', 'operator' => '==', 'value' => 'post']]],
-            'fields' => [['key' => $key, 'name' => 'aflpp_acf_signed', 'type' => 'text']],
+            'fields' => [['key' => $key, 'name' => 'mtflpp_acf_signed', 'type' => 'text']],
         ]);
         $signed = $data;
         $signed['acf'][$key] = 'Parent-signed value';
         $signed['_acf_fields'] = [$postId => [$key . '|invalid']];
         $check($send($postId, $signed)->get_status() === 200, 'ACF must still save otherwise authorized values.');
-        $check(!get_post_meta($revisionId, 'aflpp_acf_signed', true), 'ACF must reject a tampered field list.');
+        $check(!get_post_meta($revisionId, 'mtflpp_acf_signed', true), 'ACF must reject a tampered field list.');
         $nonce = wp_create_nonce(_acf_get_field_list_nonce_action($postId, $key));
         $signed['_acf_fields'] = [$postId => [$key . '|' . $nonce]];
         $check($send($postId, $signed)->get_status() === 200, 'A parent-signed field list must survive native save.');
         $check(
-            get_post_meta($revisionId, 'aflpp_acf_signed', true) === 'Parent-signed value',
+            get_post_meta($revisionId, 'mtflpp_acf_signed', true) === 'Parent-signed value',
             'The signed field must be saved.'
         );
     }
 
     $readFields = static function (array $expectedTerms) use ($check, $postId, $related, $media): void {
-        $check(get_field('aflpp_acf_forward', $postId) === [$related[1]], 'The forward relationship must render.');
-        $check((int) get_field('aflpp_acf_file', $postId) === $media[0], 'The selected file must render.');
-        $check((int) get_field('aflpp_acf_image', $postId) === $media[1], 'The selected image must render.');
+        $check(get_field('mtflpp_acf_forward', $postId) === [$related[1]], 'The forward relationship must render.');
+        $check((int) get_field('mtflpp_acf_file', $postId) === $media[0], 'The selected file must render.');
+        $check((int) get_field('mtflpp_acf_image', $postId) === $media[1], 'The selected image must render.');
         $check(
-            (get_field('aflpp_acf_terms', $postId) ?: []) === $expectedTerms,
+            (get_field('mtflpp_acf_terms', $postId) ?: []) === $expectedTerms,
             'Load Terms must read the preview assignments.'
         );
     };
     // Prewarm both parent caches before binding, and compare actual ACF loads for colliding encoded IDs.
-    $termsField = acf_get_field('field_aflpp_acf_terms');
+    $termsField = acf_get_field('field_mtflpp_acf_terms');
     $parentAlias = 'post_' . $postId;
     $check(
         acf_get_value($postId, $termsField) === [$terms[0]]
@@ -335,7 +338,7 @@ try {
     try {
         $readFields([$terms[1], $terms[2]]);
         $check(
-            array_map('intval', get_field('aflpp_acf_terms_extra', $postId)) === [$terms[2]],
+            array_map('intval', get_field('mtflpp_acf_terms_extra', $postId)) === [$terms[2]],
             'Save Terms must retain the field value independently of the preview assignment.'
         );
         $check(
@@ -345,17 +348,17 @@ try {
             'Load Terms must work for lower-level reads with either encoding of a post ID.'
         );
         $checkCollisionReads();
-        $field = acf_get_field('field_aflpp_acf_test_text');
+        $field = acf_get_field('field_mtflpp_acf_test_text');
         $check(acf_get_value($postId, $field) === 'Unsaved text', 'Raw ACF value reads must use the preview source.');
         $check(
-            acf_get_metadata($postId, 'aflpp_acf_test_text', true) === $field['key'],
+            acf_get_metadata($postId, 'mtflpp_acf_test_text', true) === $field['key'],
             'Raw ACF field references must use the preview source too.'
         );
-        delete_metadata('post', $revisionId, 'aflpp_acf_test_text');
+        delete_metadata('post', $revisionId, 'mtflpp_acf_test_text');
         $reader->clearRevisionCache($postId);
         $reader->clearRevisionCache($revisionId);
         $check(
-            acf_get_metadata($postId, 'aflpp_acf_test_text') === null,
+            acf_get_metadata($postId, 'mtflpp_acf_test_text') === null,
             'Absent source metadata must not fall back to the parent.'
         );
     } finally {
@@ -368,19 +371,19 @@ try {
         'After unbinding, raw and formatted parent reads must use saved assignments again.'
     );
     $reused = $data;
-    $reused['acf']['field_aflpp_acf_terms'] = [];
-    $reused['acf']['field_aflpp_acf_terms_extra'] = [];
+    $reused['acf']['field_mtflpp_acf_terms'] = [];
+    $reused['acf']['field_mtflpp_acf_terms_extra'] = [];
     $response = $send($postId, $reused);
     $check($response->get_status() === 200, 'A reused preview must be writable with empty taxonomy selections.');
     parse_str(wp_parse_url($response->get_data()['url'], PHP_URL_QUERY), $query);
-    $check((int) $query['aflpp_revision'] === $revisionId, 'Expected to exercise a reused source.');
+    $check((int) $query['mtflpp_revision'] === $revisionId, 'Expected to exercise a reused source.');
     $unchanged($revisionId);
     $assertGuardsReleased();
     $reader->bindPreview($postId, $revisionId);
     try {
         $readFields([]);
         $check(
-            get_field('aflpp_acf_test_rows', $postId) === [['text' => 'Unsaved first row'], ['text' => 'Second row']],
+            get_field('mtflpp_acf_test_rows', $postId) === [['text' => 'Unsaved first row'], ['text' => 'Second row']],
             'A reused source must still render both paginated repeater rows.'
         );
     } finally {
@@ -392,7 +395,7 @@ try {
         $reader->bindPreview($postId, $revisionId);
         try {
             $check(
-                get_field('aflpp_acf_terms', $postId) === [$selection ? $terms[2] : $terms[0]],
+                get_field('mtflpp_acf_terms', $postId) === [$selection ? $terms[2] : $terms[0]],
                 'Without ACF input, Load Terms must follow core preview selections or saved terms.'
             );
         } finally {
@@ -402,35 +405,35 @@ try {
     }
     if (function_exists('acf_register_block_type')) {
         acf_register_block_type([
-            'name' => 'aflpp-meta-fixture', 'title' => 'AFLPP metadata fixture', 'use_post_meta' => true,
+            'name' => 'mtflpp-meta-fixture', 'title' => 'MTFLPP metadata fixture', 'use_post_meta' => true,
             'render_callback' => static function (): void {
-                echo esc_html(get_field('aflpp_block_text'));
-                echo esc_html(implode(',', (array) get_field('aflpp_block_terms')));
+                echo esc_html(get_field('mtflpp_block_text'));
+                echo esc_html(implode(',', (array) get_field('mtflpp_block_terms')));
             },
         ]);
         acf_add_local_field_group([
-            'key' => 'group_aflpp_block_fixture', 'title' => 'AFLPP block fields',
-            'location' => [[['param' => 'block', 'operator' => '==', 'value' => 'acf/aflpp-meta-fixture']]],
+            'key' => 'group_mtflpp_block_fixture', 'title' => 'MTFLPP block fields',
+            'location' => [[['param' => 'block', 'operator' => '==', 'value' => 'acf/mtflpp-meta-fixture']]],
             'fields' => [
-                ['key' => 'field_aflpp_block_text', 'name' => 'aflpp_block_text', 'type' => 'text'],
+                ['key' => 'field_mtflpp_block_text', 'name' => 'mtflpp_block_text', 'type' => 'text'],
                 [
-                    'key' => 'field_aflpp_block_terms', 'name' => 'aflpp_block_terms', 'type' => 'taxonomy',
+                    'key' => 'field_mtflpp_block_terms', 'name' => 'mtflpp_block_terms', 'type' => 'taxonomy',
                     'taxonomy' => $taxonomy, 'load_terms' => 1, 'save_terms' => 1,
                 ],
             ],
         ]);
-        $block = ['name' => 'acf/aflpp-meta-fixture', 'id' => 'block_aflpp_fixture'];
+        $block = ['name' => 'acf/mtflpp-meta-fixture', 'id' => 'block_mtflpp_fixture'];
         $response = $send($postId, [
             'base' => $base,
-            'content' => '<!-- wp:acf/aflpp-meta-fixture ' . wp_json_encode($block + ['data' => [
-                'field_aflpp_block_text' => 'Unsaved block meta', 'field_aflpp_block_terms' => [$terms[1], $terms[2]],
+            'content' => '<!-- wp:acf/mtflpp-meta-fixture ' . wp_json_encode($block + ['data' => [
+                'field_mtflpp_block_text' => 'Unsaved block meta', 'field_mtflpp_block_terms' => [$terms[1], $terms[2]],
             ]]) . ' /-->',
         ]);
         $check($response->get_status() === 200, 'ACF post-meta blocks must use their native content-save hooks.');
         parse_str(wp_parse_url($response->get_data()['url'], PHP_URL_QUERY), $blockQuery);
-        $blockRevision = (int) $blockQuery['aflpp_revision'];
+        $blockRevision = (int) $blockQuery['mtflpp_revision'];
         $check(
-            get_post_meta($blockRevision, 'aflpp_block_text', true) === 'Unsaved block meta',
+            get_post_meta($blockRevision, 'mtflpp_block_text', true) === 'Unsaved block meta',
             'Native ACF block hooks must save only to the preview revision.'
         );
         $unchanged($blockRevision);
@@ -439,7 +442,7 @@ try {
         try {
             $GLOBALS['post'] = get_post($postId);
             // Omit inline data to exercise the native block reader's lower-level post-meta path.
-            $html = do_blocks('<!-- wp:acf/aflpp-meta-fixture ' . wp_json_encode($block) . ' /-->');
+            $html = do_blocks('<!-- wp:acf/mtflpp-meta-fixture ' . wp_json_encode($block) . ' /-->');
             $check(
                 str_contains($html, 'Unsaved block meta' . $terms[1] . ',' . $terms[2]),
                 'Native ACF block rendering must read preview metadata and Load Terms.'
@@ -454,7 +457,7 @@ try {
     try {
         $response = $send($postId, $data);
         $check(
-            ($response->get_data()['code'] ?? '') === 'aflpp_acf_not_saved',
+            ($response->get_data()['code'] ?? '') === 'mtflpp_acf_not_saved',
             'A native ACF save skipped after initialization must return a preview error.'
         );
     } finally {
@@ -496,8 +499,8 @@ try {
             $afterCleanup = true;
         }
     };
-    add_filter('aflpp_live_preview_preparation_error', $throwVerifier, 5, 2);
-    add_action('aflpp_live_preview_preparation_finished', $finish);
+    add_filter('mtflpp_live_preview_preparation_error', $throwVerifier, 5, 2);
+    add_action('mtflpp_live_preview_preparation_finished', $finish);
     try {
         $send($postId, $data);
         $check(false, 'The fixture must throw before ACF can verify.');
@@ -507,8 +510,8 @@ try {
             'Unexpected verifier error.'
         );
     } finally {
-        remove_filter('aflpp_live_preview_preparation_error', $throwVerifier, 5);
-        remove_action('aflpp_live_preview_preparation_finished', $finish);
+        remove_filter('mtflpp_live_preview_preparation_error', $throwVerifier, 5);
+        remove_action('mtflpp_live_preview_preparation_finished', $finish);
     }
     $check($afterCleanup, 'An early verifier exception must still trigger ACF cleanup.');
     $unchanged($revisionId);
@@ -536,11 +539,11 @@ try {
         $post = $_POST;
         $preview = $send($postId, [
             'base' => $live->fingerprint($postId), '_acf_nonce' => wp_create_nonce('post'),
-            'acf' => ['field_aflpp_acf_terms' => [$terms[0]]],
+            'acf' => ['field_mtflpp_acf_terms' => [$terms[0]]],
         ]);
         $check($preview->get_status() === 200, 'A preview inside native ACF Save must be writable.');
         parse_str(wp_parse_url($preview->get_data()['url'], PHP_URL_QUERY), $query);
-        $source = (int) $query['aflpp_revision'];
+        $source = (int) $query['mtflpp_revision'];
         $check(
             $taxonomyField->save_post_terms === $queue
             && wp_get_object_terms($source, $taxonomy, ['fields' => 'ids']) === [],
@@ -586,12 +589,12 @@ try {
         'The native term drain must keep its same-priority order.'
     );
     $check(
-        get_field('aflpp_acf_test_text', $postId) === 'Unsaved text',
+        get_field('mtflpp_acf_test_text', $postId) === 'Unsaved text',
         'Native Save must still update the parent field.'
     );
     $check(
-        array_map('intval', get_post_meta($related[1], 'aflpp_acf_back', true)) === [$postId]
-        && !get_post_meta($related[0], 'aflpp_acf_back', true),
+        array_map('intval', get_post_meta($related[1], 'mtflpp_acf_back', true)) === [$postId]
+        && !get_post_meta($related[0], 'mtflpp_acf_back', true),
         'Native Save must update and remove reverse relationships.'
     );
     foreach ($media as $attachment) {

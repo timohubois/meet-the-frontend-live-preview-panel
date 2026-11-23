@@ -26,7 +26,7 @@ function fixture() {
     const callbacks = Object.fromEntries(['refresh', 'retry', 'dismissNotice', 'mode', 'close', 'popOut', 'fullscreen', 'dock', 'fit', 'zoom', 'reset', 'follow', 'rememberVisibility', 'rememberPosition', 'device']
         .map((name) => [name, (...args) => calls.push({ name, args })]));
     const strings = panelStrings;
-    const querySelector = (selector) => selector === '.aflpp-controls' ? container : {
+    const querySelector = (selector) => selector === '.mtflpp-controls' ? container : {
         selector, focus() { calls.push({ name: 'focus', args: [selector] }); },
     };
     const body = {};
@@ -133,7 +133,7 @@ test('selected tablet and phone buttons offer rotation with an unwrapped native 
         button = h.nodes('ToolbarButton').find(({ props }) => props['data-viewport'] === device);
         assert.match(button.props.label, /Turn upright$/);
         assert.equal(button.props.icon, icons[device]);
-        assert.equal(button.props.className, 'aflpp-device-rotated');
+        assert.equal(button.props.className, 'mtflpp-device-rotated');
         assert.equal(h.nodes('ToolbarButton').length, 3);
         assert.equal(h.nodes('Button').some(({ props }) => props['data-action'] === 'rotate'), false);
     }
@@ -253,7 +253,7 @@ test('Enter closes valid custom zoom, but incomplete drafts cannot submit or clo
     h.controls.update({ ...h.state, fit: 'custom' });
     h.nodes('Dropdown')[0].props.onToggle(true);
     let prevented = 0;
-    const enter = (value) => h.nodes('div').find(({ props }) => props.className === 'aflpp-custom-zoom').props.onKeyDown({
+    const enter = (value) => h.nodes('div').find(({ props }) => props.className === 'mtflpp-custom-zoom').props.onKeyDown({
         key: 'Enter', target: { value }, preventDefault() { prevented++; },
     });
     enter('8');
@@ -280,14 +280,14 @@ test('DPR is separate read-only display information, not another setting or devi
     const h = fixture();
     h.controls.update({ ...h.state, fit: 'custom', customZoom: 80, zoomPercent: 80, dpr: 2 });
     h.nodes('Dropdown')[0].props.onToggle(true);
-    const dpr = () => h.nodes('span').find(({ props }) => props.className === 'aflpp-dpr-value').children[0];
+    const dpr = () => h.nodes('span').find(({ props }) => props.className === 'mtflpp-dpr-value').children[0];
     assert.equal(dpr(), 'Display DPR: 2');
-    const display = h.nodes('div').find(({ props }) => props.className === 'aflpp-dpr-note');
+    const display = h.nodes('div').find(({ props }) => props.className === 'mtflpp-dpr-note');
     assert.equal(display.props['aria-label'], 'Display information');
     assert.deepEqual(Array.from(display.children, ({ type }) => type), ['span', 'span']);
     assert.equal(display.children[1].children[0], '100% = pixel for pixel.');
     assert.equal(display.props.hidden, undefined, 'Display information is always visible, never collapsible.');
-    assert.equal(h.nodes('strong').some(({ props }) => props.className === 'aflpp-dpr-title'), false);
+    assert.equal(h.nodes('strong').some(({ props }) => props.className === 'mtflpp-dpr-title'), false);
     assert.equal(h.nodes('RangeControl').length, 1, 'Only the fixed percentage is editable.');
     assert.equal(h.nodes('Button').find(({ props }) => props['data-action'] === 'zoom').props['aria-label'], 'Zoom: Choose zoom');
     h.controls.update({ ...h.state, fit: 'custom', customZoom: 80, zoomPercent: 80, dpr: 1.25 });
@@ -324,12 +324,12 @@ for (const mode of ['in-page', 'fullscreen', 'PiP']) {
         const h = fixture();
         const state = { ...h.state, inPage: mode === 'in-page', inPip: mode === 'PiP' };
         h.controls.update(state);
-        for (const { props } of h.nodes('Button').filter(({ props }) => props.className?.split(' ').includes('aflpp-icon'))) {
+        for (const { props } of h.nodes('Button').filter(({ props }) => props.className?.split(' ').includes('mtflpp-icon'))) {
             assert.equal(props.size, 'compact');
         }
         assert.equal(h.nodes('DropdownMenu')[0].props.toggleProps.size, 'compact');
         const refresh = () => h.nodes('Button').find(({ props }) => props['data-action'] === 'refresh');
-        const portal = h.nodes('Portal').find(({ props }) => props.target.selector === '.aflpp-refresh-control');
+        const portal = h.nodes('Portal').find(({ props }) => props.target.selector === '.mtflpp-refresh-control');
         assert.equal(portal.children[0], refresh(), 'Keep refresh in the header in every window mode.');
         assert.equal(refresh().props.accessibleWhenDisabled, true);
         refresh().props.onClick();
@@ -399,7 +399,7 @@ test('document moves unmount old native hooks before creating the next root', ()
 test('PiP actions follow feature support and preview availability', () => {
     const h = fixture();
     const shortcut = () => h.nodes('Button').find(({ props }) => props['data-action'] === 'pop-out');
-    const surface = h.nodes('div').find(({ props }) => props.className === 'aflpp-pip-surface');
+    const surface = h.nodes('div').find(({ props }) => props.className === 'mtflpp-pip-surface');
     assert.equal(surface.children[0], shortcut(), 'Keep a backing surface separate from the native action Button.');
     assert.equal(shortcut().props.size, undefined);
     assert.equal(shortcut().props.isPressed, undefined, 'PiP is an action, not a selected viewport toggle.');

@@ -2,7 +2,7 @@
 
 /** Run with `wp eval-file tests/public-redirect.php` on a disposable installation. */
 
-use AFloatingLivePreviewPanel\PublicRedirect;
+use MeetTheFrontendLivePreviewPanel\PublicRedirect;
 
 if (!defined('WP_CLI') || !WP_CLI || !class_exists(PublicRedirect::class)) {
     throw new RuntimeException('Run through WP-CLI with Meet the Frontend – Live Preview Panel active.');
@@ -29,12 +29,13 @@ $intercept = static function ($pre, array $args, string $url) use (&$requests, &
 };
 $defaultTimeout = static fn (): int => 7;
 $dispatch = static function (int $postId): WP_REST_Response {
-    $request = new WP_REST_Request('GET', '/a-floating-live-preview-panel/v1/posts/' . $postId . '/public-redirect');
+    $route = '/meet-the-frontend-live-preview-panel/v1/posts/' . $postId . '/public-redirect';
+    $request = new WP_REST_Request('GET', $route);
     return rest_do_request($request);
 };
 try {
     foreach (['publish', 'draft', 'private'] as $status) {
-        $id = wp_insert_post(['post_title' => 'AFLPP public routing fixture', 'post_status' => $status], true);
+        $id = wp_insert_post(['post_title' => 'MTFLPP public routing fixture', 'post_status' => $status], true);
         $check(is_int($id) && $id > 0, 'Create a valid fixture for each post status.');
         $posts[$status] = $id;
     }

@@ -1,6 +1,6 @@
 <?php
 
-namespace AFloatingLivePreviewPanel\Compatibility;
+namespace MeetTheFrontendLivePreviewPanel\Compatibility;
 
 use ReflectionClass;
 use WP_Error;
@@ -11,10 +11,10 @@ final class AcfTerm
 {
     public function __construct()
     {
-        add_filter('aflpp_term_editor_preview_config', [$this, 'configureEditor']);
-        add_filter('aflpp_term_editor_preview_script_dependencies', [$this, 'addEditorDependencies'], 10, 2);
-        add_filter('aflpp_term_preview_data', [$this, 'prepare'], 10, 3);
-        add_action('aflpp_frontend_term_preview_source_selected', [$this, 'bind']);
+        add_filter('mtflpp_term_editor_preview_config', [$this, 'configureEditor']);
+        add_filter('mtflpp_term_editor_preview_script_dependencies', [$this, 'addEditorDependencies'], 10, 2);
+        add_filter('mtflpp_term_preview_data', [$this, 'prepare'], 10, 3);
+        add_action('mtflpp_frontend_term_preview_source_selected', [$this, 'bind']);
     }
 
     public function configureEditor(array $config): array
@@ -34,7 +34,7 @@ final class AcfTerm
     private function unavailable(): WP_Error
     {
         return new WP_Error(
-            'aflpp_acf_unavailable',
+            'mtflpp_acf_unavailable',
             __('The preview can’t read your custom fields.', 'meet-the-frontend-live-preview-panel'),
             ['status' => 400]
         );
@@ -97,7 +97,7 @@ final class AcfTerm
     {
         global $wp_filter;
         // ACF's block ID has no persistent term/post backing, even if an unsupported handler is encountered.
-        $id = 'block_aflpp-' . wp_generate_uuid4();
+        $id = 'block_mtflpp-' . wp_generate_uuid4();
         $overlay = [];
         $assignments = [];
         $path = trailingslashit(realpath(acf_get_path()) ?: acf_get_path());

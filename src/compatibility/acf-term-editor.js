@@ -3,7 +3,7 @@ import { initAcf } from './acf-fields.js';
 export function setupAcfTermEditor(config, form, changed) {
     if (!config.acfTermEnabled || !form.querySelector('[name="_acf_nonce"]')) return;
     const { acf, jQuery, tinymce } = window;
-    const unavailable = () => Object.assign(new Error(config.strings.acfUnavailable), { code: 'aflpp_acf_unavailable' });
+    const unavailable = () => Object.assign(new Error(config.strings.acfUnavailable), { code: 'mtflpp_acf_unavailable' });
     if (typeof acf?.serialize !== 'function' || typeof acf.addAction !== 'function'
         || typeof acf.removeAction !== 'function' || typeof jQuery !== 'function') throw unavailable();
 
@@ -22,7 +22,7 @@ export function setupAcfTermEditor(config, form, changed) {
     const fields = initAcf(form, changed, watchEditor);
     for (const editor of tinymce?.editors ?? []) watchEditor(editor);
     const documentEvents = jQuery(form.ownerDocument);
-    const editorInit = 'tinymce-editor-init.aflppAcfTerm';
+    const editorInit = 'tinymce-editor-init.mtflppAcfTerm';
     documentEvents.on(editorInit, (event, editor) => watchEditor(editor));
     const onInput = (event) => { if (fields.isField(event.target)) changed(); };
     form.addEventListener('input', onInput);

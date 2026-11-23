@@ -15,7 +15,7 @@ function fixture({ acfEnabled = false, browserAcf = true } = {}) {
         capture: () => new URLSearchParams([['acf[field_empty]', ''], ['_acf_fields[group][]', 'one'], ['_acf_fields[group][]', 'two']]),
     };
     const runtime = editorExtensionsFixture(context, { createBlockEditorAcf: () => fields });
-    const create = (setupAction = 'aflpp.blockEditor.previewSetup', context = {}) =>
+    const create = (setupAction = 'mtflpp.blockEditor.previewSetup', context = {}) =>
         runtime.createEditorExtensions(setupAction, { config, changed() {}, ...context });
     return { ...runtime, config, fields, create };
 }
@@ -37,7 +37,7 @@ for (const priority of [5, 20]) {
     test(`an external integration composes with ACF before/after its capture: priority ${priority}`, () => {
         const h = fixture({ acfEnabled: true });
         let destroyed = 0;
-        h.hooks.addAction('aflpp.blockEditor.previewSetup', 'vendor/custom-fields', ({ config, hooks, onDestroy }) => {
+        h.hooks.addAction('mtflpp.blockEditor.previewSetup', 'vendor/custom-fields', ({ config, hooks, onDestroy }) => {
             assert.equal(config, h.config);
             hooks.addFilter('previewFormBody', 'vendor/custom-fields', (body) => {
                 body ??= new URLSearchParams();
@@ -68,7 +68,7 @@ test('multiple readiness contributors retain the first blocker and can release i
     const h = fixture({ acfEnabled: true });
     let blocked = true;
     h.fields.ready = false;
-    h.hooks.addAction('aflpp.blockEditor.previewSetup', 'vendor/readiness', ({ hooks }) => {
+    h.hooks.addAction('mtflpp.blockEditor.previewSetup', 'vendor/readiness', ({ hooks }) => {
         hooks.addFilter('previewPauseReason', 'vendor/readiness', (reason) => reason || (blocked ? 'Vendor refreshing' : ''));
     });
     const extensions = h.create();
@@ -84,7 +84,7 @@ test('classic and block setup actions expose separate contexts and local contrib
     const h = fixture();
     const form = {};
     const calls = [];
-    h.hooks.addAction('aflpp.classicEditor.previewSetup', 'vendor/classic', (context) => {
+    h.hooks.addAction('mtflpp.classicEditor.previewSetup', 'vendor/classic', (context) => {
         assert.equal(context.form, form);
         context.hooks.addFilter('previewFormBody', 'vendor/classic', (body) => {
             body.append('vendor_classic', 'Classic');
@@ -92,7 +92,7 @@ test('classic and block setup actions expose separate contexts and local contrib
         });
         calls.push('classic');
     });
-    h.hooks.addAction('aflpp.blockEditor.previewSetup', 'vendor/block', (context) => {
+    h.hooks.addAction('mtflpp.blockEditor.previewSetup', 'vendor/block', (context) => {
         assert.equal(context.form, undefined);
         context.hooks.addFilter('additionalPreviewValues', 'vendor/block', (values) => ({ ...values, vendor_block: 'Block' }));
         calls.push('block');
@@ -101,7 +101,7 @@ test('classic and block setup actions expose separate contexts and local contrib
     assert.deepEqual(calls, ['block']);
     assert.equal(block.capture(null), null);
     assert.equal(block.filter('additionalPreviewValues', {}).vendor_block, 'Block');
-    const classic = h.create('aflpp.classicEditor.previewSetup', { form });
+    const classic = h.create('mtflpp.classicEditor.previewSetup', { form });
     assert.deepEqual(calls, ['block', 'classic']);
     assert.equal(classic.capture(new URLSearchParams()).get('vendor_classic'), 'Classic');
     assert.deepEqual(classic.filter('additionalPreviewValues', {}), {});
@@ -111,7 +111,7 @@ test('classic and block setup actions expose separate contexts and local contrib
 test('setup and cleanup are scoped to each editor session, not global filters', () => {
     const h = fixture();
     let cleaned = 0;
-    h.hooks.addAction('aflpp.blockEditor.previewSetup', 'vendor/session', ({ hooks, onDestroy }) => {
+    h.hooks.addAction('mtflpp.blockEditor.previewSetup', 'vendor/session', ({ hooks, onDestroy }) => {
         let count = 0;
         hooks.addFilter('additionalPreviewValues', 'vendor/session', (values) => ({ ...values, count: ++count }));
         onDestroy(() => cleaned++);
@@ -125,14 +125,14 @@ test('setup and cleanup are scoped to each editor session, not global filters', 
     assert.equal(second.filter('additionalPreviewValues', {}).count, 2);
     second.destroy();
     assert.equal(cleaned, 2);
-    assert.throws(() => first.capture(null), (error) => error.code === 'aflpp_integration_failed',
+    assert.throws(() => first.capture(null), (error) => error.code === 'mtflpp_integration_failed',
         'ended sessions cannot silently fall back to core-only writes');
 });
 
 test('missing browser ACF APIs produce a controlled error instead of aborting the editor', () => {
     const h = fixture({ acfEnabled: true, browserAcf: false });
     const extensions = h.create();
-    assert.equal(extensions.error.code, 'aflpp_integration_failed');
+    assert.equal(extensions.error.code, 'mtflpp_integration_failed');
     assert.equal(extensions.error.message, 'ACF unavailable');
     assert.throws(() => extensions.capture(null), (error) => error === extensions.error);
     assert.equal(h.fields.destroys, 0, 'no ACF instance or subscriptions were created');
@@ -141,7 +141,7 @@ test('missing browser ACF APIs produce a controlled error instead of aborting th
 for (const lifecycle of ['observePreviewInputs', 'nativeMetaboxSaveAcknowledged', 'additionalPreviewValues', 'previewFormBody']) {
     test(`a failing ${lifecycle} callback blocks preview capture without escaping into native saving`, () => {
         const h = fixture();
-        h.hooks.addAction('aflpp.blockEditor.previewSetup', 'vendor/failure', ({ hooks }) => {
+        h.hooks.addAction('mtflpp.blockEditor.previewSetup', 'vendor/failure', ({ hooks }) => {
             const fail = () => { throw new Error('Private adapter failure'); };
             if (['additionalPreviewValues', 'previewFormBody'].includes(lifecycle)) hooks.addFilter(lifecycle, 'vendor/failure', fail);
             else hooks.addAction(lifecycle, 'vendor/failure', fail);
@@ -149,7 +149,7 @@ for (const lifecycle of ['observePreviewInputs', 'nativeMetaboxSaveAcknowledged'
         const extensions = h.create();
         if (lifecycle === 'additionalPreviewValues') extensions.filter(lifecycle, {});
         else if (lifecycle !== 'previewFormBody') assert.doesNotThrow(() => extensions.action(lifecycle));
-        assert.throws(() => extensions.capture(null), (error) => error.code === 'aflpp_integration_failed');
+        assert.throws(() => extensions.capture(null), (error) => error.code === 'mtflpp_integration_failed');
         assert.equal(extensions.error.message, 'Integration failed');
         extensions.destroy();
     });
@@ -158,13 +158,13 @@ for (const lifecycle of ['observePreviewInputs', 'nativeMetaboxSaveAcknowledged'
 test('setup failures release earlier subscriptions even when another cleanup throws', () => {
     const h = fixture({ acfEnabled: true });
     const cleaned = [];
-    h.hooks.addAction('aflpp.blockEditor.previewSetup', 'vendor/failure', ({ onDestroy }) => {
+    h.hooks.addAction('mtflpp.blockEditor.previewSetup', 'vendor/failure', ({ onDestroy }) => {
         onDestroy(() => cleaned.push('first'));
         onDestroy(() => { cleaned.push('second'); throw new Error('Cleanup failure'); });
         throw new Error('Setup failure');
     });
     const extensions = h.create();
-    assert.equal(extensions.error.code, 'aflpp_integration_failed');
+    assert.equal(extensions.error.code, 'mtflpp_integration_failed');
     assert.deepEqual(cleaned, ['second', 'first']);
     assert.equal(h.fields.destroys, 1);
     extensions.destroy();
@@ -174,23 +174,23 @@ test('setup failures release earlier subscriptions even when another cleanup thr
 for (const result of [{}, undefined, new FormData()]) {
     test(`invalid capture contracts fail closed: ${Object.prototype.toString.call(result)}`, () => {
         const h = fixture();
-        h.hooks.addAction('aflpp.blockEditor.previewSetup', 'vendor/invalid', ({ hooks }) => {
+        h.hooks.addAction('mtflpp.blockEditor.previewSetup', 'vendor/invalid', ({ hooks }) => {
             hooks.addFilter('previewFormBody', 'vendor/invalid', () => result);
         });
         const extensions = h.create();
-        assert.throws(() => extensions.capture(null), (error) => error.code === 'aflpp_integration_failed');
+        assert.throws(() => extensions.capture(null), (error) => error.code === 'mtflpp_integration_failed');
     });
 }
 
 for (const result of [null, [], undefined, new Map(), Promise.resolve({}), { nested: [] }, { omitted: undefined }, { invalid: NaN }]) {
     test(`invalid extra-value contracts stop capture: ${Object.prototype.toString.call(result)}`, () => {
         const h = fixture();
-        h.hooks.addAction('aflpp.blockEditor.previewSetup', 'vendor/invalid', ({ hooks }) => {
+        h.hooks.addAction('mtflpp.blockEditor.previewSetup', 'vendor/invalid', ({ hooks }) => {
             hooks.addFilter('additionalPreviewValues', 'vendor/invalid', () => result);
         });
         const extensions = h.create();
         extensions.filter('additionalPreviewValues', {});
-        assert.throws(() => extensions.capture(null), (error) => error.code === 'aflpp_integration_failed');
+        assert.throws(() => extensions.capture(null), (error) => error.code === 'mtflpp_integration_failed');
     });
 }
 
@@ -209,15 +209,15 @@ for (const [name, capture] of [
 ]) {
     test(`classic capture fails closed for ${name}`, () => {
         const h = fixture();
-        h.hooks.addAction('aflpp.classicEditor.previewSetup', 'vendor/invalid', ({ hooks }) => {
+        h.hooks.addAction('mtflpp.classicEditor.previewSetup', 'vendor/invalid', ({ hooks }) => {
             hooks.addFilter('previewFormBody', 'vendor/invalid', capture);
         });
-        const extensions = h.create('aflpp.classicEditor.previewSetup');
+        const extensions = h.create('mtflpp.classicEditor.previewSetup');
         const body = new URLSearchParams([
             ['post_title', 'Unsaved title'], ['content', 'First'], ['content', 'Second'], ['excerpt', ''],
         ]);
         assert.throws(() => extensions.capture(body),
-            (error) => error === extensions.error && error.code === 'aflpp_integration_failed');
+            (error) => error === extensions.error && error.code === 'mtflpp_integration_failed');
         extensions.destroy();
     });
 }
@@ -225,7 +225,7 @@ for (const [name, capture] of [
 for (const copy of [false, true]) {
     test(`classic capture preserves empty/repeated core values and integration contributions: copy ${copy}`, () => {
         const h = fixture();
-        h.hooks.addAction('aflpp.classicEditor.previewSetup', 'vendor/fields', ({ hooks }) => {
+        h.hooks.addAction('mtflpp.classicEditor.previewSetup', 'vendor/fields', ({ hooks }) => {
             hooks.addFilter('previewFormBody', 'vendor/first', (body) => {
                 body.append('vendor[first][]', 'one'); body.append('vendor[first][]', 'two');
                 return body;
@@ -236,7 +236,7 @@ for (const copy of [false, true]) {
                 return result;
             }, 20);
         });
-        const extensions = h.create('aflpp.classicEditor.previewSetup');
+        const extensions = h.create('mtflpp.classicEditor.previewSetup');
         const entries = [['post_title', 'Unsaved title'], ['content', 'First'], ['content', 'Second'], ['excerpt', '']];
         assert.deepEqual([...extensions.capture(new URLSearchParams(entries))], [
             ...entries, ['vendor[first][]', 'one'], ['vendor[first][]', 'two'], ['vendor[second]', ''],
@@ -312,7 +312,7 @@ function classicFixture(setup, entries = [['content', 'Unsaved content']], contr
         },
     };
     const runtime = editorExtensionsFixture(context);
-    runtime.hooks.addAction('aflpp.classicEditor.previewSetup', 'vendor/fixture', setup);
+    runtime.hooks.addAction('mtflpp.classicEditor.previewSetup', 'vendor/fixture', setup);
     context.imports = {
         './editor-extensions.js': runtime,
         '../preview/live-preview.js': { createLivePreview: () => ({
@@ -359,7 +359,7 @@ for (const [name, capture] of [
         const h = classicFixture(({ hooks }) => {
             hooks.addFilter('previewFormBody', 'vendor/invalid', capture);
         });
-        await assert.rejects(h.native.preparePreview(), (error) => error.code === 'aflpp_integration_failed');
+        await assert.rejects(h.native.preparePreview(), (error) => error.code === 'mtflpp_integration_failed');
         assert.equal(h.requests.length, 0);
         h.native.destroy();
     });
@@ -391,7 +391,7 @@ test('classic external fields can pause initial preview, resume and clean up wit
     assert.equal(cleaned, 1);
     assert.equal(h.destroyed, 1);
     assert.equal(h.listeners.size, 0);
-    await assert.rejects(h.native.preparePreview(), (error) => error.code === 'aflpp_integration_failed');
+    await assert.rejects(h.native.preparePreview(), (error) => error.code === 'mtflpp_integration_failed');
 });
 
 test('classic startup uses the same failure path once and never starts preview writes after setup errors', () => {
@@ -402,7 +402,7 @@ test('classic startup uses the same failure path once and never starts preview w
     });
     assert.equal(h.native.ready, false);
     assert.equal(h.native.notReady, 'Integration failed');
-    assert.deepEqual(h.calls, [['error', 'aflpp_integration_failed']]);
+    assert.deepEqual(h.calls, [['error', 'mtflpp_integration_failed']]);
     h.native.destroy(); h.native.destroy();
     assert.equal(cleaned, 1);
 });

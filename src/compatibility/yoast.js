@@ -1,9 +1,9 @@
 import { select } from '@wordpress/data';
 import { addAction } from '@wordpress/hooks';
 
-addAction('aflpp.blockEditor.previewSetup', 'a-floating-live-preview-panel/yoast', ({ config, hooks }) => {
+addAction('mtflpp.blockEditor.previewSetup', 'meet-the-frontend-live-preview-panel/yoast', ({ config, hooks }) => {
     if (!config.yoastPrimaryTaxonomies?.length) return;
-    hooks.addFilter('additionalPreviewValues', 'a-floating-live-preview-panel/yoast', (values, editor) => {
+    hooks.addFilter('additionalPreviewValues', 'meet-the-frontend-live-preview-panel/yoast', (values, editor) => {
         const primary = yoastPrimaryTerms(config, editor);
         return primary === undefined ? values : { ...values, yoast_primary_terms: primary };
     });

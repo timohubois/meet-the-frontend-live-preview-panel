@@ -1,6 +1,6 @@
 <?php
 
-namespace AFloatingLivePreviewPanel;
+namespace MeetTheFrontendLivePreviewPanel;
 
 use WP_Post;
 
@@ -33,7 +33,7 @@ final class RevisionBrowser
     {
         $screenPost = $this->revisionPost();
         if ($screenPost && $screenPost->ID === $post->ID) {
-            $data['aflppPreviewUrl'] = $this->preview->savedPreviewUrl($post, $revision->ID);
+            $data['mtflppPreviewUrl'] = $this->preview->savedPreviewUrl($post, $revision->ID);
         }
         return $data;
     }

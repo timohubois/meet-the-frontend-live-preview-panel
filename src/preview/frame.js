@@ -27,27 +27,27 @@ export function createPreviewFrame(view, scrolling, strings, report, excludedSel
     function load(nextAddress, isCurrent, followChanges = () => false, comparisonValues) {
         const url = new URL(nextAddress);
         if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-            throw Object.assign(new Error(strings.failed), { code: 'aflpp_preview_unsupported_url' });
+            throw Object.assign(new Error(strings.failed), { code: 'mtflpp_preview_unsupported_url' });
         }
         if (url.origin !== window.location.origin) {
             // Report only the origin; the URL can contain preview state and other private values.
             const message = strings.originMismatch.replace('%s', () => url.origin);
-            throw Object.assign(new Error(message), { code: 'aflpp_preview_origin_mismatch' });
+            throw Object.assign(new Error(message), { code: 'mtflpp_preview_origin_mismatch' });
         }
-        const token = url.searchParams.get('aflpp_token');
+        const token = url.searchParams.get('mtflpp_token');
         if (!token) throw new Error(strings.failed);
         // Isolated editors cannot inspect otherwise same-origin, non-isolated preview documents.
-        if (window.crossOriginIsolated) url.searchParams.set('aflpp_isolated', '1');
+        if (window.crossOriginIsolated) url.searchParams.set('mtflpp_isolated', '1');
         cancel();
         // Capture only following iframe loads, even if the provided URL already contains the flag.
-        url.searchParams.delete('aflpp_source');
-        if (view.followChanges) url.searchParams.set('aflpp_source', '1');
+        url.searchParams.delete('mtflpp_source');
+        if (view.followChanges) url.searchParams.set('mtflpp_source', '1');
         // Navigate natively so non-HTML output can use the browser's own viewer.
         report(strings.updating);
         return new Promise((resolve, reject) => {
             const frame = view.stage.ownerDocument.createElement('iframe');
             frame.title = strings.title;
-            frame.className = 'aflpp-frame aflpp-loading';
+            frame.className = 'mtflpp-frame mtflpp-loading';
             frame.setAttribute('aria-hidden', 'true');
             frame.setAttribute('tabindex', '-1');
             // Authorization is server-side; sandboxing would block native output such as Chromium's PDF viewer.
@@ -79,7 +79,7 @@ export function createPreviewFrame(view, scrolling, strings, report, excludedSel
                 let destination;
                 try {
                     const candidate = frame.contentDocument;
-                    const marker = candidate?.querySelector('meta[name="a-floating-live-preview-panel"]');
+                    const marker = candidate?.querySelector('meta[name="meet-the-frontend-live-preview-panel"]');
                     if (marker?.content === token) doc = candidate;
                     else if (replacing && !marker) destination = redirectedHtmlPath(candidate, url);
                 } catch { /* Cross-origin and browser-owned documents are not inspectable. */ }
@@ -104,7 +104,7 @@ export function createPreviewFrame(view, scrolling, strings, report, excludedSel
                 activeFrame = frame;
                 activeDocument = doc;
                 redirectDestination = destination;
-                frame.classList.remove('aflpp-loading');
+                frame.classList.remove('mtflpp-loading');
                 frame.removeAttribute('aria-hidden');
                 frame.removeAttribute('tabindex');
                 const isActive = () => !canceled && isCurrent() && frame === activeFrame && doc === activeDocument

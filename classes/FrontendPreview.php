@@ -1,6 +1,6 @@
 <?php
 
-namespace AFloatingLivePreviewPanel;
+namespace MeetTheFrontendLivePreviewPanel;
 
 use WP_Post;
 
@@ -45,7 +45,7 @@ final class FrontendPreview
     private function savedAction(int $postId, int $sourceId): string
     {
         // A separate namespace must never authorize the mutable internal live-preview revision.
-        return 'aflpp_saved_' . $postId . '_' . $sourceId;
+        return 'mtflpp_saved_' . $postId . '_' . $sourceId;
     }
 
     public function savedPreviewUrl(WP_Post $post, int $sourceId): ?string
@@ -54,28 +54,28 @@ final class FrontendPreview
             return null;
         }
         return get_preview_post_link($post, [
-            'aflpp_post' => $post->ID,
-            'aflpp_revision' => $sourceId,
-            'aflpp_saved' => '1',
-            'aflpp_token' => wp_create_nonce($this->savedAction($post->ID, $sourceId)),
+            'mtflpp_post' => $post->ID,
+            'mtflpp_revision' => $sourceId,
+            'mtflpp_saved' => '1',
+            'mtflpp_token' => wp_create_nonce($this->savedAction($post->ID, $sourceId)),
         ]);
     }
 
     public function authorizePreview(): void
     {
-        if (!isset($_GET['aflpp_post'])) {
+        if (!isset($_GET['mtflpp_post'])) {
             return;
         }
         PreviewDocument::disableCaching();
-        $postId = isset($_GET['aflpp_post']) && is_scalar($_GET['aflpp_post']) ? absint($_GET['aflpp_post']) : 0;
-        $revisionId = isset($_GET['aflpp_revision']) && is_scalar($_GET['aflpp_revision'])
-            ? absint($_GET['aflpp_revision']) : 0;
-        $token = isset($_GET['aflpp_token']) && is_string($_GET['aflpp_token'])
-            ? sanitize_text_field(wp_unslash($_GET['aflpp_token'])) : '';
-        $saved = isset($_GET['aflpp_saved']);
+        $postId = isset($_GET['mtflpp_post']) && is_scalar($_GET['mtflpp_post']) ? absint($_GET['mtflpp_post']) : 0;
+        $revisionId = isset($_GET['mtflpp_revision']) && is_scalar($_GET['mtflpp_revision'])
+            ? absint($_GET['mtflpp_revision']) : 0;
+        $token = isset($_GET['mtflpp_token']) && is_string($_GET['mtflpp_token'])
+            ? sanitize_text_field(wp_unslash($_GET['mtflpp_token'])) : '';
+        $saved = isset($_GET['mtflpp_saved']);
         $source = null;
         if ($saved) {
-            if ($_GET['aflpp_saved'] === '1' && $postId && $revisionId) {
+            if ($_GET['mtflpp_saved'] === '1' && $postId && $revisionId) {
                 $source = $this->savedSource($postId, $revisionId);
             }
             $authorized = $source && wp_verify_nonce($token, $this->savedAction($postId, $revisionId));
@@ -96,10 +96,10 @@ final class FrontendPreview
 
         $this->previewPostId = $postId;
         $this->previewToken = $token;
-        $this->isolated = isset($_GET['aflpp_isolated']) && $_GET['aflpp_isolated'] === '1';
+        $this->isolated = isset($_GET['mtflpp_isolated']) && $_GET['mtflpp_isolated'] === '1';
         $this->source = sanitize_post($source);
         $this->saved = $saved;
-        $this->sourceRequested = isset($_GET['aflpp_source']) && $_GET['aflpp_source'] === '1';
+        $this->sourceRequested = isset($_GET['mtflpp_source']) && $_GET['mtflpp_source'] === '1';
         // Bind core and compatibility reads to the authorized source, not the latest revision.
         remove_filter('the_preview', '_set_preview');
         add_filter('the_preview', [$this, 'readPost']);
@@ -116,8 +116,8 @@ final class FrontendPreview
          */
         // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.DynamicHooknameFound -- Both names are prefixed.
         do_action($saved
-            ? 'aflpp_frontend_saved_preview_source_selected'
-            : 'aflpp_frontend_live_preview_source_selected', [
+            ? 'mtflpp_frontend_saved_preview_source_selected'
+            : 'mtflpp_frontend_live_preview_source_selected', [
                 'post' => ['id' => $postId],
                 'source' => ['id' => $this->source->ID],
             ]);

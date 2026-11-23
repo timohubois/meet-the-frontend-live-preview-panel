@@ -1,6 +1,6 @@
 <?php
 
-namespace AFloatingLivePreviewPanel;
+namespace MeetTheFrontendLivePreviewPanel;
 
 use WP_Http;
 use WP_Post;
@@ -25,12 +25,12 @@ final class PublicRedirect
 
     public static function endpoint(int $postId): string
     {
-        return rest_url('a-floating-live-preview-panel/v1/posts/' . $postId . '/public-redirect');
+        return rest_url('meet-the-frontend-live-preview-panel/v1/posts/' . $postId . '/public-redirect');
     }
 
     public function registerRoute(): void
     {
-        register_rest_route('a-floating-live-preview-panel/v1', '/posts/(?P<id>\d+)/public-redirect', [
+        register_rest_route('meet-the-frontend-live-preview-panel/v1', '/posts/(?P<id>\d+)/public-redirect', [
             'methods' => WP_REST_Server::READABLE,
             'permission_callback' => [$this, 'canCheck'],
             'callback' => [$this, 'check'],

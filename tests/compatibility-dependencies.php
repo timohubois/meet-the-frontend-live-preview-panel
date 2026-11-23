@@ -2,7 +2,7 @@
 
 /** Run with `wp eval-file tests/compatibility-dependencies.php`; no database fixtures are created. */
 
-namespace AFloatingLivePreviewPanel\Compatibility;
+namespace MeetTheFrontendLivePreviewPanel\Compatibility;
 
 use RuntimeException;
 use WP_CLI;
@@ -51,9 +51,9 @@ try {
     $context = ['post' => ['id' => 123], 'source' => null];
     foreach (['classic-editor', 'block-editor', 'revision-browser'] as $entry) {
         $hook = match ($entry) {
-            'classic-editor' => 'aflpp_classic_editor_preview_config',
-            'block-editor' => 'aflpp_block_editor_preview_config',
-            'revision-browser' => 'aflpp_revision_browser_preview_config',
+            'classic-editor' => 'mtflpp_classic_editor_preview_config',
+            'block-editor' => 'mtflpp_block_editor_preview_config',
+            'revision-browser' => 'mtflpp_revision_browser_preview_config',
         };
         $dependencyHook = str_replace('_config', '_script_dependencies', $hook);
         $check(
@@ -95,7 +95,7 @@ try {
     );
     $error = $acf->preparePayload($payload, $context + ['input' => ['acf' => []]]);
     $check(
-        is_wp_error($error) && $error->get_error_code() === 'aflpp_acf_unavailable'
+        is_wp_error($error) && $error->get_error_code() === 'mtflpp_acf_unavailable'
         && $acf->verifySave($error, $context) === $error && !has_action('acf/save_post', [$acf, 'recordSave']),
         'Submitted ACF data without ACF must fail clearly, not disappear silently or leave a save monitor.'
     );
@@ -106,7 +106,7 @@ try {
     );
     $error = $yoast->preparePayload($payload, $context + ['input' => ['yoast_primary_terms' => '{"category":1}']]);
     $check(
-        is_wp_error($error) && $error->get_error_code() === 'aflpp_invalid_yoast_primary_terms'
+        is_wp_error($error) && $error->get_error_code() === 'mtflpp_invalid_yoast_primary_terms'
         && $yoast->verifySave($error, $context) === $error,
         'Submitted primary terms without Yoast must fail clearly and release pending state.'
     );

@@ -2,10 +2,10 @@
 
 /** Run with `wp eval-file tests/revisions.php` on a disposable single-site installation with this plugin active. */
 
-use AFloatingLivePreviewPanel\Panel;
-use AFloatingLivePreviewPanel\Compatibility\CoreBlocks;
-use AFloatingLivePreviewPanel\FrontendPreview;
-use AFloatingLivePreviewPanel\LivePreview;
+use MeetTheFrontendLivePreviewPanel\Panel;
+use MeetTheFrontendLivePreviewPanel\Compatibility\CoreBlocks;
+use MeetTheFrontendLivePreviewPanel\FrontendPreview;
+use MeetTheFrontendLivePreviewPanel\LivePreview;
 
 if (!defined('WP_CLI') || !WP_CLI || !class_exists(FrontendPreview::class)) {
     throw new RuntimeException('Run this through WP-CLI with Meet the Frontend – Live Preview Panel active.');
@@ -50,10 +50,10 @@ $observeSource = static function (array $context, bool $readOnly) use ($check, &
 };
 $observeLiveSource = static fn (array $context) => $observeSource($context, false);
 $observeSavedSource = static fn (array $context) => $observeSource($context, true);
-add_action('aflpp_frontend_live_preview_source_selected', $observeLiveSource, 20);
-add_action('aflpp_frontend_saved_preview_source_selected', $observeSavedSource, 20);
+add_action('mtflpp_frontend_live_preview_source_selected', $observeLiveSource, 20);
+add_action('mtflpp_frontend_saved_preview_source_selected', $observeSavedSource, 20);
 $dieHandler = static fn () => static function ($message, $title, $args): void {
-    throw new RuntimeException('aflpp_denied_' . (int) ($args['response'] ?? 0));
+    throw new RuntimeException('mtflpp_denied_' . (int) ($args['response'] ?? 0));
 };
 add_filter('wp_die_handler', $dieHandler, PHP_INT_MAX);
 $denied = static function (array $query) use ($preview, $check, &$sources): void {
@@ -62,7 +62,7 @@ $denied = static function (array $query) use ($preview, $check, &$sources): void
     try {
         $preview->authorizePreview();
     } catch (RuntimeException $error) {
-        $check($error->getMessage() === 'aflpp_denied_403', 'Denied previews must return HTTP 403.');
+        $check($error->getMessage() === 'mtflpp_denied_403', 'Denied previews must return HTTP 403.');
         $check(count($sources) === $before, 'Denied requests must never bind compatibility reads.');
         return;
     }
@@ -84,18 +84,18 @@ try {
     $byClass = static fn (string $name): DOMNodeList => $xpath->query(
         '//*[contains(concat(" ", normalize-space(@class), " "), " ' . $name . ' ")]'
     );
-    foreach (['aflpp-move-control', 'aflpp-caption', 'aflpp-resize'] as $class) {
+    foreach (['mtflpp-move-control', 'mtflpp-caption', 'mtflpp-resize'] as $class) {
         $check($byClass($class)->length === 1, 'The rendered panel needs one ' . $class . ' binding.');
     }
-    $panel = $document->getElementById('aflpp-panel');
-    $launcher = $document->getElementById('aflpp-toggle');
+    $panel = $document->getElementById('mtflpp-panel');
+    $launcher = $document->getElementById('mtflpp-toggle');
     $check(
         $launcher && $launcher->tagName === 'div' && $launcher->hasAttribute('hidden')
         && $launcher->getAttribute('data-title') === $panelTitle
         && $launcher->getAttribute('data-move-help') !== '' && !$launcher->getElementsByTagName('button')->length,
         'The escaped launcher mount must wait for native controls, not render its own button.'
     );
-    $caption = $byClass('aflpp-caption')->item(0);
+    $caption = $byClass('mtflpp-caption')->item(0);
     $check(
         $caption->tagName === 'h2' && $caption->textContent === $panelTitle && !$caption->childElementCount
         && $caption->getAttribute('id') !== '' && $panel
@@ -103,10 +103,10 @@ try {
         && !$panel->hasAttribute('aria-label'),
         'The panel must be labelled by its visible heading, including before JavaScript initializes.'
     );
-    $header = $byClass('aflpp-header')->item(0);
+    $header = $byClass('mtflpp-header')->item(0);
     $check(
-        $xpath->query('.//header//*[@class="aflpp-controls"]', $panel)->length === 1
-        && $xpath->query('.//footer//*[@class="aflpp-device-controls"]', $panel)->length === 1,
+        $xpath->query('.//header//*[@class="mtflpp-controls"]', $panel)->length === 1
+        && $xpath->query('.//footer//*[@class="mtflpp-device-controls"]', $panel)->length === 1,
         'Header and viewport controls must remain scoped to the labelled panel.'
     );
     $check(
@@ -145,7 +145,7 @@ try {
     $suffix = wp_generate_password(12, false, false);
     foreach (['administrator', 'subscriber'] as $role) {
         $id = wp_insert_user([
-            'user_login' => 'aflpp_revision_test_' . $role . '_' . $suffix,
+            'user_login' => 'mtflpp_revision_test_' . $role . '_' . $suffix,
             'user_pass' => wp_generate_password(32),
             'role' => $role,
         ]);
@@ -157,7 +157,7 @@ try {
     foreach (['Selected post', 'Unrelated post'] as $title) {
         $id = wp_insert_post([
             'post_type' => 'post', 'post_status' => 'draft', 'post_author' => $admin,
-            'post_title' => 'AFLPP test — ' . $title,
+            'post_title' => 'MTFLPP test — ' . $title,
             'post_content' => 'Saved content', 'post_excerpt' => 'Saved excerpt',
         ], true);
         $check(!is_wp_error($id) && $id > 0, 'Could not create the temporary test post.');
@@ -181,14 +181,14 @@ try {
         'innerHTML' => '', 'innerContent' => [],
     ], ['postId' => $postId, 'postType' => 'post']))->render();
     $internalId = wp_insert_post([
-        'post_type' => 'revision', 'post_status' => 'aflpp-preview', 'post_parent' => $postId,
-        'post_author' => $admin, 'post_name' => $postId . '-aflpp-preview-' . $admin,
+        'post_type' => 'revision', 'post_status' => 'mtflpp-preview', 'post_parent' => $postId,
+        'post_author' => $admin, 'post_name' => $postId . '-mtflpp-preview-' . $admin,
         'post_title' => 'Internal live preview', 'post_excerpt' => 'Internal live excerpt',
     ]);
     $posts[] = $internalId;
     $foreignInternalId = wp_insert_post([
-        'post_type' => 'revision', 'post_status' => 'aflpp-preview', 'post_parent' => $postId,
-        'post_author' => $subscriber, 'post_name' => $postId . '-aflpp-preview-' . $subscriber,
+        'post_type' => 'revision', 'post_status' => 'mtflpp-preview', 'post_parent' => $postId,
+        'post_author' => $subscriber, 'post_name' => $postId . '-mtflpp-preview-' . $subscriber,
     ]);
     $posts[] = $foreignInternalId;
     $autosaveId = wp_insert_post([
@@ -197,43 +197,43 @@ try {
     ]);
     $check(wp_is_post_autosave($autosaveId) === $postId, 'Recovery autosave fixture failed.');
     $check(!isset(wp_get_post_revisions($postId)[$internalId]), 'Internal previews must stay out of history.');
-    register_post_meta('post', 'aflpp_revision_test_meta', [
+    register_post_meta('post', 'mtflpp_revision_test_meta', [
         'type' => 'string', 'single' => true, 'show_in_rest' => true, 'revisions_enabled' => true,
     ]);
-    register_post_meta('post', 'aflpp_revision_test_array', [
+    register_post_meta('post', 'mtflpp_revision_test_array', [
         'type' => 'array', 'single' => true, 'revisions_enabled' => true,
         'show_in_rest' => ['schema' => ['type' => 'array', 'items' => ['type' => 'string']]],
     ]);
-    register_post_meta('post', 'aflpp_revision_test_missing', [
+    register_post_meta('post', 'mtflpp_revision_test_missing', [
         'type' => 'string', 'single' => true, 'show_in_rest' => true, 'revisions_enabled' => true,
     ]);
-    update_post_meta($postId, 'aflpp_revision_test_array', ['Saved array']);
-    update_metadata('post', $revisionId, 'aflpp_revision_test_array', ['Historical', 'array']);
-    update_post_meta($postId, 'aflpp_revision_test_missing', 'Not present in history');
-    update_post_meta($postId, 'aflpp_revision_test_meta', 'Saved metadata');
-    update_metadata('post', $revisionId, 'aflpp_revision_test_meta', 'Historical metadata');
-    update_post_meta($postId, 'aflpp_unrevisioned_test_meta', 'Current unrevisioned metadata');
-    update_metadata('post', $revisionId, 'aflpp_unrevisioned_test_meta', 'Must not be used');
+    update_post_meta($postId, 'mtflpp_revision_test_array', ['Saved array']);
+    update_metadata('post', $revisionId, 'mtflpp_revision_test_array', ['Historical', 'array']);
+    update_post_meta($postId, 'mtflpp_revision_test_missing', 'Not present in history');
+    update_post_meta($postId, 'mtflpp_revision_test_meta', 'Saved metadata');
+    update_metadata('post', $revisionId, 'mtflpp_revision_test_meta', 'Historical metadata');
+    update_post_meta($postId, 'mtflpp_unrevisioned_test_meta', 'Current unrevisioned metadata');
+    update_metadata('post', $revisionId, 'mtflpp_unrevisioned_test_meta', 'Must not be used');
 
     if (function_exists('acf_add_local_field_group')) {
         acf_add_local_field_group([
-            'key' => 'group_aflpp_revision_test', 'title' => 'Temporary revision test',
+            'key' => 'group_mtflpp_revision_test', 'title' => 'Temporary revision test',
             'fields' => [
-                ['key' => 'field_aflpp_revision_test_text', 'name' => 'aflpp_revision_test_text', 'type' => 'text'],
+                ['key' => 'field_mtflpp_revision_test_text', 'name' => 'mtflpp_revision_test_text', 'type' => 'text'],
                 [
-                    'key' => 'field_aflpp_revision_test_rows',
-                    'name' => 'aflpp_revision_test_rows', 'type' => 'repeater',
+                    'key' => 'field_mtflpp_revision_test_rows',
+                    'name' => 'mtflpp_revision_test_rows', 'type' => 'repeater',
                     'sub_fields' => [
                         [
-                            'key' => 'field_aflpp_revision_test_row', 'name' => 'text', 'type' => 'text',
+                            'key' => 'field_mtflpp_revision_test_row', 'name' => 'text', 'type' => 'text',
                         ],
                     ],
                 ],
             ],
         ]);
         foreach ([$postId => 'Saved', $revisionId => 'Historical'] as $id => $prefix) {
-            update_field('field_aflpp_revision_test_text', $prefix . ' ACF text', $id);
-            update_field('field_aflpp_revision_test_rows', [['text' => $prefix . ' ACF row']], $id);
+            update_field('field_mtflpp_revision_test_text', $prefix . ' ACF text', $id);
+            update_field('field_mtflpp_revision_test_rows', [['text' => $prefix . ' ACF row']], $id);
         }
     }
 
@@ -246,10 +246,10 @@ try {
     $check($preview->savedPreviewUrl(get_post($otherId), $revisionId) === null, 'Foreign revisions must be rejected.');
 
     $customStatuses = [
-        'aflpp-test-public' => ['public' => true],
-        'aflpp-test-protected' => ['protected' => true],
-        'aflpp-test-private' => ['private' => true],
-        'aflpp-test-internal' => ['internal' => true],
+        'mtflpp-test-public' => ['public' => true],
+        'mtflpp-test-protected' => ['protected' => true],
+        'mtflpp-test-private' => ['private' => true],
+        'mtflpp-test-internal' => ['internal' => true],
     ];
     foreach ($customStatuses as $name => $args) {
         register_post_status($name, $args);
@@ -257,8 +257,8 @@ try {
     $otherRevisionId = _wp_put_post_revision($otherId);
     $check(!is_wp_error($otherRevisionId) && $otherRevisionId > 0, 'Could not create a custom-status revision.');
     $statusCases = [
-        'aflpp-test-public' => true, 'aflpp-test-protected' => true, 'aflpp-test-private' => true,
-        'aflpp-test-internal' => false, 'aflpp-unregistered' => false, 'auto-draft' => false, 'trash' => false,
+        'mtflpp-test-public' => true, 'mtflpp-test-protected' => true, 'mtflpp-test-private' => true,
+        'mtflpp-test-internal' => false, 'mtflpp-unregistered' => false, 'auto-draft' => false, 'trash' => false,
     ];
     foreach ($statusCases as $status => $eligible) {
         wp_update_post(['ID' => $otherId, 'post_status' => $status]);
@@ -278,9 +278,9 @@ try {
             );
         } else {
             $denied([
-                'aflpp_post' => (string) $otherId, 'aflpp_revision' => (string) $otherRevisionId,
-                'aflpp_saved' => '1',
-                'aflpp_token' => wp_create_nonce('aflpp_saved_' . $otherId . '_' . $otherRevisionId),
+                'mtflpp_post' => (string) $otherId, 'mtflpp_revision' => (string) $otherRevisionId,
+                'mtflpp_saved' => '1',
+                'mtflpp_token' => wp_create_nonce('mtflpp_saved_' . $otherId . '_' . $otherRevisionId),
             ]);
         }
     }
@@ -288,20 +288,20 @@ try {
 
     $savedQuery = $query($savedUrl);
     $tampered = $savedQuery;
-    $tampered['aflpp_token'] = 'invalid';
+    $tampered['mtflpp_token'] = 'invalid';
     $denied($tampered);
     $tampered = $savedQuery;
-    $tampered['aflpp_post'] = $otherId;
+    $tampered['mtflpp_post'] = $otherId;
     $denied($tampered);
     $tampered = $savedQuery;
-    unset($tampered['aflpp_saved']);
+    unset($tampered['mtflpp_saved']);
     $denied($tampered); // Saved nonces must not authorize the live-preview path.
     $tampered = $savedQuery;
-    $tampered['aflpp_revision'] = $internalId;
-    $tampered['aflpp_token'] = wp_create_nonce('aflpp_saved_' . $postId . '_' . $internalId);
+    $tampered['mtflpp_revision'] = $internalId;
+    $tampered['mtflpp_token'] = wp_create_nonce('mtflpp_saved_' . $postId . '_' . $internalId);
     $denied($tampered); // Even a valid saved-source nonce cannot expose internal revisions.
     $tampered = $savedQuery;
-    $tampered['aflpp_saved'] = ['1'];
+    $tampered['mtflpp_saved'] = ['1'];
     $denied($tampered);
 
     foreach ([$subscriber, 0] as $userId) {
@@ -312,12 +312,12 @@ try {
     wp_set_current_user($admin);
     $stateAction = new ReflectionMethod(LivePreview::class, 'stateAction');
     $internalQuery = [
-        'aflpp_post' => (string) $postId, 'aflpp_revision' => (string) $foreignInternalId,
-        'aflpp_token' => wp_create_nonce($stateAction->invoke($livePreview, $postId, $foreignInternalId)),
+        'mtflpp_post' => (string) $postId, 'mtflpp_revision' => (string) $foreignInternalId,
+        'mtflpp_token' => wp_create_nonce($stateAction->invoke($livePreview, $postId, $foreignInternalId)),
     ];
     $denied($internalQuery);
-    $internalQuery['aflpp_revision'] = (string) $internalId;
-    $internalQuery['aflpp_token'] = wp_create_nonce($stateAction->invoke($livePreview, $postId, $internalId));
+    $internalQuery['mtflpp_revision'] = (string) $internalId;
+    $internalQuery['mtflpp_token'] = wp_create_nonce($stateAction->invoke($livePreview, $postId, $internalId));
     $_GET = $internalQuery;
     $preview->authorizePreview();
     $check($preview->readPost(clone $post)->post_title === 'Internal live preview', 'Live preview regressed.');
@@ -333,17 +333,20 @@ try {
     );
     if (function_exists('get_field')) {
         $check(
-            update_field('field_aflpp_revision_test_text', 'Writable live ACF text', $postId) !== false
-            && get_post_meta($internalId, 'aflpp_revision_test_text', true) === 'Writable live ACF text',
+            update_field('field_mtflpp_revision_test_text', 'Writable live ACF text', $postId) !== false
+            && get_post_meta($internalId, 'mtflpp_revision_test_text', true) === 'Writable live ACF text',
             'Saved-source guards must not block live-preview writes after rebinding.'
         );
-        $check(delete_field('field_aflpp_revision_test_text', $postId), 'Live-preview deletions must remain writable.');
+        $check(
+            delete_field('field_mtflpp_revision_test_text', $postId),
+            'Live-preview deletions must remain writable.'
+        );
     }
 
     $attemptAcfWrites = static function (int $sourceId) use ($postId, $check): void {
         $changes = [
-            'field_aflpp_revision_test_text' => 'Must not persist',
-            'field_aflpp_revision_test_rows' => [['text' => 'Must not persist'], ['text' => 'Rejected extra row']],
+            'field_mtflpp_revision_test_text' => 'Must not persist',
+            'field_mtflpp_revision_test_rows' => [['text' => 'Must not persist'], ['text' => 'Rejected extra row']],
         ];
         foreach (array_unique([$postId, $sourceId, 'post_' . $sourceId]) as $target) {
             foreach ($changes as $field => $value) {
@@ -352,8 +355,8 @@ try {
             }
         }
         $check(
-            acf_update_metadata($sourceId, 'aflpp_revision_test_text', 'Must not persist') === false
-            && acf_delete_metadata($sourceId, 'aflpp_revision_test_text', true) === false,
+            acf_update_metadata($sourceId, 'mtflpp_revision_test_text', 'Must not persist') === false
+            && acf_delete_metadata($sourceId, 'mtflpp_revision_test_text', true) === false,
             'Direct ACF metadata operations must also be rejected for the saved source.'
         );
         foreach (['acf/pre_update_metadata', 'acf/pre_delete_metadata'] as $hook) {
@@ -423,40 +426,40 @@ try {
         'Timber compatibility must leave unrelated posts untouched.'
     );
     $check(
-        get_post_meta($postId, 'aflpp_revision_test_meta', true) === 'Historical metadata',
+        get_post_meta($postId, 'mtflpp_revision_test_meta', true) === 'Historical metadata',
         'Revisioned meta failed.'
     );
     $check(
-        get_post_meta($postId, 'aflpp_revision_test_array', true) === ['Historical', 'array'],
+        get_post_meta($postId, 'mtflpp_revision_test_array', true) === ['Historical', 'array'],
         'Single array-valued metadata must not be unwrapped twice.'
     );
     $check(
-        get_post_meta($postId, 'aflpp_revision_test_array', false) === [['Historical', 'array']],
+        get_post_meta($postId, 'mtflpp_revision_test_array', false) === [['Historical', 'array']],
         'Multi-value metadata reads must keep their native shape.'
     );
     $check(
-        get_post_meta($postId, 'aflpp_revision_test_missing', true) === '',
+        get_post_meta($postId, 'mtflpp_revision_test_missing', true) === '',
         'Missing historical metadata must not fall back to the saved post.'
     );
     $check(
-        !metadata_exists('post', $postId, 'aflpp_revision_test_missing')
-        && metadata_exists('post', $postId, 'aflpp_revision_test_array'),
+        !metadata_exists('post', $postId, 'mtflpp_revision_test_missing')
+        && metadata_exists('post', $postId, 'mtflpp_revision_test_array'),
         'Historical metadata existence must reflect the selected source.'
     );
     $check(
-        get_post_meta($postId, 'aflpp_unrevisioned_test_meta', true) === 'Current unrevisioned metadata',
+        get_post_meta($postId, 'mtflpp_unrevisioned_test_meta', true) === 'Current unrevisioned metadata',
         'Unrevisioned metadata must stay current.'
     );
     if (function_exists('get_field')) {
         $attemptAcfWrites($revisionId);
         $check(
-            update_field('field_aflpp_revision_test_text', 'Unrelated writable ACF text', $otherId) !== false
-            && get_post_meta($otherId, 'aflpp_revision_test_text', true) === 'Unrelated writable ACF text',
+            update_field('field_mtflpp_revision_test_text', 'Unrelated writable ACF text', $otherId) !== false
+            && get_post_meta($otherId, 'mtflpp_revision_test_text', true) === 'Unrelated writable ACF text',
             'Saved-source guards must not block unrelated post writes.'
         );
-        $check(delete_field('field_aflpp_revision_test_text', $otherId), 'Unrelated deletions must remain writable.');
-        $check(get_field('aflpp_revision_test_text', $postId) === 'Historical ACF text', 'ACF source binding failed.');
-        $rows = get_field('aflpp_revision_test_rows', $postId);
+        $check(delete_field('field_mtflpp_revision_test_text', $otherId), 'Unrelated deletions must remain writable.');
+        $check(get_field('mtflpp_revision_test_text', $postId) === 'Historical ACF text', 'ACF source binding failed.');
+        $rows = get_field('mtflpp_revision_test_rows', $postId);
         $check(($rows[0]['text'] ?? '') === 'Historical ACF row', 'Historical repeater values failed.');
     }
     $_GET = $query($preview->savedPreviewUrl($post, $generatedRevisionId));
@@ -480,12 +483,12 @@ try {
         'Timber must rebind to the saved parent without retaining historical fields.'
     );
     $check(
-        get_post_meta($postId, 'aflpp_revision_test_meta', true) === 'Saved metadata',
+        get_post_meta($postId, 'mtflpp_revision_test_meta', true) === 'Saved metadata',
         'Current metadata failed.'
     );
     if (function_exists('get_field')) {
         $attemptAcfWrites($postId);
-        $check(get_field('aflpp_revision_test_text', $postId) === 'Saved ACF text', 'Current ACF source failed.');
+        $check(get_field('mtflpp_revision_test_text', $postId) === 'Saved ACF text', 'Current ACF source failed.');
     }
     $check($before === $snapshot(), 'Reading revision previews changed saved posts or metadata.');
     WP_CLI::success(
@@ -497,8 +500,8 @@ try {
     }
     $_GET = $originalGet;
     remove_filter('wp_die_handler', $dieHandler, PHP_INT_MAX);
-    remove_action('aflpp_frontend_live_preview_source_selected', $observeLiveSource, 20);
-    remove_action('aflpp_frontend_saved_preview_source_selected', $observeSavedSource, 20);
+    remove_action('mtflpp_frontend_live_preview_source_selected', $observeLiveSource, 20);
+    remove_action('mtflpp_frontend_saved_preview_source_selected', $observeSavedSource, 20);
     remove_action('init', [$preview, 'authorizePreview'], 20);
     remove_action('template_redirect', [$preview, 'checkPreviewTarget'], -1);
     foreach ($originalHooks as $hook => $callbacks) {

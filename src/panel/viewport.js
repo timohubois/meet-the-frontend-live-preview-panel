@@ -1,8 +1,8 @@
 // Fixed CSS viewport geometry; the surrounding canvas changes only its visual zoom.
 export function createPreviewViewport(container, stage, dimensions, saved = {}, onChange = () => {}) {
     const mainWindow = container.ownerDocument.defaultView;
-    const canvas = container.querySelector('.aflpp-canvas');
-    const space = container.querySelector('.aflpp-canvas-space');
+    const canvas = container.querySelector('.mtflpp-canvas');
+    const space = container.querySelector('.mtflpp-canvas-space');
     const sizes = { desktop: [1280, 800], tablet: [768, 1024], mobile: [390, 844] };
     const presets = Object.keys(sizes);
     let device = presets.includes(saved.device) ? saved.device : 'desktop';

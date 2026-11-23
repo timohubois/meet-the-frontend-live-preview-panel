@@ -5,7 +5,7 @@ import './compatibility/acf-editor.js';
 import './compatibility/yoast.js';
 import './panel/panel.css';
 
-const config = window.aFloatingLivePreviewPanel;
+const config = window.meetTheFrontendLivePreviewPanel;
 if (config) {
     let editor;
     try {

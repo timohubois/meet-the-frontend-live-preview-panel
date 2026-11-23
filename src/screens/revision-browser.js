@@ -44,7 +44,7 @@ export function initRevisionPreview(config, model) {
         const version = ++generation;
         if (!view.visible) return;
         const url = selected?.id === config.postId
-            ? config.currentPreviewUrl : selected?.get('aflppPreviewUrl');
+            ? config.currentPreviewUrl : selected?.get('mtflppPreviewUrl');
         if (typeof url !== 'string' || !url) {
             // An unavailable selection must not leave another revision presented as its preview.
             frames.clear();
@@ -57,8 +57,8 @@ export function initRevisionPreview(config, model) {
         } catch (error) {
             if (view.visible && version === generation) {
                 const reason = {
-                    aflpp_preview_origin_mismatch: 'origin-mismatch',
-                    aflpp_preview_unsupported_url: 'unsupported-url',
+                    mtflpp_preview_origin_mismatch: 'origin-mismatch',
+                    mtflpp_preview_unsupported_url: 'unsupported-url',
                 }[error?.code] || '';
                 report(reason === 'origin-mismatch' ? error.message : strings.failed, 'error', {
                     canRetry: !reason, canRefresh: !reason, reason,

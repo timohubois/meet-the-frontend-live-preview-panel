@@ -57,12 +57,12 @@ export function initTermPreview(config, form, setupFields) {
         richDescriptionChanged();
     }
     const documentEvents = window.jQuery?.(form.ownerDocument);
-    documentEvents?.on('tinymce-editor-init.aflppTermEditor', (event, candidate) => watchDescription(candidate));
+    documentEvents?.on('tinymce-editor-init.mtflppTermEditor', (event, candidate) => watchDescription(candidate));
     watchDescription(window.tinymce?.get('description'));
     window.addEventListener('pagehide', (event) => {
         if (event.persisted) return;
         editor?.off(editorEvents, richDescriptionChanged);
-        documentEvents?.off('tinymce-editor-init.aflppTermEditor');
+        documentEvents?.off('tinymce-editor-init.mtflppTermEditor');
         fields?.destroy();
     });
     form.addEventListener('input', changed);

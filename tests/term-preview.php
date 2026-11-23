@@ -2,7 +2,7 @@
 
 /** Run with `wp eval-file tests/term-preview.php` on a disposable installation. */
 
-namespace AFloatingLivePreviewPanel;
+namespace MeetTheFrontendLivePreviewPanel;
 
 use RuntimeException;
 use WP_Block;
@@ -27,7 +27,7 @@ $preview = new TermPreview($file);
 remove_action('init', [$preview, 'authorizePreview'], 20);
 remove_action('rest_api_init', [$preview, 'registerRoutes']);
 remove_filter('rest_allowed_cors_headers', [$preview, 'rememberHttpMethod'], 10);
-$route = static fn (int $id): string => '/a-floating-live-preview-panel/v1/terms/' . $id . '/preview';
+$route = static fn (int $id): string => '/meet-the-frontend-live-preview-panel/v1/terms/' . $id . '/preview';
 $prepare = static function (int $id, $name = 'Edited term', $description = '', array $extra = []) use ($route) {
     $request = new WP_REST_Request('POST', $route($id));
     $request->set_header('X-WP-Nonce', wp_create_nonce('wp_rest'));
@@ -46,7 +46,7 @@ $withRequest = static function (string $url, array $query, callable $assertions)
     try {
         $params = [];
         parse_str((string) wp_parse_url($url, PHP_URL_QUERY), $params);
-        $_GET = $params + ['aflpp_source' => '1'];
+        $_GET = $params + ['mtflpp_source' => '1'];
         // Test only our template callback; unrelated callbacks can issue actual CLI redirects.
         unset($GLOBALS['wp_filter']['template_redirect']);
         add_filter('wp_die_handler', static fn () => static function ($message, $title, $args): void {
@@ -94,10 +94,10 @@ $termBlock = static function (string $name, ?WP_Term $term = null): ?WP_Block {
 $previousUser = get_current_user_id();
 $users = [];
 $terms = [];
-$taxonomies = ['aflpp_public', 'aflpp_hidden'];
-register_taxonomy('aflpp_public', 'post', ['public' => true]);
-register_taxonomy('aflpp_hidden', 'post', ['public' => false, 'show_ui' => true]);
-$prefix = 'aflpp-term-' . wp_generate_password(8, false);
+$taxonomies = ['mtflpp_public', 'mtflpp_hidden'];
+register_taxonomy('mtflpp_public', 'post', ['public' => true]);
+register_taxonomy('mtflpp_hidden', 'post', ['public' => false, 'show_ui' => true]);
+$prefix = 'mtflpp-term-' . wp_generate_password(8, false);
 $expectForbidden = static function (int $status) use ($check): void {
     $check($status === 403, 'Expired, tampered or unauthorized URLs must be rejected.');
 };
@@ -118,7 +118,7 @@ try {
     $otherCategory = wp_insert_term('Other ' . $prefix, 'category');
     $check(is_array($otherCategory), 'Could not create an unrelated category.');
     $terms['other_category'] = get_term($otherCategory['term_id'], 'category');
-    $hidden = $terms['aflpp_hidden'];
+    $hidden = $terms['mtflpp_hidden'];
     $check($prepare($hidden->term_id)->get_status() === 403, 'A non-viewable term must not be previewable.');
     $term = $terms['category'];
     $check($prepare($term->term_id, ['invalid'])->get_status() === 400, 'Reject non-string fields.');
@@ -133,7 +133,7 @@ try {
         }
         $result = rest_do_request($request);
         $check(
-            $result->get_status() === 403 && $result->get_data()['code'] === 'aflpp_invalid_nonce',
+            $result->get_status() === 403 && $result->get_data()['code'] === 'mtflpp_invalid_nonce',
             'Reject a missing or invalid editor nonce even on an authenticated internal dispatch.'
         );
     }
@@ -166,16 +166,16 @@ try {
         ];
         foreach ($responses as $result) {
             $check(
-                $result->get_status() === 405 && $result->get_data()['code'] === 'aflpp_post_required',
+                $result->get_status() === 405 && $result->get_data()['code'] === 'mtflpp_post_required',
                 "$method must not become a preview write through a core REST method override."
             );
         }
     }
-    $storageKey = 'aflpp_term_' . $term->term_taxonomy_id . '_' . $users[0];
+    $storageKey = 'mtflpp_term_' . $term->term_taxonomy_id . '_' . $users[0];
     $check(get_transient($storageKey) === false, 'Rejected requests must not write a term preview transient.');
     $check($serve('POST')->get_status() === 200, 'An actual authenticated HTTP POST should prepare the preview.');
 
-    foreach (['category', 'post_tag', 'aflpp_public'] as $taxonomy) {
+    foreach (['category', 'post_tag', 'mtflpp_public'] as $taxonomy) {
         $term = $terms[$taxonomy];
         $query = ['taxonomy' => $taxonomy, 'term' => $term->slug];
         $name = "Changed O'Reilly";
@@ -184,7 +184,7 @@ try {
         $check($response->get_status() === 200, 'Editable archive preview should be prepared.');
         $url = $response->get_data()['url'];
         $check(
-            remove_query_arg(['aflpp_term', 'aflpp_token'], $url) === get_term_link($term),
+            remove_query_arg(['mtflpp_term', 'mtflpp_token'], $url) === get_term_link($term),
             'Preview must retain the actual native archive URL.'
         );
         $withRequest($url, $query, static function (int $status) use ($check, $term, $name, $termBlock, $terms): void {
@@ -277,13 +277,13 @@ try {
         $withRequest($url, $query, $expectForbidden);
         wp_set_current_user($users[0]);
 
-        $withRequest(add_query_arg('aflpp_token', 'invalid', $url), $query, $expectForbidden);
+        $withRequest(add_query_arg('mtflpp_token', 'invalid', $url), $query, $expectForbidden);
         $updated = $prepare($term->term_id)->get_data()['url'];
         $withRequest($url, $query, $expectForbidden);
         $withRequest($updated, $query, static function (int $status) use ($check): void {
             $check($status === 200 && get_the_archive_description() === '', 'Allow an explicit description clear.');
         });
-        delete_transient('aflpp_term_' . $term->term_taxonomy_id . '_' . $users[0]);
+        delete_transient('mtflpp_term_' . $term->term_taxonomy_id . '_' . $users[0]);
         $withRequest($updated, $query, $expectForbidden);
     }
 
@@ -297,7 +297,7 @@ try {
         $response = $prepare($term->term_id, $name, 'Unsaved link description');
         $check($response->get_status() === 200, 'Prepare a preview with a name-dependent permalink.');
         $url = $response->get_data()['url'];
-        $check(remove_query_arg(['aflpp_term', 'aflpp_token'], $url) === $savedLink, 'Open the saved archive.');
+        $check(remove_query_arg(['mtflpp_term', 'mtflpp_token'], $url) === $savedLink, 'Open the saved archive.');
         $withRequest(
             $url,
             ['taxonomy' => $term->taxonomy, 'term' => $term->slug],
@@ -419,10 +419,10 @@ try {
     if (!function_exists('acf_add_local_field_group')) {
         WP_CLI::log('Skipping ACF term coexistence checks: ACF is not active.');
     } else {
-        $term = $terms['aflpp_public'];
-        $group = 'group_aflpp_term_preview_fixture';
-        $fieldKey = 'field_aflpp_term_preview_note';
-        $fieldName = 'aflpp_term_preview_note';
+        $term = $terms['mtflpp_public'];
+        $group = 'group_mtflpp_term_preview_fixture';
+        $fieldKey = 'field_mtflpp_term_preview_note';
+        $fieldName = 'mtflpp_term_preview_note';
         $acfId = 'term_' . $term->term_id;
         $saved = 'Saved ACF term note';
         acf_add_local_field_group([
@@ -461,7 +461,7 @@ try {
     wp_set_current_user($previousUser);
     foreach ($terms as $term) {
         foreach ($users as $user) {
-            delete_transient('aflpp_term_' . $term->term_taxonomy_id . '_' . $user);
+            delete_transient('mtflpp_term_' . $term->term_taxonomy_id . '_' . $user);
         }
         wp_delete_term($term->term_id, $term->taxonomy);
     }

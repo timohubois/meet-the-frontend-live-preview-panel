@@ -10,8 +10,8 @@ export function createNativeEditor(config, form) {
     function beginPreview() {
         const token = Array.from(window.crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, '0')).join('');
         const base = config.base;
-        const name = `aflpp_preview_${token}`;
-        const fields = Object.entries({ aflpp_base: base, aflpp_preview: token }).map(([name, value]) => {
+        const name = `mtflpp_preview_${token}`;
+        const fields = Object.entries({ mtflpp_base: base, mtflpp_preview: token }).map(([name, value]) => {
             const field = document.createElement('input');
             Object.assign(field, { type: 'hidden', name, value });
             form.append(field);
@@ -41,7 +41,7 @@ export function createNativeEditor(config, form) {
                 config.base = value.slice(65);
                 finish();
             } else if (receipt || Date.now() >= deadline) {
-                finish(Object.assign(new Error(config.strings.nativePreviewFailed), { code: 'aflpp_source_changed' }));
+                finish(Object.assign(new Error(config.strings.nativePreviewFailed), { code: 'mtflpp_source_changed' }));
             } else timer = setTimeout(check, 100);
         };
         nativePreview = { done, check };
@@ -72,24 +72,24 @@ export function createNativeEditor(config, form) {
         pending.then(proceed, proceed);
     };
     form.addEventListener('click', previewClick, true);
-    window.jQuery(document).on('heartbeat-send.aflpp', (event, data) => {
+    window.jQuery(document).on('heartbeat-send.mtflpp', (event, data) => {
         nativePreview?.check();
-        data.aflpp_base = config.base;
-    }).on('before-autosave.aflpp', () => {
+        data.mtflpp_base = config.base;
+    }).on('before-autosave.mtflpp', () => {
         // Core emits this even when its heartbeat-send handler was registered after ours.
         const autosave = new Promise((resolve) => { finishNative = resolve; });
         nativeEditor.idle = Promise.all([autosave, nativePreview?.done]);
         nativeEditor.onAutosave?.();
-    }).on('heartbeat-tick.aflpp heartbeat-error.aflpp', (event, data) => {
-        if (typeof data?.aflpp_base === 'string' && /^[a-f0-9]{64}$/.test(data.aflpp_base)) {
-            config.base = data.aflpp_base;
+    }).on('heartbeat-tick.mtflpp heartbeat-error.mtflpp', (event, data) => {
+        if (typeof data?.mtflpp_base === 'string' && /^[a-f0-9]{64}$/.test(data.mtflpp_base)) {
+            config.base = data.mtflpp_base;
         }
         if (typeof data?.rest_nonce === 'string') config.nonce = data.rest_nonce;
         finishNative?.();
         finishNative = null;
     });
     // Core's Text-mode link dialog emits jQuery-only changes; native events use the form listeners.
-    window.jQuery(form).on('input.aflpp change.aflpp', (event) => {
+    window.jQuery(form).on('input.mtflpp change.mtflpp', (event) => {
         if (!event.originalEvent && ['post_title', 'content', 'excerpt'].includes(event.target.name)) {
             nativeEditor.onFieldChange?.(event);
         }
@@ -117,7 +117,7 @@ export function createNativeEditor(config, form) {
     // Capture also sees rejected button clicks and validators that stop events from bubbling.
     form.addEventListener('click', watchSaveCancellation, true);
     form.addEventListener('submit', watchSaveCancellation, true);
-    window.jQuery(form).on('submit.aflpp', (event) => {
+    window.jQuery(form).on('submit.mtflpp', (event) => {
         if (!event.originalEvent) watchSaveCancellation(event);
     });
     nativeEditor.destroy = () => {
@@ -132,8 +132,8 @@ export function createNativeEditor(config, form) {
         form.removeEventListener('invalid', cancelSave, true);
         form.removeEventListener('click', watchSaveCancellation, true);
         form.removeEventListener('submit', watchSaveCancellation, true);
-        window.jQuery(document).off('.aflpp');
-        window.jQuery(form).off('.aflpp');
+        window.jQuery(document).off('.mtflpp');
+        window.jQuery(form).off('.mtflpp');
     };
     return nativeEditor;
 }

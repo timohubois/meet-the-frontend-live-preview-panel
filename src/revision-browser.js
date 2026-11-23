@@ -4,7 +4,7 @@ import './panel/panel.css';
 
 // Core registers its own ready callback first. Do not replace or initialize the native revision UI.
 window.jQuery(() => {
-    const config = window.aFloatingLivePreviewPanel;
+    const config = window.meetTheFrontendLivePreviewPanel;
     if (!config) return;
     try {
         const model = window.wp?.revisions?.view?.frame?.model;

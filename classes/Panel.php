@@ -1,6 +1,6 @@
 <?php
 
-namespace AFloatingLivePreviewPanel;
+namespace MeetTheFrontendLivePreviewPanel;
 
 use WP_Post;
 
@@ -31,7 +31,7 @@ final class Panel
                 'term' => ['id' => (int) $config['termId'], 'taxonomy' => $config['taxonomy']],
                 'source' => null,
             ];
-            $config = apply_filters('aflpp_term_editor_preview_config', $config, $context);
+            $config = apply_filters('mtflpp_term_editor_preview_config', $config, $context);
             /**
              * Filter comparison exclusions for term previews. Return an empty array for no exclusions.
              *
@@ -39,7 +39,7 @@ final class Panel
              * @param array    $context   Core-owned term identity; no source has been selected.
              */
             $selectors = apply_filters(
-                'aflpp_term_preview_comparison_excluded_selectors',
+                'mtflpp_term_preview_comparison_excluded_selectors',
                 self::COMPARISON_EXCLUDED_SELECTORS,
                 $context
             );
@@ -48,13 +48,13 @@ final class Panel
             /**
              * Extend this screen's configuration; preserve core identity and integrity values.
              *
-             * Only the selected screen's filter runs: aflpp_classic_editor_preview_config,
-             * aflpp_block_editor_preview_config or aflpp_revision_browser_preview_config.
+             * Only the selected screen's filter runs: mtflpp_classic_editor_preview_config,
+             * mtflpp_block_editor_preview_config or mtflpp_revision_browser_preview_config.
              *
              * @param array $config  Screen configuration, including postId and strings.
              * @param array $context Core-owned post identity; no source has been selected.
              */
-            $config = apply_filters("aflpp_{$screen}_preview_config", $config, $context);
+            $config = apply_filters("mtflpp_{$screen}_preview_config", $config, $context);
             $postId = $context['post']['id'];
             if ($postId && PublicRedirect::isAvailable(get_post($postId))) {
                 $config['publicRedirect'] = [
@@ -69,7 +69,7 @@ final class Panel
              * @param array    $context   Core-owned post identity; no source has been selected.
              */
             $selectors = apply_filters(
-                'aflpp_preview_comparison_excluded_selectors',
+                'mtflpp_preview_comparison_excluded_selectors',
                 self::COMPARISON_EXCLUDED_SELECTORS,
                 $context
             );
@@ -80,7 +80,7 @@ final class Panel
         ) ? array_values($selectors) : self::COMPARISON_EXCLUDED_SELECTORS;
         if ($screen === null) {
             $dependencies = apply_filters(
-                'aflpp_term_editor_preview_script_dependencies',
+                'mtflpp_term_editor_preview_script_dependencies',
                 $dependencies,
                 $context + ['config' => $config]
             );
@@ -92,20 +92,20 @@ final class Panel
              * @param array    $context      Post identity, null source and filtered screen config.
              */
             $dependencies = apply_filters(
-                "aflpp_{$screen}_preview_script_dependencies",
+                "mtflpp_{$screen}_preview_script_dependencies",
                 $dependencies,
                 $context + ['config' => $config]
             );
         }
         $asset = require dirname($this->file) . '/build/' . $entry . '.asset.php';
         wp_enqueue_style(
-            'a-floating-live-preview-panel',
+            'meet-the-frontend-live-preview-panel',
             plugins_url('build/' . $entry . '.css', $this->file),
             ['wp-components'],
             $asset['version']
         );
         wp_enqueue_script(
-            'a-floating-live-preview-panel',
+            'meet-the-frontend-live-preview-panel',
             plugins_url('build/' . $entry . '.js', $this->file),
             array_merge($dependencies, $asset['dependencies']),
             $asset['version'],
@@ -113,8 +113,8 @@ final class Panel
         );
         $config['strings'] = array_merge($this->strings(), $config['strings'] ?? []);
         wp_add_inline_script(
-            'a-floating-live-preview-panel',
-            'window.aFloatingLivePreviewPanel = ' . wp_json_encode(
+            'meet-the-frontend-live-preview-panel',
+            'window.meetTheFrontendLivePreviewPanel = ' . wp_json_encode(
                 $config,
                 JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
             ) . ';',
@@ -132,7 +132,7 @@ final class Panel
     public function liveConfig(WP_Post $post, LivePreview $preview): array
     {
         return [
-            'endpoint' => rest_url('a-floating-live-preview-panel/v1/posts/' . $post->ID . '/preview'),
+            'endpoint' => rest_url('meet-the-frontend-live-preview-panel/v1/posts/' . $post->ID . '/preview'),
             'postId' => $post->ID,
             'postTitle' => $post->post_title,
             'userId' => get_current_user_id(),

@@ -2,9 +2,9 @@
 
 /** Run with `wp eval-file tests/yoast.php` on a disposable single-site installation. */
 
-use AFloatingLivePreviewPanel\Compatibility\Yoast as YoastAdapter;
-use AFloatingLivePreviewPanel\FrontendPreview;
-use AFloatingLivePreviewPanel\LivePreview;
+use MeetTheFrontendLivePreviewPanel\Compatibility\Yoast as YoastAdapter;
+use MeetTheFrontendLivePreviewPanel\FrontendPreview;
+use MeetTheFrontendLivePreviewPanel\LivePreview;
 use Yoast\WP\SEO\Generators\Breadcrumbs_Generator;
 
 if (!defined('WP_CLI') || !WP_CLI || !class_exists(LivePreview::class) || is_multisite()) {
@@ -29,15 +29,15 @@ foreach (['wp_query', 'wp_the_query', 'post'] as $key) {
 }
 $hooks = [];
 $previewHooks = [
-    'aflpp_live_preview_form_values', 'aflpp_live_preview_custom_fields_initialized',
-    'aflpp_live_preview_preparation_error', 'aflpp_frontend_live_preview_source_selected',
-    'aflpp_frontend_saved_preview_source_selected',
+    'mtflpp_live_preview_form_values', 'mtflpp_live_preview_custom_fields_initialized',
+    'mtflpp_live_preview_preparation_error', 'mtflpp_frontend_live_preview_source_selected',
+    'mtflpp_frontend_saved_preview_source_selected',
     'the_preview', 'get_post_metadata', 'get_the_terms', 'wpseo_breadcrumb_links', 'wpseo_breadcrumb_indexables',
     'wpseo_should_save_indexable', 'shutdown',
 ];
 foreach ($previewHooks as $hook) {
     $hooks[$hook] = isset($GLOBALS['wp_filter'][$hook]) ? clone $GLOBALS['wp_filter'][$hook] : null;
-    if (str_starts_with($hook, 'aflpp_')) {
+    if (str_starts_with($hook, 'mtflpp_')) {
         remove_all_filters($hook);
     }
 }
@@ -55,11 +55,11 @@ add_filter('option_wpseo_titles', $options);
 WPSEO_Options::clear_cache();
 $themeSupports = current_theme_supports('yoast-seo-breadcrumbs');
 add_theme_support('yoast-seo-breadcrumbs');
-register_taxonomy('aflpp_yoast_topic', 'post', [
-    'public' => true, 'hierarchical' => true, 'show_in_rest' => true, 'rest_base' => 'aflpp_topics',
+register_taxonomy('mtflpp_yoast_topic', 'post', [
+    'public' => true, 'hierarchical' => true, 'show_in_rest' => true, 'rest_base' => 'mtflpp_topics',
 ]);
 $prepare = static function (int $postId, array $input) use ($live): WP_REST_Response {
-    $request = new WP_REST_Request('POST', '/a-floating-live-preview-panel/v1/posts/' . $postId . '/preview');
+    $request = new WP_REST_Request('POST', '/meet-the-frontend-live-preview-panel/v1/posts/' . $postId . '/preview');
     $request->set_header('X-WP-Nonce', wp_create_nonce('wp_rest'));
     $request->set_body_params(array_merge(['base' => $live->fingerprint($postId)], $input));
     return rest_do_request($request);
@@ -70,7 +70,7 @@ $bind = static function (int $postId, array $input) use ($prepare, $frontend, $c
     parse_str(wp_parse_url($response->get_data()['url'], PHP_URL_QUERY), $query);
     $_GET = $query;
     $frontend->authorizePreview();
-    return (int) $query['aflpp_revision'];
+    return (int) $query['mtflpp_revision'];
 };
 $primary = static fn (array $values): array => ['yoast_primary_terms' => wp_json_encode((object) $values)];
 $indexables = static function (): array {
@@ -91,34 +91,34 @@ $trailIds = static function (array $crumbs): array {
 $deny = null;
 try {
     $user = wp_insert_user([
-        'user_login' => 'aflpp_yoast_' . wp_generate_password(12, false, false),
+        'user_login' => 'mtflpp_yoast_' . wp_generate_password(12, false, false),
         'user_pass' => wp_generate_password(32), 'role' => 'administrator',
     ]);
     $check(!is_wp_error($user), 'Could not create a fixture user.');
     wp_set_current_user($user);
     $choices = [];
     foreach (['Saved', 'Edited', 'New'] as $label) {
-        $root = wp_insert_term('AFLPP ' . $label . ' Root ' . wp_generate_password(8, false, false), 'category');
+        $root = wp_insert_term('MTFLPP ' . $label . ' Root ' . wp_generate_password(8, false, false), 'category');
         $check(!is_wp_error($root), 'Could not create a root term.');
         $terms[] = [$root['term_id'], 'category'];
-        $term = wp_insert_term('AFLPP ' . $label . ' Child ' . wp_generate_password(8, false, false), 'category', [
+        $term = wp_insert_term('MTFLPP ' . $label . ' Child ' . wp_generate_password(8, false, false), 'category', [
             'parent' => $root['term_id'],
         ]);
         $check(!is_wp_error($term), 'Could not create a child term.');
         $terms[] = [$term['term_id'], 'category'];
         $choices[$label] = ['id' => (int) $term['term_id'], 'root' => (int) $root['term_id']];
     }
-    $topic = wp_insert_term('AFLPP Topic ' . wp_generate_password(8, false, false), 'aflpp_yoast_topic');
+    $topic = wp_insert_term('MTFLPP Topic ' . wp_generate_password(8, false, false), 'mtflpp_yoast_topic');
     $check(!is_wp_error($topic), 'Could not create a custom term.');
-    $terms[] = [$topic['term_id'], 'aflpp_yoast_topic'];
+    $terms[] = [$topic['term_id'], 'mtflpp_yoast_topic'];
     WPSEO_Taxonomy_Meta::set_value($choices['New']['id'], 'category', 'bctitle', 'Preview & Breadcrumb');
     foreach (['Selected', 'Other', 'Custom', 'Child'] as $label) {
         $postId = wp_insert_post([
             'post_type' => 'post', 'post_status' => 'publish', 'post_author' => $user,
-            'post_title' => 'AFLPP Yoast ' . $label,
+            'post_title' => 'MTFLPP Yoast ' . $label,
             'tax_input' => [
                 'category' => [$choices['Saved']['id'], $choices['Edited']['id']],
-                'aflpp_yoast_topic' => [(int) $topic['term_id']],
+                'mtflpp_yoast_topic' => [(int) $topic['term_id']],
             ],
             'post_parent' => $label === 'Child' ? $posts[1] : 0,
             'meta_input' => [
@@ -134,7 +134,7 @@ try {
     $GLOBALS['wp_query'] = $GLOBALS['wp_the_query'] = $query;
     $GLOBALS['post'] = get_post($postId);
     $check(in_array('category', $adapter->primaryTaxonomies($postId), true), 'Native primary category is exposed.');
-    $check(in_array('aflpp_yoast_topic', $adapter->primaryTaxonomies($postId), true), 'Native custom primaries work.');
+    $check(in_array('mtflpp_yoast_topic', $adapter->primaryTaxonomies($postId), true), 'Native custom primaries work.');
     $generator = YoastSEO()->classes->get(Breadcrumbs_Generator::class);
     // Model IDs can be null when Yoast indexing is disabled; make these independent request contexts.
     $memoizer = YoastSEO()->classes->get(\Yoast\WP\SEO\Memoizers\Meta_Tags_Context_Memoizer::class);
@@ -191,12 +191,12 @@ try {
     $check($direct === $expected, 'Direct relationships must stay saved.');
     $bind($postId, array_merge($primary(['category' => 0]), [
         'terms' => wp_json_encode(['category' => [$choices['New']['root'], $choices['New']['id']]]),
-        'post_title' => 'AFLPP Unsaved Breadcrumb Title',
+        'post_title' => 'MTFLPP Unsaved Breadcrumb Title',
     ]));
     $fallback = $generator->generate($context);
     $check($trailIds($fallback) === [$choices['New']['root'], $choices['New']['id']], 'Deepest-term fallback.');
     $check(in_array('Preview &amp; Breadcrumb', wp_list_pluck($fallback, 'text'), true), 'Safe native term titles.');
-    $check(end($fallback)['text'] === 'AFLPP Unsaved Breadcrumb Title', 'Default post breadcrumb titles update.');
+    $check(end($fallback)['text'] === 'MTFLPP Unsaved Breadcrumb Title', 'Default post breadcrumb titles update.');
     // Simulate the next frame's request with Yoast's public memoizer reset, not a custom HTML renderer.
     $memoizer->clear();
     $fallbackHtml = yoast_breadcrumb('', '', false);
@@ -248,8 +248,8 @@ try {
     $bind($postId, []);
     $check(yoast_get_primary_term_id('category', $postId) === $choices['Saved']['id'], 'Saved fallback restored.');
     $check($generator->generate($context) === $saved, 'Omitted selections must restore the native saved trail.');
-    $bind($postId, $primary(['aflpp_yoast_topic' => (int) $topic['term_id']]));
-    $check(yoast_get_primary_term_id('aflpp_yoast_topic', $postId) === $topic['term_id'], 'Custom primaries work.');
+    $bind($postId, $primary(['mtflpp_yoast_topic' => (int) $topic['term_id']]));
+    $check(yoast_get_primary_term_id('mtflpp_yoast_topic', $postId) === $topic['term_id'], 'Custom primaries work.');
     foreach (['[]', 'null', 'false', '{"category":"1"}', '{"category":-1}', '{"category":true}'] as $invalid) {
         $check($prepare($postId, ['yoast_primary_terms' => $invalid])->get_status() === 400, 'Bad input rejected.');
     }
@@ -273,7 +273,7 @@ try {
         remove_filter('update_post_metadata', $blockWrite);
     }
     $bind($customId, array_merge($primary(['category' => $choices['Edited']['id']]), [
-        'post_title' => 'AFLPP New Custom Title',
+        'post_title' => 'MTFLPP New Custom Title',
     ]));
     $customCrumbs = $generator->generate($customContext);
     $check(end($customCrumbs)['text'] === 'Custom Saved Crumb', 'Explicit post breadcrumb titles remain native.');
@@ -380,7 +380,7 @@ try {
     foreach (array_reverse($terms) as [$id, $taxonomy]) {
         wp_delete_term($id, $taxonomy);
     }
-    unregister_taxonomy('aflpp_yoast_topic');
+    unregister_taxonomy('mtflpp_yoast_topic');
     if (is_int($user) && $user > 0) {
         wp_delete_user($user);
     }

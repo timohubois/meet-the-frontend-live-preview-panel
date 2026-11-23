@@ -2,7 +2,7 @@
 
 /** Run with `wp eval-file tests/preview-isolation.php`; no database fixtures are created. */
 
-namespace AFloatingLivePreviewPanel;
+namespace MeetTheFrontendLivePreviewPanel;
 
 use ReflectionClass;
 use ReflectionProperty;

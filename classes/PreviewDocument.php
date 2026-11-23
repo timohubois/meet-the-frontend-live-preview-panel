@@ -1,6 +1,6 @@
 <?php
 
-namespace AFloatingLivePreviewPanel;
+namespace MeetTheFrontendLivePreviewPanel;
 
 /** Enhance the native document only after a preview owner authorizes and matches the request. */
 final class PreviewDocument
@@ -43,12 +43,12 @@ final class PreviewDocument
         }
         add_filter('show_admin_bar', '__return_false', PHP_INT_MAX);
         add_action('wp_head', function (): void {
-            echo '<meta name="a-floating-live-preview-panel" content="' . esc_attr($this->previewToken) . '">';
+            echo '<meta name="meet-the-frontend-live-preview-panel" content="' . esc_attr($this->previewToken) . '">';
         });
         add_action('wp_enqueue_scripts', function (): void {
             $asset = require dirname($this->file) . '/build/preview-navigation.asset.php';
             wp_enqueue_script(
-                'a-floating-live-preview-panel-navigation',
+                'meet-the-frontend-live-preview-panel-navigation',
                 plugins_url('build/preview-navigation.js', $this->file),
                 $asset['dependencies'],
                 $asset['version'],
@@ -89,17 +89,17 @@ final class PreviewDocument
             while ($processor->next_tag()) {
                 $tag = $processor->get_tag();
                 if (
-                    $tag === 'META' && $processor->get_attribute('name') === 'a-floating-live-preview-panel'
+                    $tag === 'META' && $processor->get_attribute('name') === 'meet-the-frontend-live-preview-panel'
                     && $processor->get_attribute('content') === $this->previewToken
                 ) {
-                    if ($found || $processor->get_attribute('data-aflpp-source') !== null) {
+                    if ($found || $processor->get_attribute('data-mtflpp-source') !== null) {
                         return $output;
                     }
-                    $found = $processor->set_bookmark('aflpp-source');
+                    $found = $processor->set_bookmark('mtflpp-source');
                 }
                 if (!in_array($tag, ['BASE', 'HEAD', 'LINK', 'META', 'SCRIPT', 'STYLE', 'TITLE'], true)) {
                     // Response-local identities bridge the clean source to elements moved/wrapped by scripts.
-                    $processor->set_attribute('data-aflpp-node', (string) ++$index);
+                    $processor->set_attribute('data-mtflpp-node', (string) ++$index);
                 }
             }
             if (!$found || $processor->paused_at_incomplete_token()) {
@@ -109,12 +109,12 @@ final class PreviewDocument
                 $processor->get_updated_html(),
                 JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
             );
-            if (!is_string($source) || !$processor->seek('aflpp-source')) {
+            if (!is_string($source) || !$processor->seek('mtflpp-source')) {
                 return $output;
             }
             // Hex-escaped entities/quotes survive the HTML API's non-double-encoding attribute escape.
             // The payload is inert data, including source text containing </script> or existing entities.
-            $processor->set_attribute('data-aflpp-source', $source);
+            $processor->set_attribute('data-mtflpp-source', $source);
             return $processor->get_updated_html();
         } catch (\Throwable) {
             // Optional navigation assistance must never prevent the actual preview from rendering.

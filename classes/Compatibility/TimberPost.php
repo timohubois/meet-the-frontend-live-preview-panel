@@ -1,6 +1,6 @@
 <?php
 
-namespace AFloatingLivePreviewPanel\Compatibility;
+namespace MeetTheFrontendLivePreviewPanel\Compatibility;
 
 use Closure;
 

@@ -13,7 +13,7 @@ export function initAcf(form, changed, watchEditor, cancelNativeSave) {
     }
 
     // Native input/change events belong to the coordinator; bridge jQuery-only events and row sorting.
-    window.jQuery(form).on('input.aflppAcf change.aflppAcf sortupdate.aflppAcf', (event) => {
+    window.jQuery(form).on('input.mtflppAcf change.mtflppAcf sortupdate.mtflppAcf', (event) => {
         if ((!event.originalEvent || event.type === 'sortupdate') && isField(event.target)) changed();
     });
 
@@ -33,7 +33,7 @@ export function initAcf(form, changed, watchEditor, cancelNativeSave) {
             acf.removeAction('wysiwyg_tinymce_init', watchEditor);
             for (const action of ['append', 'remove', 'sortstop', 'change_field']) acf.removeAction(action, changed);
             acf.removeAction('validation_failure', validationFailure);
-            window.jQuery(form).off('.aflppAcf');
+            window.jQuery(form).off('.mtflppAcf');
         },
     };
 }

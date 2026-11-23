@@ -2,7 +2,7 @@
 
 /** Run with `wp eval-file tests/preview-fields.php` on a disposable single-site installation. */
 
-use AFloatingLivePreviewPanel\LivePreview;
+use MeetTheFrontendLivePreviewPanel\LivePreview;
 
 if (!defined('WP_CLI') || !WP_CLI || !class_exists(LivePreview::class) || is_multisite()) {
     throw new RuntimeException('Run through WP-CLI on a single-site installation with this plugin active.');
@@ -21,7 +21,7 @@ $live = new LivePreview();
 try {
     foreach (['administrator', 'author'] as $role) {
         $id = wp_insert_user([
-            'user_login' => 'aflpp_fields_' . wp_generate_password(12, false, false),
+            'user_login' => 'mtflpp_fields_' . wp_generate_password(12, false, false),
             'user_pass' => wp_generate_password(32), 'role' => $role,
         ]);
         $check(!is_wp_error($id), 'Could not create a fixture user.');
@@ -29,11 +29,11 @@ try {
     }
     [$admin, $author] = $users;
     wp_set_current_user($admin);
-    $term = wp_insert_term('AFLPP fields ' . wp_generate_password(12, false, false), 'category');
+    $term = wp_insert_term('MTFLPP fields ' . wp_generate_password(12, false, false), 'category');
     $check(!is_wp_error($term), 'Could not create a fixture term.');
     $termId = (int) $term['term_id'];
     $postId = wp_insert_post([
-        'post_title' => 'AFLPP preview fields', 'post_status' => 'publish', 'post_author' => $author,
+        'post_title' => 'MTFLPP preview fields', 'post_status' => 'publish', 'post_author' => $author,
         'post_date' => '2020-01-10 13:00:00', 'post_date_gmt' => '2020-01-10 13:00:00',
     ], true);
     $check(!is_wp_error($postId), 'Could not create a fixture post.');
@@ -41,8 +41,9 @@ try {
     $recoveryId = _wp_put_post_revision($postId, true);
     $check(is_int($recoveryId), 'Could not create a recovery fixture.');
     $recovery = $live->fingerprint($recoveryId);
-    $prepare = static function (array $input = []) use ($postId, $base): WP_REST_Response {
-        $request = new WP_REST_Request('POST', '/a-floating-live-preview-panel/v1/posts/' . $postId . '/preview');
+    $route = '/meet-the-frontend-live-preview-panel/v1/posts/' . $postId . '/preview';
+    $prepare = static function (array $input = []) use ($route, $base): WP_REST_Response {
+        $request = new WP_REST_Request('POST', $route);
         $request->set_header('X-WP-Nonce', wp_create_nonce('wp_rest'));
         $request->set_body_params(['base' => $base, ...$input]);
         return rest_ensure_response(rest_do_request($request));
@@ -70,7 +71,7 @@ try {
                 $check($writes > 0, 'The fixture must actually block the requested write.');
                 $check($failure->get_status() === 409, 'Failed field writes must return HTTP 409: ' . $key);
                 $check(
-                    $failure->get_data()['code'] === 'aflpp_preview_fields_not_saved',
+                    $failure->get_data()['code'] === 'mtflpp_preview_fields_not_saved',
                     'Failed snapshots must report the preparation error, not a usable preview URL.'
                 );
             } finally {
@@ -79,9 +80,9 @@ try {
             $success = $prepare($input);
             $check($success->get_status() === 200, 'Retrying after a failed write must recover.');
             parse_str(wp_parse_url($success->get_data()['url'], PHP_URL_QUERY), $query);
-            $sourceId = (int) $query['aflpp_revision'];
+            $sourceId = (int) $query['mtflpp_revision'];
             $check(
-                $live->authorizedSource($postId, $sourceId, $query['aflpp_token']) instanceof WP_Post,
+                $live->authorizedSource($postId, $sourceId, $query['mtflpp_token']) instanceof WP_Post,
                 'A fully persisted snapshot must yield an authorized source.'
             );
             $check((int) get_post_meta($sourceId, LivePreview::AUTHOR_META, true) === $admin, 'Author persisted.');
@@ -108,16 +109,16 @@ try {
             'The fixture must exercise the native unchanged-value return.'
         );
     };
-    add_action('aflpp_live_preview_custom_fields_initialized', $sameAuthor);
+    add_action('mtflpp_live_preview_custom_fields_initialized', $sameAuthor);
     try {
         $check($prepare($input)->get_status() === 200, 'Identical persisted values must not be treated as failures.');
         $check($sameAuthorCalls > 0, 'The unchanged-value fixture must actually run before snapshot persistence.');
     } finally {
-        remove_action('aflpp_live_preview_custom_fields_initialized', $sameAuthor);
+        remove_action('mtflpp_live_preview_custom_fields_initialized', $sameAuthor);
     }
     // Also reject a later save callback changing a successfully written snapshot.
     $corrupt = static function (int $id) use ($postId): void {
-        if (wp_get_post_parent_id($id) === $postId && get_post_status($id) === 'aflpp-preview') {
+        if (wp_get_post_parent_id($id) === $postId && get_post_status($id) === 'mtflpp-preview') {
             update_metadata('post', $id, LivePreview::DATE_META, ['post_date' => 'invalid']);
         }
     };
@@ -136,7 +137,7 @@ try {
         get_post_type($id) === 'revision' && $key === LivePreview::AUTHOR_META ? false : $value;
     add_filter('update_post_metadata', $blockZero, 10, 3);
     try {
-        $request = new WP_REST_Request('POST', '/a-floating-live-preview-panel/v1/posts/' . $postId . '/preview');
+        $request = new WP_REST_Request('POST', $route);
         $request->set_header('X-WP-Nonce', wp_create_nonce('wp_rest'));
         $request->set_body_params(['base' => $live->fingerprint($postId)]);
         $check(

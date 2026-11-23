@@ -2,7 +2,7 @@
 
 /** Run with `wp eval-file tests/preview-source.php`; no database fixtures are created. */
 
-namespace AFloatingLivePreviewPanel;
+namespace MeetTheFrontendLivePreviewPanel;
 
 use ReflectionClass;
 use ReflectionProperty;
@@ -70,7 +70,7 @@ $makePreview = static function (bool $requested) use ($file): FrontendPreview {
     return $preview;
 };
 $html = '<!doctype html><html lang="en"><head>'
-    . '<meta name="a-floating-live-preview-panel" content="source-token">'
+    . '<meta name="meet-the-frontend-live-preview-panel" content="source-token">'
     . '<script>window.previewInitialization = "native";</script></head><body><main>'
     . '<h1>Quotes &quot; &amp; Unicode: Grüße 日本語</h1>'
     . '<p>&lt;/script&gt;&lt;img src=x onerror=alert(1)&gt;</p>'
@@ -78,8 +78,8 @@ $html = '<!doctype html><html lang="en"><head>'
 $readSource = static function (string $output): ?string {
     $processor = new WP_HTML_Tag_Processor($output);
     while ($processor->next_tag('META')) {
-        if ($processor->get_attribute('name') === 'a-floating-live-preview-panel') {
-            $payload = $processor->get_attribute('data-aflpp-source');
+        if ($processor->get_attribute('name') === 'meet-the-frontend-live-preview-panel') {
+            $payload = $processor->get_attribute('data-mtflpp-source');
             return is_string($payload) ? json_decode($payload, true, 512, JSON_THROW_ON_ERROR) : null;
         }
     }
@@ -100,14 +100,14 @@ try {
     $source = $readSource($output);
     $check(is_string($source), 'The actual HTML API buffer must expose a decodable source.');
     $check(str_starts_with($output, '<!doctype html>'), 'Do not prepend markup that would change document mode.');
-    $check(!str_contains($source, 'data-aflpp-source='), 'Do not recursively include the source payload.');
+    $check(!str_contains($source, 'data-mtflpp-source='), 'Do not recursively include the source payload.');
     $check(str_contains($source, 'Grüße 日本語'), 'Unicode source text must survive the attribute/JSON round trip.');
     $check(substr_count($output, '<script>') === 1, 'The payload must not inject executable script tags.');
     $check($preview->captureSource($output) === $output, 'Do not recursively process a captured response.');
     $processor = new WP_HTML_Tag_Processor($source);
     $ids = [];
     while ($processor->next_tag()) {
-        $id = $processor->get_attribute('data-aflpp-node');
+        $id = $processor->get_attribute('data-mtflpp-node');
         if ($id !== null) {
             $check(
                 is_string($id) && ctype_digit($id) && !isset($ids[$id]),
@@ -120,7 +120,7 @@ try {
     $processor = new WP_HTML_Tag_Processor($output);
     $liveIds = [];
     while ($processor->next_tag()) {
-        $id = $processor->get_attribute('data-aflpp-node');
+        $id = $processor->get_attribute('data-mtflpp-node');
         if ($id !== null) {
             $liveIds[$id] = true;
         }
@@ -160,8 +160,12 @@ try {
     PreviewSourceFixture::$headers = ['Content-Type: text/html; charset=UTF-8'];
     $unavailableCases = [
         str_replace('source-token', 'wrong-token', $html),
-        str_replace('</head>', '<meta name="a-floating-live-preview-panel" content="source-token"></head>', $html),
-        str_replace('a-floating-live-preview-panel', 'unrelated-marker', $html),
+        str_replace(
+            '</head>',
+            '<meta name="meet-the-frontend-live-preview-panel" content="source-token"></head>',
+            $html
+        ),
+        str_replace('meet-the-frontend-live-preview-panel', 'unrelated-marker', $html),
         $html . '<script>incomplete',
         $html . "\xFF",
     ];

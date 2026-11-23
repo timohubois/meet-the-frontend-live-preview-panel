@@ -10,7 +10,7 @@ export function createPreviewPanel(strings, {
 }) {
     const mainWindow = window;
     const mainDocument = document;
-    const scope = 'a-floating-live-preview-panel';
+    const scope = 'meet-the-frontend-live-preview-panel';
     const preferences = select(preferencesStore);
     const preferenceActions = dispatch(preferencesStore);
     // The old 'window' fit was capped at 100%. A new key distinguishes it from
@@ -24,23 +24,23 @@ export function createPreviewPanel(strings, {
     let rememberPosition = preferences.get(scope, 'rememberPosition') !== false;
     let followChanges = preferences.get(scope, 'scrollToChanges') !== false;
     const showOnLoad = !rememberVisibility || preferences.get(scope, 'panelOpen') !== false;
-    const launcherContainer = mainDocument.getElementById('aflpp-toggle');
-    const panel = mainDocument.getElementById('aflpp-panel');
+    const launcherContainer = mainDocument.getElementById('mtflpp-toggle');
+    const panel = mainDocument.getElementById('mtflpp-panel');
     if (!launcherContainer || !panel) throw new Error('Preview panel markup is missing.');
     const launcher = createPreviewLauncher(launcherContainer);
 
-    const move = panel.querySelector('.aflpp-move-control');
-    const resize = panel.querySelector('.aflpp-resize');
+    const move = panel.querySelector('.mtflpp-move-control');
+    const resize = panel.querySelector('.mtflpp-resize');
     const resizeEdges = panel.querySelectorAll('[data-resize-edge]');
-    const header = panel.querySelector('.aflpp-header');
-    const caption = panel.querySelector('.aflpp-caption');
-    const viewport = panel.querySelector('.aflpp-viewport');
-    const canvas = panel.querySelector('.aflpp-canvas');
-    const stage = panel.querySelector('.aflpp-stage');
-    const empty = panel.querySelector('.aflpp-empty');
-    const devicebar = panel.querySelector('.aflpp-devicebar');
-    const dimensions = panel.querySelector('.aflpp-dimensions');
-    const feedback = panel.querySelector('.aflpp-feedback');
+    const header = panel.querySelector('.mtflpp-header');
+    const caption = panel.querySelector('.mtflpp-caption');
+    const viewport = panel.querySelector('.mtflpp-viewport');
+    const canvas = panel.querySelector('.mtflpp-canvas');
+    const stage = panel.querySelector('.mtflpp-stage');
+    const empty = panel.querySelector('.mtflpp-empty');
+    const devicebar = panel.querySelector('.mtflpp-devicebar');
+    const dimensions = panel.querySelector('.mtflpp-dimensions');
+    const feedback = panel.querySelector('.mtflpp-feedback');
     const status = panel.querySelector('[role="status"]');
     let controls;
     const responsiveViewport = createPreviewViewport(viewport, stage, dimensions, {
@@ -343,7 +343,7 @@ export function createPreviewPanel(strings, {
         const full = panel.ownerDocument.fullscreenElement === panel;
         const inPage = !pipWindow && !full;
         const movable = inPage && !geometry.expanded;
-        panel.classList.toggle('aflpp-expanded', geometry.expanded);
+        panel.classList.toggle('mtflpp-expanded', geometry.expanded);
         resize.hidden = !movable;
         for (const edge of resizeEdges) edge.hidden = !movable || !usableEdge(edge.dataset.resizeEdge);
         const retry = takeOverAction || (current.canRetry && ['error', 'conflict'].includes(current.state));
@@ -431,10 +431,10 @@ export function createPreviewPanel(strings, {
             drag = null;
             mainWindow.cancelAnimationFrame(animation);
             if (control.hasPointerCapture(pointer)) control.releasePointerCapture(pointer);
-            panel.classList.remove('aflpp-dragging');
-            control.classList.remove('aflpp-edge-active');
-            mainDocument.documentElement.classList.remove('aflpp-window-dragging');
-            mainDocument.documentElement.style.removeProperty('--aflpp-drag-cursor');
+            panel.classList.remove('mtflpp-dragging');
+            control.classList.remove('mtflpp-edge-active');
+            mainDocument.documentElement.classList.remove('mtflpp-window-dragging');
+            mainDocument.documentElement.style.removeProperty('--mtflpp-drag-cursor');
             draw();
             if (moved) {
                 if (isLauncher) launcherDragClick = true;
@@ -459,12 +459,12 @@ export function createPreviewPanel(strings, {
             const dy = event.clientY - drag.pointerY;
             if (!drag.moved && Math.abs(dx) + Math.abs(dy) < 4) return;
             drag.moved = true;
-            panel.classList.add('aflpp-dragging');
-            if (resizing) control.classList.add('aflpp-edge-active');
+            panel.classList.add('mtflpp-dragging');
+            if (resizing) control.classList.add('mtflpp-edge-active');
             mainDocument.documentElement.style.setProperty(
-                '--aflpp-drag-cursor', resizing ? mainWindow.getComputedStyle(control).cursor : 'grabbing'
+                '--mtflpp-drag-cursor', resizing ? mainWindow.getComputedStyle(control).cursor : 'grabbing'
             );
-            mainDocument.documentElement.classList.add('aflpp-window-dragging');
+            mainDocument.documentElement.classList.add('mtflpp-window-dragging');
             if (resizing) geometry.resize(drag, resizeEdge(), dx, dy);
             else geometry.move(drag, dx, dy, isLauncher);
             if (!animation) animation = mainWindow.requestAnimationFrame(paint);
@@ -490,9 +490,9 @@ export function createPreviewPanel(strings, {
         });
     }
     resize.addEventListener('keydown', (event) => {
-        if (event.key === 'Escape') resize.classList.add('aflpp-help-dismissed');
+        if (event.key === 'Escape') resize.classList.add('mtflpp-help-dismissed');
     });
-    resize.addEventListener('blur', () => resize.classList.remove('aflpp-help-dismissed'));
+    resize.addEventListener('blur', () => resize.classList.remove('mtflpp-help-dismissed'));
     geometryControl(move);
     geometryControl(header);
     geometryControl(launcher);
@@ -513,7 +513,7 @@ export function createPreviewPanel(strings, {
             responsiveViewport.beforeMove();
             controls.beforeMove();
             mainDocument.body.append(panel);
-            panel.classList.remove('aflpp-pip');
+            panel.classList.remove('mtflpp-pip');
             pipWindow = null;
             controls.remount();
             draw();
@@ -546,7 +546,7 @@ export function createPreviewPanel(strings, {
                 '#wp-theme-css', '#wp-theme-inline-css',
                 '#wp-components-css', '#wp-components-inline-css',
                 'style[data-emotion]', 'style[data-wp-hash]',
-                '#a-floating-live-preview-panel-css', '#a-floating-live-preview-panel-inline-css',
+                '#meet-the-frontend-live-preview-panel-css', '#meet-the-frontend-live-preview-panel-inline-css',
             ].join(', '));
             for (const stylesheet of stylesheets) {
                 const copy = stylesheet.cloneNode(true);
@@ -558,14 +558,14 @@ export function createPreviewPanel(strings, {
                 detached.document.head.append(copy);
             }
             detached.document.title = caption.textContent;
-            detached.document.body.className = 'aflpp-pip-document';
+            detached.document.body.className = 'mtflpp-pip-document';
             detached.addEventListener('resize', responsiveViewport.layout);
             detached.addEventListener('pagehide', restore, { once: true });
             pipWindow = detached;
             beforeMove();
             responsiveViewport.beforeMove();
             controls.beforeMove();
-            panel.classList.add('aflpp-pip');
+            panel.classList.add('mtflpp-pip');
             detached.document.body.append(panel);
             controls.remount();
             responsiveViewport.afterMove();

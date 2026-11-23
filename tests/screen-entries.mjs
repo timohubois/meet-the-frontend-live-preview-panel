@@ -13,11 +13,11 @@ function fixture(screen, { configured = true, formAvailable = true, modelAvailab
     const form = {};
     const native = { destroy: () => calls.push('destroy') };
     const config = { strings: { bootFailed: 'Unavailable' } };
-    const nodes = new Map(['aflpp-panel', 'aflpp-toggle'].map((id) => [id, { remove: () => removed.push(id) }]));
+    const nodes = new Map(['mtflpp-panel', 'mtflpp-toggle'].map((id) => [id, { remove: () => removed.push(id) }]));
     const context = {
         window: {
             jQuery: (ready) => ready(),
-            aFloatingLivePreviewPanel: configured ? config : null,
+            meetTheFrontendLivePreviewPanel: configured ? config : null,
             wp: modelAvailable ? { revisions: { view: { frame: { model } } } } : {},
         },
         document: {
@@ -62,7 +62,7 @@ test('the editor observes native operations and initializes synchronously withou
 test('editor initialization failure detaches native observers and removes only plugin UI', () => {
     const h = fixture('editor', { fail: true });
     assert.deepEqual(h.calls, ['observe', 'editor', 'destroy']);
-    assert.deepEqual(h.removed, ['aflpp-panel', 'aflpp-toggle']);
+    assert.deepEqual(h.removed, ['mtflpp-panel', 'mtflpp-toggle']);
     assert.equal(h.notices[0].children[0].textContent, 'Unavailable');
     assert.equal(h.errors.length, 1);
 });
@@ -84,7 +84,7 @@ test('the revision entry uses the existing native selection without editor obser
 for (const options of [{ modelAvailable: false }, { fail: true }]) {
     test(`revision startup failure preserves native comparison and restore with ${JSON.stringify(options)}`, () => {
         const h = fixture('revisions', options);
-        assert.deepEqual(h.removed, ['aflpp-panel', 'aflpp-toggle']);
+        assert.deepEqual(h.removed, ['mtflpp-panel', 'mtflpp-toggle']);
         assert.equal(h.notices.length, 1);
         assert.equal(h.errors.length, 1);
         assert.ok(!h.calls.includes('observe'));

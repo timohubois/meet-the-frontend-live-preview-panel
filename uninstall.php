@@ -2,21 +2,21 @@
 
 /** Remove plugin-owned preview data without touching content or recovery autosaves. */
 
-namespace AFloatingLivePreviewPanel;
+namespace MeetTheFrontendLivePreviewPanel;
 
 defined('WP_UNINSTALL_PLUGIN') || exit;
 
 // The deactivated plugin has not registered this status; WP_Query ignores unregistered statuses.
-register_post_status('aflpp-preview', ['internal' => true]);
+register_post_status('mtflpp-preview', ['internal' => true]);
 
-$aflppCleanupSite = static function (): void {
+$mtflppCleanupSite = static function (): void {
     global $wpdb;
 
     $offset = 0;
     do {
         $revisions = get_posts([
             'post_type' => 'revision',
-            'post_status' => 'aflpp-preview',
+            'post_status' => 'mtflpp-preview',
             'posts_per_page' => 100,
             'offset' => $offset,
             'orderby' => 'ID',
@@ -26,7 +26,7 @@ $aflppCleanupSite = static function (): void {
         foreach ($revisions as $revisionId) {
             $revision = get_post($revisionId);
             if (
-                !$revision || $revision->post_type !== 'revision' || $revision->post_status !== 'aflpp-preview'
+                !$revision || $revision->post_type !== 'revision' || $revision->post_status !== 'mtflpp-preview'
                 || !wp_delete_post_revision($revisionId)
             ) {
                 // Skip unexpected records or vetoed deletions rather than retrying them forever.
@@ -50,11 +50,11 @@ $aflppCleanupSite = static function (): void {
         ]);
         foreach ($userIds as $userId) {
             $preferences = get_user_meta($userId, $metaKey, true);
-            if (!is_array($preferences) || !array_key_exists('a-floating-live-preview-panel', $preferences)) {
+            if (!is_array($preferences) || !array_key_exists('meet-the-frontend-live-preview-panel', $preferences)) {
                 continue;
             }
             $previous = $preferences;
-            unset($preferences['a-floating-live-preview-panel']);
+            unset($preferences['meet-the-frontend-live-preview-panel']);
             // Prefer the cleaned server copy over WordPress's older browser-local preference backup.
             $preferences['_modified'] = current_datetime()->format('Y-m-d\TH:i:s.vP');
             update_user_meta($userId, $metaKey, wp_slash($preferences), $previous);
@@ -63,26 +63,26 @@ $aflppCleanupSite = static function (): void {
 };
 
 if (!is_multisite()) {
-    $aflppCleanupSite();
+    $mtflppCleanupSite();
     return;
 }
 
-$aflppOffset = 0;
+$mtflppOffset = 0;
 do {
-    $aflppSiteIds = get_sites([
+    $mtflppSiteIds = get_sites([
         'fields' => 'ids',
         'number' => 100,
-        'offset' => $aflppOffset,
+        'offset' => $mtflppOffset,
         'orderby' => 'id',
         'order' => 'ASC',
     ]);
-    foreach ($aflppSiteIds as $aflppSiteId) {
-        switch_to_blog($aflppSiteId);
+    foreach ($mtflppSiteIds as $mtflppSiteId) {
+        switch_to_blog($mtflppSiteId);
         try {
-            $aflppCleanupSite();
+            $mtflppCleanupSite();
         } finally {
             restore_current_blog();
         }
     }
-    $aflppOffset += count($aflppSiteIds);
-} while (count($aflppSiteIds) === 100);
+    $mtflppOffset += count($mtflppSiteIds);
+} while (count($mtflppSiteIds) === 100);

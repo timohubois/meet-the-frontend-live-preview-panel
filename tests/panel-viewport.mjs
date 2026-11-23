@@ -53,7 +53,7 @@ function fixture(saved = {}, width = 480, height = 248, motion = false, scrollba
     const space = { style: {} };
     const container = {
         ownerDocument: { defaultView: mainWindow }, clientWidth: width, clientHeight: height,
-        querySelector: (selector) => selector === '.aflpp-canvas' ? canvas : space,
+        querySelector: (selector) => selector === '.mtflpp-canvas' ? canvas : space,
     };
     const stage = { style: {} }, dimensions = { textContent: '' };
     const viewport = createPreviewViewport(container, stage, dimensions, saved, onChange);
@@ -596,15 +596,15 @@ async function browserTests({ source, css }) {
     for (const [pw, ph] of sizes) for (const [device, orientation, width, height] of variants) for (const fit of ['automatic', 'window', 'width', 'custom']) {
         const name = `${pw}×${ph}: ${device} ${orientation}, ${fit} fixed viewport`;
         const panel = document.createElement('section');
-        panel.className = 'aflpp-panel';
+        panel.className = 'mtflpp-panel';
         panel.dir = pw === 480 ? 'rtl' : 'ltr';
         panel.dataset.hasPreview = 'false';
         panel.style.cssText = `position:relative;width:${pw}px;height:${ph}px`;
-        panel.innerHTML = '<header class="aflpp-header"></header><div class="aflpp-viewport"><div class="aflpp-canvas" role="region" aria-label="Preview canvas" tabindex="-1"><div class="aflpp-canvas-space"><div class="aflpp-stage"><iframe class="aflpp-frame" title="Test preview"></iframe></div></div></div></div><footer class="aflpp-devicebar" style="height:48px"><span class="aflpp-dimensions"></span></footer>';
+        panel.innerHTML = '<header class="mtflpp-header"></header><div class="mtflpp-viewport"><div class="mtflpp-canvas" role="region" aria-label="Preview canvas" tabindex="-1"><div class="mtflpp-canvas-space"><div class="mtflpp-stage"><iframe class="mtflpp-frame" title="Test preview"></iframe></div></div></div></div><footer class="mtflpp-devicebar" style="height:48px"><span class="mtflpp-dimensions"></span></footer>';
         document.body.append(panel);
-        const container = panel.querySelector('.aflpp-viewport'), stage = panel.querySelector('.aflpp-stage');
-        const canvas = panel.querySelector('.aflpp-canvas');
-        const viewport = createPreviewViewport(container, stage, panel.querySelector('.aflpp-dimensions'), { device, fit, [`${device}Orientation`]: orientation });
+        const container = panel.querySelector('.mtflpp-viewport'), stage = panel.querySelector('.mtflpp-stage');
+        const canvas = panel.querySelector('.mtflpp-canvas');
+        const viewport = createPreviewViewport(container, stage, panel.querySelector('.mtflpp-dimensions'), { device, fit, [`${device}Orientation`]: orientation });
         try {
             const frame = panel.querySelector('iframe');
             frame.contentDocument.open();
@@ -639,7 +639,7 @@ async function browserTests({ source, css }) {
             const rect = stage.getBoundingClientRect(), bounds = canvas.getBoundingClientRect();
             close(rect.width, width * scale, 'Painted width');
             close(rect.height, height * scale, 'Painted height');
-            check(panel.querySelector('.aflpp-dimensions').textContent === `${width} × ${height} px · ${viewport.zoomPercent}%`, 'The readout reports fixed CSS dimensions and current zoom.');
+            check(panel.querySelector('.mtflpp-dimensions').textContent === `${width} × ${height} px · ${viewport.zoomPercent}%`, 'The readout reports fixed CSS dimensions and current zoom.');
             check(viewport.zoomPercent === Math.round(scale * devicePixelRatio * 100), 'Publish the computed DPR-corrected zoom for the single Zoom control.');
             const overflowX = fit === 'custom' && rect.width > canvas.clientWidth + 0.01;
             const overflowY = (widthFirst || fit === 'custom') && rect.height > canvas.clientHeight + 0.01;
@@ -697,24 +697,24 @@ test('trusted Chromium verifies independent scrolling and DPR-corrected physical
     const modules = new Map(await Promise.all(['panel/viewport.js', 'preview/frame.js', 'preview/comparison.js', 'preview/scroll.js'].map(async (path) =>
         [`/src/${path}`, await readFile(new URL(`../src/${path}`, import.meta.url), 'utf8')])));
     const css = await readFile(new URL('../src/panel/panel.css', import.meta.url), 'utf8');
-    const page = '<!doctype html><meta name="a-floating-live-preview-panel" content="trusted-scroll"><style>html,body{margin:0}html{overscroll-behavior:auto!important}main{height:300vh}</style><main>Scrollable page</main>';
+    const page = '<!doctype html><meta name="meet-the-frontend-live-preview-panel" content="trusted-scroll"><style>html,body{margin:0}html{overscroll-behavior:auto!important}main{height:300vh}</style><main>Scrollable page</main>';
     const html = `<!doctype html><style>body{margin:0}${css}</style>
-        <section class="aflpp-panel" style="left:0;top:0;width:480px;height:340px">
-            <header class="aflpp-header"></header><div class="aflpp-viewport">
-                <div class="aflpp-canvas" role="region" aria-label="Preview canvas" tabindex="-1">
-                    <div class="aflpp-canvas-space"><div class="aflpp-stage"></div></div>
+        <section class="mtflpp-panel" style="left:0;top:0;width:480px;height:340px">
+            <header class="mtflpp-header"></header><div class="mtflpp-viewport">
+                <div class="mtflpp-canvas" role="region" aria-label="Preview canvas" tabindex="-1">
+                    <div class="mtflpp-canvas-space"><div class="mtflpp-stage"></div></div>
                 </div>
-            </div><footer class="aflpp-devicebar" style="height:48px"><span class="aflpp-dimensions"></span></footer>
+            </div><footer class="mtflpp-devicebar" style="height:48px"><span class="mtflpp-dimensions"></span></footer>
         </section><script type="module">
         import { createPreviewViewport } from '/src/panel/viewport.js';
         import { createPreviewFrame } from '/src/preview/frame.js';
         import { createPreviewScroll } from '/src/preview/scroll.js';
-        const stage = document.querySelector('.aflpp-stage');
+        const stage = document.querySelector('.mtflpp-stage');
         const reports = [];
         const preview = createPreviewFrame({stage,followChanges:false,clearPreview:()=>stage.replaceChildren()}, createPreviewScroll(), {title:'Test preview',failed:'Failed',browser:'Same-origin required',current:'Current'}, (text,state)=>reports.push({text,state}));
-        await preview.load(new URL('/page?aflpp_token=trusted-scroll', location.href).href, () => true);
-        const canvas = document.querySelector('.aflpp-canvas'), frame = document.querySelector('iframe');
-        const viewport = createPreviewViewport(document.querySelector('.aflpp-viewport'), stage, document.querySelector('.aflpp-dimensions'), {device:'mobile',fit:'width'});
+        await preview.load(new URL('/page?mtflpp_token=trusted-scroll', location.href).href, () => true);
+        const canvas = document.querySelector('.mtflpp-canvas'), frame = document.querySelector('iframe');
+        const viewport = createPreviewViewport(document.querySelector('.mtflpp-viewport'), stage, document.querySelector('.mtflpp-dimensions'), {device:'mobile',fit:'width'});
         viewport.layout();
         let wheels = 0;
         frame.contentDocument.addEventListener('wheel', (event) => { if (event.isTrusted) wheels++; }, {passive:true});
@@ -732,7 +732,7 @@ test('trusted Chromium verifies independent scrolling and DPR-corrected physical
             const redirect = {
                 '/redirect-html': '/unmarked?private=not-for-display#fragment',
                 '/redirect-html-rewrite': '/rewrite',
-                '/redirect-marked': '/page?aflpp_token=trusted-scroll',
+                '/redirect-marked': '/page?mtflpp_token=trusted-scroll',
                 '/redirect-plain': '/plain',
                 '/redirect-other-origin': `http://localhost:${server.address().port}/unmarked`,
             }[path];
@@ -792,7 +792,7 @@ test('trusted Chromium verifies independent scrolling and DPR-corrected physical
                     if (await evaluate(expression)) return;
                     await delay(10);
                 }
-                assert.fail(`Browser state did not settle: ${expression}\n${JSON.stringify(await evaluate('({dpr:devicePixelRatio,transform:document.querySelector(".aflpp-stage").style.transform,currentResolution:matchMedia(`(resolution: ${devicePixelRatio}dppx)`).matches,canvas:[canvas.clientWidth,canvas.clientHeight]})'))}`);
+                assert.fail(`Browser state did not settle: ${expression}\n${JSON.stringify(await evaluate('({dpr:devicePixelRatio,transform:document.querySelector(".mtflpp-stage").style.transform,currentResolution:matchMedia(`(resolution: ${devicePixelRatio}dppx)`).matches,canvas:[canvas.clientWidth,canvas.clientHeight]})'))}`);
             };
             const key = async (name, code, settled) => {
                 for (const type of ['keyDown', 'keyUp']) await send('Input.dispatchKeyEvent', { type, key: name, code: name, windowsVirtualKeyCode: code, nativeVirtualKeyCode: code });
@@ -820,7 +820,7 @@ test('trusted Chromium verifies independent scrolling and DPR-corrected physical
             assert.equal(state.pan, 0, 'Page wheel input must leave the canvas in place.');
             assert.equal(state.width, 390);
             assert.equal(state.height, 844);
-            await evaluate(`Object.assign(document.querySelector('.aflpp-panel').style, {width:'640px',height:'1300px'}); viewport.setFit('automatic'); viewport.layout()`);
+            await evaluate(`Object.assign(document.querySelector('.mtflpp-panel').style, {width:'640px',height:'1300px'}); viewport.setFit('automatic'); viewport.layout()`);
             await waitFor('canvas.clientWidth === 640 && canvas.clientHeight >= 1200');
             const canvasSize = await evaluate('[canvas.clientWidth, canvas.clientHeight]');
             for (const dpr of [2, 1.25, 0.75, 1, 2]) await t.test(`DPR ${dpr}: 100% paints the viewport at 390×844 physical pixels`, async () => {
@@ -829,8 +829,8 @@ test('trusted Chromium verifies independent scrolling and DPR-corrected physical
                 await send('Emulation.setDeviceMetricsOverride', {width:dpr === 1 ? 1281 : 1280,height:1400,deviceScaleFactor:dpr,mobile:false});
                 // Headless Chromium needs a rendered frame to deliver resolution media events.
                 await send('Page.captureScreenshot', {format:'png'});
-                await waitFor(`Math.abs(document.querySelector('.aflpp-stage').getBoundingClientRect().width - ${390 / dpr}) < 0.01`);
-                const after = await evaluate(`({...canvasInputState(), dpr:devicePixelRatio, readout:document.querySelector('.aflpp-dimensions').textContent})`);
+                await waitFor(`Math.abs(document.querySelector('.mtflpp-stage').getBoundingClientRect().width - ${390 / dpr}) < 0.01`);
+                const after = await evaluate(`({...canvasInputState(), dpr:devicePixelRatio, readout:document.querySelector('.mtflpp-dimensions').textContent})`);
                 assert.equal(after.dpr, dpr);
                 assert.equal(after.width, 390);
                 assert.equal(after.height, 844);
@@ -846,7 +846,7 @@ test('trusted Chromium verifies independent scrolling and DPR-corrected physical
             });
             for (const fit of ['automatic', 'window', 'width']) {
                 await evaluate(`viewport.setFit(${JSON.stringify(fit)})`);
-                const after = await evaluate(`({...canvasInputState(), readout:document.querySelector('.aflpp-dimensions').textContent, paintedZoom:Math.round(document.querySelector('.aflpp-stage').getBoundingClientRect().width / 390 * devicePixelRatio * 100)})`);
+                const after = await evaluate(`({...canvasInputState(), readout:document.querySelector('.mtflpp-dimensions').textContent, paintedZoom:Math.round(document.querySelector('.mtflpp-stage').getBoundingClientRect().width / 390 * devicePixelRatio * 100)})`);
                 assert.equal(after.zoom, after.paintedZoom, 'The Zoom control consumes the same computed percentage as the painted preview.');
                 assert.equal(after.readout, `390 × 844 px · ${after.zoom}%`);
                 assert.equal(after.width, 390);
@@ -870,7 +870,7 @@ test('trusted Chromium verifies independent scrolling and DPR-corrected physical
                 assert.ok(Math.abs(png.readUInt32BE(20) - 675.2) <= 2, `Captured height: ${png.readUInt32BE(20)}; CSS clip: ${JSON.stringify(rect)}`);
             });
             await t.test('explicit width fitting supports native canvas keys and wheel input independently of the webpage', async () => {
-                await evaluate(`Object.assign(document.querySelector('.aflpp-panel').style, {width:'480px',height:'340px'}); viewport.setFit('width'); viewport.layout(); canvas.focus({preventScroll:true})`);
+                await evaluate(`Object.assign(document.querySelector('.mtflpp-panel').style, {width:'480px',height:'340px'}); viewport.setFit('width'); viewport.layout(); canvas.focus({preventScroll:true})`);
                 await waitFor('canvas.tabIndex === 0 && canvas.scrollHeight > canvas.clientHeight');
                 const page = (await evaluate('canvasInputState()')).page;
                 await key('PageDown', 34, 'canvas.scrollTop > 0');
@@ -912,7 +912,7 @@ test('trusted Chromium verifies independent scrolling and DPR-corrected physical
                 });
             }
             await t.test('trusted arrow keys navigate both axes at fixed zoom without scrolling the page', async () => {
-                await evaluate(`Object.assign(document.querySelector('.aflpp-panel').style, {width:'480px',height:'340px'}); viewport.select('desktop'); viewport.setZoom(400); frame.contentWindow.scrollTo(0, 100); canvas.focus({preventScroll:true})`);
+                await evaluate(`Object.assign(document.querySelector('.mtflpp-panel').style, {width:'480px',height:'340px'}); viewport.select('desktop'); viewport.setZoom(400); frame.contentWindow.scrollTo(0, 100); canvas.focus({preventScroll:true})`);
                 await waitFor('canvas.scrollWidth > canvas.clientWidth && canvas.scrollHeight > canvas.clientHeight');
                 const page = (await evaluate('canvasInputState()')).page;
                 await key('ArrowRight', 39, 'canvas.scrollLeft > 0');
@@ -931,7 +931,7 @@ test('trusted Chromium verifies independent scrolling and DPR-corrected physical
                 const wheel = await evaluate('canvasInputState()');
                 assert.equal(wheel.panX, after.panX);
                 assert.equal(wheel.pan, after.pan);
-                await evaluate(`Object.assign(document.querySelector('.aflpp-panel').style, {width:'640px',height:'600px'}); viewport.layout()`);
+                await evaluate(`Object.assign(document.querySelector('.mtflpp-panel').style, {width:'640px',height:'600px'}); viewport.layout()`);
                 assert.equal((await evaluate('canvasInputState()')).zoom, 400, 'Panel resizing never changes fixed zoom.');
                 await send('Emulation.setDeviceMetricsOverride', { width: 1281, height: 1400, deviceScaleFactor: 1, mobile: false });
                 await send('Page.captureScreenshot', { format: 'png' });
@@ -939,7 +939,7 @@ test('trusted Chromium verifies independent scrolling and DPR-corrected physical
                 assert.equal((await evaluate('canvasInputState()')).zoom, 400, 'A host DPR change preserves the selected manual percentage.');
             });
             for (const path of ['unmarked', 'plain']) await t.test(`${path}: native output is displayed without scroll containment`, async () => {
-                await evaluate(`preview.load(new URL('/${path}?aflpp_token=trusted-scroll', location.href).href, () => true)`);
+                await evaluate(`preview.load(new URL('/${path}?mtflpp_token=trusted-scroll', location.href).href, () => true)`);
                 const output = await evaluate(`(() => {
                     const frame = document.querySelector('iframe'), doc = frame.contentDocument;
                     return {type:doc.contentType,style:doc.documentElement.getAttribute('style'),text:doc.body.textContent,path:new URL(frame.src).pathname};
@@ -951,7 +951,7 @@ test('trusted Chromium verifies independent scrolling and DPR-corrected physical
             });
             await t.test('only confirmed redirects to unmarked same-origin HTML expose a display path', async () => {
                 const load = async (path) => {
-                    await evaluate(`preview.load(new URL('/${path}?aflpp_token=trusted-scroll', location.href).href, () => true)`);
+                    await evaluate(`preview.load(new URL('/${path}?mtflpp_token=trusted-scroll', location.href).href, () => true)`);
                     assert.equal(await evaluate('reports.at(-1).state'), 'ready', 'Do not turn redirected output into an error.');
                     return evaluate('preview.redirectDestination');
                 };

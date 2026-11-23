@@ -3,7 +3,7 @@ import { setupAcfTermEditor } from './compatibility/acf-term-editor.js';
 import { showStartupError } from './panel/startup-error.js';
 import './panel/panel.css';
 
-const config = window.aFloatingLivePreviewPanel;
+const config = window.meetTheFrontendLivePreviewPanel;
 const form = document.getElementById('edittag');
 if (config && form) {
     try {
