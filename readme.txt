@@ -3,7 +3,7 @@ Contributors: timohubois
 Tags: preview, editor
 Requires at least: 6.9
 Tested up to: 7.1
-Stable tag: 1.2.1
+Stable tag: 1.2.2
 Requires PHP: 8.3
 License: GPLv3 or later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
@@ -112,6 +112,9 @@ Report issues or contribute on [GitHub](https://github.com/timohubois/meet-the-f
 8. Keep the preview in a separate Picture-in-Picture window where supported.
 
 == Changelog ==
+
+= 1.2.2 =
+* Show password-protected content in authorized live and revision previews without unlocking the public page.
 
 = 1.2.1 =
 * Scroll smoothly to changes and position shorter changes higher in the preview so more of the content below stays visible. Respect reduced-motion preferences.

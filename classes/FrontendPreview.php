@@ -188,6 +188,15 @@ final class FrontendPreview
             // The authorized source remains bound only to its original post; do not label other output verified.
             return;
         }
+        // Editors have already authorized this preview. Leave other posts and later site policies alone.
+        $postId = $this->previewPostId;
+        add_filter('post_password_required', static function (bool $required, ?WP_Post $post) use ($postId): bool {
+            if ($post?->ID === $postId && !empty($post->post_password)) {
+                return false;
+            }
+            return $required;
+        }, 0, 2);
+
         // Core canonical redirects drop preview=true without native autosave parameters, losing our core-field overlay.
         remove_action('template_redirect', 'redirect_canonical');
         (new PreviewDocument($this->file, $this->previewToken))->enhance($this->isolated, $this->sourceRequested);
