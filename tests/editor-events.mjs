@@ -355,10 +355,30 @@ async function browserTests(editorSource, initAcf, nativeSource, extensionSource
         context.actions.get('wysiwyg_tinymce_init')({ on: () => registrations++, off() {} });
         equal(registrations, 1);
     }, { withAcf: true });
-    await check('capture still synchronizes TinyMCE and preserves the payload allowlist', async (context) => {
+    await check('classic preview capture skips only ACF row templates and leaves native controls intact', async (context) => {
         context.form.querySelector('#title').value = 'Preview title';
         context.dispatch('#title');
+        const fields = [
+            ['acf[field_rows][acfcloneindex][field_text]', 'template'],
+            ['acf[field_rows][row-0][field_children][acfcloneindex][field_text]', 'nested template'],
+            ['_acf_fields[field_rows][acfcloneindex][]', 'template helper'],
+            ['acf[field_rows][row-0][field_children][row-1][field_text]', ''],
+            ['acf[field_rows][row-0][acf_reordered]', '1'],
+            ['_acf_fields[field_rows][row-0][]', 'first'],
+            ['_acf_fields[field_rows][row-0][]', 'second'],
+            ['acf[field_acfcloneindex_text]', 'keep [acfcloneindex] in values'],
+        ];
+        for (const [name, value] of fields) {
+            const input = document.createElement('input');
+            Object.assign(input, { name, value, type: 'hidden' });
+            context.form.querySelector('.acf-field').append(input);
+        }
+        const nativeForm = JSON.stringify([...new FormData(context.form)]);
         const data = await context.capture();
+        for (const [name] of fields.slice(0, 3)) equal(data.has(name), false);
+        for (const [name, value] of fields.slice(3)) equal(data.getAll(name).includes(value), true);
+        equal(JSON.stringify(data.getAll('_acf_fields[field_rows][row-0][]')), '["first","second"]');
+        equal(JSON.stringify([...new FormData(context.form)]), nativeForm);
         equal(data.get('post_title'), 'Preview title');
         equal(data.get('acf[field_text]'), 'ACF text');
         equal(data.get('_acf_fields[field_rows]'), 'rows');

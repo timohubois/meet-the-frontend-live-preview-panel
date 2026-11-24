@@ -44,7 +44,10 @@ addAction('mtflpp.classicEditor.previewSetup', namespace, ({
     hooks.addFilter('nativeSaveValidationPending', namespace, (validating) => validating || fields.isValidating());
     hooks.addFilter('previewFormBody', namespace, (body, values) => {
         for (const [name, value] of values) {
-            if (typeof value === 'string' && fields.accepts(name)) body.append(name, value);
+            // ACF may not have disabled template rows when the eager preview starts.
+            if (typeof value === 'string' && fields.accepts(name) && !name.includes('[acfcloneindex]')) {
+                body.append(name, value);
+            }
         }
         return body;
     });
