@@ -14,8 +14,8 @@ const deferred = () => {
     return { promise, resolve, reject };
 };
 
-function fixture({ ready = true, loaded = true, available = true, route = '/wp/v2/posts/123', acfEnabled = false, taxonomies = {}, yoastPrimaryTaxonomies = [], extend, browserAcf = true } = {}) {
-    const calls = { pauses: [], pauseStates: [], resumes: [], titles: [], changes: 0, requests: [], contentReads: 0 };
+function fixture({ ready = true, loaded = true, available = true, route = '/wp/v2/posts/123', acfEnabled = false, taxonomies = {}, yoastPrimaryTaxonomies = [], extend, browserAcf = true, revisions = false } = {}) {
+    const calls = { pauses: [], pauseStates: [], suspensions: [], resumes: [], titles: [], changes: 0, requests: [], contentReads: 0 };
     const acfFields = { ready: true, saved: 0, destroyed: false, waitAfterSave: false };
     let acfChanged;
     const state = { id: ready ? 123 : 0, loaded, type: 'post', saving: false, previewing: false, author: 7, title: 'Title', content: '<!-- wp:paragraph --><p>Unsaved</p><!-- /wp:paragraph -->', excerpt: 'Excerpt', blocks: [], savedContent: 'Saved content' };
@@ -42,13 +42,28 @@ function fixture({ ready = true, loaded = true, available = true, route = '/wp/v
         endpoint: 'http://site.test/wp-json/meet-the-frontend-live-preview-panel/v1/posts/123/preview',
         base: 'a'.repeat(64), available, acfEnabled, taxonomies, yoastPrimaryTaxonomies, adminCookiePath: '/wp-admin/', strings: { loading: 'Loading preview…', nativeSaveFailed: 'Reload editor', postOnly: 'Return to post', acfRefreshing: 'Waiting for ACF fields', integrationFailed: 'Integration failed', acfUnavailable: 'ACF unavailable' },
     };
+    let notifyRevisionDom;
+    const editorRoot = { getElementsByClassName(name) {
+        assert.equal(name, 'editor-revisions-header');
+        return { get length() { return revisions ? 1 : 0; } };
+    } };
     const document = {
+        getElementById: (id) => id === 'editor' ? editorRoot : null,
         querySelectorAll: () => [],
         get cookie() { return [...cookies].map(([key, value]) => `${key}=${value}`).join('; '); },
         set cookie(value) { if (value.includes('Max-Age=0')) cookies.delete(value.split('=')[0]); },
     };
     const context = {
         URL, URLSearchParams, FormData, queueMicrotask, document,
+        MutationObserver: class {
+            constructor(callback) { this.callback = callback; }
+            observe(root, options) {
+                assert.equal(root, editorRoot);
+                assert.ok(options.childList && options.subtree);
+                notifyRevisionDom = this.callback;
+            }
+            disconnect() { notifyRevisionDom = undefined; }
+        },
         window: { crypto: webcrypto, location: new URL('http://site.test/wp-admin/post.php'), addEventListener() {},
             ...(browserAcf ? { acf: { addAction() {}, removeAction() {} } } : {}), jQuery() {} },
         imports: {
@@ -75,10 +90,12 @@ function fixture({ ready = true, loaded = true, available = true, route = '/wp/v
     native.connect({
         pause: (text, state) => { calls.pauses.push(text); calls.pauseStates.push(state); return pending; },
         resume: (error) => calls.resumes.push(error),
+        setSuspended: (value) => calls.suspensions.push(value),
         changed: () => calls.changes++, setTitle: (title) => calls.titles.push(title),
     });
     return {
         native, config, state, calls, cookies, acfFields, document,
+        showRevisions: (value) => { revisions = value; notifyRevisionDom?.(); return flush(); },
         acfChanged: async () => { acfChanged?.(); await flush(); },
         emit: async () => { subscription?.(); await flush(); },
         beforeSave: (...args) => filter(...args),
@@ -90,6 +107,43 @@ function fixture({ ready = true, loaded = true, available = true, route = '/wp/v
         metaBody() { const body = new FormData(); body.set('post_ID', '123'); body.set('action', 'editpost'); body.set('acf[field_test]', 'Value'); return body; },
     };
 }
+
+test('Visual Revisions suspends the editor preview without relying on a URL or post change', async () => {
+    const h = fixture();
+    assert.equal(h.native.ready, true);
+    const entering = h.showRevisions(true);
+    assert.equal(h.native.ready, false, 'A pending refresh cannot write before DOM observation settles.');
+    await entering;
+    assert.deepEqual(h.calls.suspensions, [true]);
+    assert.deepEqual(h.calls.pauseStates, ['paused']);
+    const changes = h.calls.changes;
+    h.state.title = 'Changed while browsing';
+    await h.emit();
+    assert.equal(h.calls.changes, changes);
+    // A native Restore save still participates in the normal saved-baseline handshake.
+    await h.request({ path: h.config.postRoute, method: 'POST' }, async (options) => ({ id: 123, _mtflpp_receipt: h.receipt(options) }));
+    assert.equal(h.config.base, 'b'.repeat(64));
+    assert.equal(h.native.ready, false);
+    await h.showRevisions(false);
+    assert.deepEqual(h.calls.suspensions, [true, false]);
+    assert.equal(h.native.ready, true);
+    assert.equal(h.calls.resumes.length, 2);
+    assert.equal(h.calls.titles.at(-1), h.state.title);
+    h.native.destroy();
+    await h.showRevisions(true);
+    assert.deepEqual(h.calls.suspensions, [true, false]);
+});
+
+test('an editor initialized in Visual Revisions starts with its live preview suspended', async () => {
+    const h = fixture({ revisions: true });
+    assert.equal(h.native.ready, false);
+    assert.deepEqual(h.calls.suspensions, [true]);
+    assert.deepEqual(h.calls.resumes, []);
+    await h.showRevisions(false);
+    assert.equal(h.native.ready, true);
+    assert.deepEqual(h.calls.suspensions, [true, false]);
+    assert.equal(h.calls.resumes.length, 1);
+});
 
 test('block comparison values are frozen at capture and never sent to the endpoint', async () => {
     const h = fixture({ acfEnabled: true });

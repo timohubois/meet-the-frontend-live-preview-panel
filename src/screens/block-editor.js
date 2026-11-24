@@ -8,7 +8,18 @@ const fingerprint = /^[a-f0-9]{64}$/;
 
 // Use public editor selectors/hooks. Never replace savePost or inspect the block canvas.
 export function createBlockEditor(config) {
-    const native = { ready: false, notReady: config.strings.loading, notReadyState: 'loading', saving: false, idle: Promise.resolve(), title: config.postTitle };
+    const editorRoot = document.getElementById('editor');
+    // Visual Revisions renders its own header even for browser backups. Core's mode selector is private.
+    const revisionHeaders = editorRoot?.getElementsByClassName('editor-revisions-header');
+    const isBrowsingRevisions = () => !!revisionHeaders?.length;
+    let ready = false;
+    let browsingRevisions = false;
+    let revisionObserver;
+    const native = {
+        // Check the DOM again at the write gate, even before the mutation observer has run.
+        get ready() { return ready && !isBrowsingRevisions(); },
+        notReady: config.strings.loading, notReadyState: 'loading', saving: false, idle: Promise.resolve(), title: config.postTitle,
+    };
     let preview;
     let destroyed = false;
     let lastValues;
@@ -56,18 +67,28 @@ export function createBlockEditor(config) {
 
     function observe() {
         if (destroyed || !preview) return;
+        const revisions = isBrowsingRevisions();
+        if (revisions !== browsingRevisions) {
+            browsingRevisions = revisions;
+            if (revisions) {
+                ready = false;
+                preview.pause(config.strings.postOnly, 'paused');
+            }
+            preview.setSuspended(revisions);
+        }
+        if (revisions) return;
         const state = editor();
         // An empty editor store is still initializing, not an unsupported editing context.
         const postLoaded = !!state?.getCurrentPost()?.id;
         const postReady = postLoaded && ownsPost();
         if (postReady) extensions.action('observePreviewInputs', state);
         const pauseReason = extensions.filter('previewPauseReason', '', state);
-        const ready = postReady && !pauseReason && !extensions.error;
+        const canPreview = postReady && !pauseReason && !extensions.error;
         native.notReady = notReadyReason(postLoaded, postReady, pauseReason);
         native.notReadyState = postLoaded ? 'paused' : 'loading';
         const saving = postReady && (state.isSavingPost() || requests > 0);
-        const becameReady = ready && !native.ready;
-        native.ready = ready;
+        const becameReady = canPreview && !ready;
+        ready = canPreview;
         native.saving = saving;
         if (extensions.error) {
             preview.resume(extensions.error);
@@ -96,7 +117,7 @@ export function createBlockEditor(config) {
             featured_media: state.getEditedPostAttribute('featured_media') ?? 0,
         };
         if (extensions.error) {
-            native.ready = false;
+            ready = false;
             preview.resume(extensions.error);
             return;
         }
@@ -246,10 +267,20 @@ export function createBlockEditor(config) {
     const unsubscribe = subscribe(scheduleObserve);
     addFilter('editor.preSavePost', scope, beforeSave);
     apiFetch.use(middleware);
-    native.connect = (session) => { preview = session; observe(); };
+    native.connect = (session) => {
+        preview = session;
+        if (editorRoot) {
+            revisionObserver = new MutationObserver(() => {
+                if (isBrowsingRevisions() !== browsingRevisions) scheduleObserve();
+            });
+            revisionObserver.observe(editorRoot, { childList: true, subtree: true });
+        }
+        observe();
+    };
     native.destroy = () => {
         if (destroyed) return;
         destroyed = true;
+        revisionObserver?.disconnect();
         unsubscribe();
         extensions.destroy();
         removeFilter('editor.preSavePost', scope);
