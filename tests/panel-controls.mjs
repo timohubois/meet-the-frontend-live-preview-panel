@@ -98,7 +98,7 @@ test('in-page popovers escape the panel stacking context while fullscreen and Pi
 test('viewport choices use native Toolbar buttons and pressed-state behavior', () => {
     const h = fixture();
     assert.equal(h.nodes('Toolbar')[0].props.label, 'Screen size');
-    assert.deepEqual(h.nodes('ToolbarButton').map(({ props }) => props.label), ['Computer', 'Tablet', 'Phone']);
+    assert.deepEqual(h.nodes('ToolbarButton').map(({ props }) => props.label), ['Desktop', 'Tablet', 'Phone']);
     const buttons = h.nodes('ToolbarButton');
     assert.equal(buttons.length, 3);
     assert.deepEqual(buttons.map(({ props }) => props.isPressed), [true, false, false]);

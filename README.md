@@ -22,7 +22,7 @@ Installable packages already include the built assets. GitHub's automatic source
 
 ## Usage
 
-Move the preview by its titlebar and resize it from its borders or corners. Use **Preview options** for docking, fullscreen, **Keep on top** (Picture-in-Picture) where supported, and preferences. Computer, Tablet and Phone presets and the Zoom control let you inspect different viewport sizes without changing the panel size. Window movement and resizing are also available from the keyboard.
+Move the preview by its titlebar and resize it from its borders or corners. Use **Preview options** for docking, fullscreen, **Keep on top** (Picture-in-Picture) where supported, and preferences. Desktop, Tablet and Phone presets and the Zoom control let you inspect different viewport sizes without changing the panel size. Window movement and resizing are also available from the keyboard.
 
 **Scroll to my changes** follows detected changes when possible; turn it off to retain manual positioning. Panel visibility, layout and viewport preferences are stored per user across posts and editors.
 

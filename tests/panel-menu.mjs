@@ -402,6 +402,8 @@ async function nativeNoticeTests(strings) {
 }
 
 async function nativeViewportControlTests(strings) {
+    // Use a translated label wider than the footer’s original fixed space reservation.
+    strings = { ...strings, mobile: 'Téléphone portable' };
     const results = [];
     const pause = () => new Promise((resolve) => setTimeout(resolve, 30));
     const check = (condition, message) => { if (!condition) throw new Error(message); };
@@ -412,7 +414,7 @@ async function nativeViewportControlTests(strings) {
         panel.dir = width === 480 ? 'rtl' : 'ltr';
         panel.dataset.hasPreview = 'true';
         panel.style.cssText = `position:relative;width:${width}px;height:340px`;
-        panel.innerHTML = '<header class="mtflpp-header"><div class="mtflpp-move-control"></div><div class="mtflpp-refresh-control"></div><div class="mtflpp-titlebar">Preview</div><div class="mtflpp-controls"></div></header><div class="mtflpp-feedback" hidden></div><div class="mtflpp-viewport"><div class="mtflpp-canvas" role="region" aria-label="Preview canvas" tabindex="-1"><div class="mtflpp-canvas-space"><div class="mtflpp-stage"></div></div></div><div class="mtflpp-empty" hidden></div><div class="mtflpp-pip-control"></div></div><footer class="mtflpp-devicebar"><div class="mtflpp-device-controls"></div><div class="mtflpp-viewport-controls"><span class="mtflpp-dimensions"></span><div class="mtflpp-fit-control"></div></div></footer>';
+        panel.innerHTML = '<header class="mtflpp-header"><div class="mtflpp-move-control"></div><div class="mtflpp-refresh-control"></div><div class="mtflpp-titlebar">Preview</div><div class="mtflpp-controls"></div></header><div class="mtflpp-feedback" hidden></div><div class="mtflpp-viewport"><div class="mtflpp-canvas" role="region" aria-label="Preview canvas" tabindex="-1"><div class="mtflpp-canvas-space"><div class="mtflpp-stage"></div></div></div><div class="mtflpp-empty" hidden></div><div class="mtflpp-pip-control"></div></div><footer class="mtflpp-devicebar"><div class="mtflpp-device-controls"></div><div class="mtflpp-viewport-controls"><span class="mtflpp-dimensions"><span class="mtflpp-dimensions-text"></span></span><div class="mtflpp-fit-control"></div></div></footer>';
         document.body.append(panel);
         let controls, viewport, state, frame;
         const sync = () => {
@@ -422,7 +424,7 @@ async function nativeViewportControlTests(strings) {
             controls.update(state);
         };
         try {
-            viewport = window.previewControls.createPreviewViewport(panel.querySelector('.mtflpp-viewport'), panel.querySelector('.mtflpp-stage'), panel.querySelector('.mtflpp-dimensions'), { device: 'tablet' }, sync);
+            viewport = window.previewControls.createPreviewViewport(panel.querySelector('.mtflpp-viewport'), panel.querySelector('.mtflpp-stage'), panel.querySelector('.mtflpp-dimensions'), { device: 'tablet' }, sync, strings);
             state = {
                 inPage: mode === 'floating' || mode === 'expanded', inPip: mode === 'PiP', movable: mode === 'floating',
                 mode: 'expand', modeLabel: strings.expand, hasPreview: true, canRefresh: true,
@@ -445,9 +447,9 @@ async function nativeViewportControlTests(strings) {
                 await pause();
                 const canvas = panel.querySelector('.mtflpp-canvas');
                 check(canvas.clientWidth === 480 && canvas.clientHeight === 300,
-                    `The default panel must hug the Computer preview: ${canvas.clientWidth}×${canvas.clientHeight}.`);
+                    `The default panel must hug the Desktop preview: ${canvas.clientWidth}×${canvas.clientHeight}.`);
                 check(viewport.zoomPercent === Math.min(100, Math.round(37.5 * devicePixelRatio)),
-                    'Computer Auto respects the fitting scale and the 100% cap.');
+                    'Desktop Auto respects the fitting scale and the 100% cap.');
                 // Around the footer's wrapping boundary, 100% used to wrap the footer,
                 // shrink the canvas and become a two-digit zoom that unwrapped it again.
                 panel.style.height = `${844 / viewport.dpr + 93}px`;
@@ -494,7 +496,11 @@ async function nativeViewportControlTests(strings) {
             const toggle = () => panel.querySelector('[data-action="zoom"]');
             check(toggle()?.classList.contains('components-button'), 'Use a native Button to open Zoom.');
             check(state.fit === 'automatic' && toggle().textContent === strings.automatic, 'The Zoom button shows only the mode name.');
-            check(panel.querySelector('.mtflpp-dimensions').textContent === `768 × 1024 px · ${state.zoomPercent}%`, 'The adjacent readout reports the viewport size and computed zoom.');
+            const readout = panel.querySelector('.mtflpp-dimensions');
+            check(readout.textContent === `Tablet (768 × 1024) · ${state.zoomPercent}%`, 'The readout reports the device, viewport size and computed zoom.');
+            const textRange = document.createRange();
+            textRange.selectNodeContents(readout);
+            check(Math.abs(textRange.getBoundingClientRect().right - readout.getBoundingClientRect().right) <= 1, 'The readout text aligns to the right of its reserved space.');
             check(!panel.querySelector('select[data-action="fit"]'), 'No separate fitting selector remains.');
             const toggleWidth = toggle().getBoundingClientRect().width;
             const choice = (popup, fit) => popup.querySelector(`input[type="radio"][value="${fit}"]`);
@@ -588,7 +594,7 @@ async function nativeViewportControlTests(strings) {
             await change('80');
             check(choice(popup, 'custom').checked && popup.querySelectorAll('input:checked').length === 1, '80% and 100% belong to the same, single Fixed zoom choice.');
             check(panel.querySelector('.mtflpp-stage').style.width === '768px' && panel.querySelector('.mtflpp-stage').style.height === '1024px', 'Custom zoom never edits the iframe geometry.');
-            check(panel.querySelector('.mtflpp-dimensions').textContent === '768 × 1024 px · 80%', 'Manual zoom updates the combined readout, not the mode button.');
+            check(panel.querySelector('.mtflpp-dimensions').textContent === 'Tablet (768 × 1024) · 80%', 'Manual zoom updates the combined readout, not the mode button.');
             await escape(popup);
             popup = await showZoom();
             check(popup.querySelector('input[type="number"]').value === '80', 'Reopening retains the fixed percentage.');
@@ -612,7 +618,7 @@ async function nativeViewportControlTests(strings) {
             check(tablet.getAttribute('aria-label') === `${strings.tablet} — ${strings.rotateLandscape}`, 'The selected button explains how to rotate.');
             tablet.click();
             await pause();
-            check(state.orientation === 'landscape' && panel.querySelector('.mtflpp-dimensions').textContent.startsWith('1024 × 768'), 'Reselecting the device rotates the viewport.');
+            check(state.orientation === 'landscape' && panel.querySelector('.mtflpp-dimensions').textContent.startsWith('Tablet (1024 × 768)'), 'Reselecting the device rotates the viewport.');
             check(tablet.getAttribute('aria-label') === `${strings.tablet} — ${strings.rotatePortrait}`, 'The next rotation action has the correct accessible name.');
             check(tablet.classList.contains('mtflpp-device-rotated'), 'The selected device icon shows landscape orientation.');
             checkIcons();
@@ -631,7 +637,7 @@ async function nativeViewportControlTests(strings) {
             check(!desktop.classList.contains('mtflpp-device-rotated'), 'Desktop starts with its normal landscape icon.');
             desktop.click();
             await pause();
-            check(state.orientation === 'landscape' && panel.querySelector('.mtflpp-dimensions').textContent.startsWith('1280 × 800'), 'Reselecting desktop keeps its landscape viewport.');
+            check(state.orientation === 'landscape' && panel.querySelector('.mtflpp-dimensions').textContent.startsWith('Desktop (1280 × 800)'), 'Reselecting desktop keeps its landscape viewport.');
             check(!desktop.classList.contains('mtflpp-device-rotated'), 'The desktop icon never rotates.');
             check(desktop.getAttribute('aria-label') === strings.desktop, 'Desktop must not offer rotation in its accessible name or tooltip.');
             checkIcons();

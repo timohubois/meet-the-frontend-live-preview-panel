@@ -47,7 +47,7 @@ export function createPreviewPanel(strings, {
         device: preferences.get(scope, 'viewport'), fit: preferences.get(scope, 'fitMode') ?? defaultFit,
         customZoom: preferences.get(scope, 'customZoom'),
         tabletOrientation: preferences.get(scope, 'tabletOrientation'), mobileOrientation: preferences.get(scope, 'mobileOrientation'),
-    }, () => syncControls());
+    }, () => syncControls(), strings);
 
     const editorWrap = mainDocument.querySelector('#wpbody-content > .wrap');
     const adminBar = mainDocument.getElementById('wpadminbar');

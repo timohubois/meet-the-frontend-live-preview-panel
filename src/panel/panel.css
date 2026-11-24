@@ -344,14 +344,27 @@
     background: transparent;
 }
 .mtflpp-dimensions {
-    /* Reserve the full readout so zoom digit changes cannot wrap the footer and change zoom again. */
-    min-inline-size: 20ch;
+    display: grid;
+    min-inline-size: 26ch;
     color: var(--mtflpp-muted);
     font-size: 11px;
     font-variant-numeric: tabular-nums;
+    text-align: end;
     white-space: nowrap;
     direction: ltr;
     unicode-bidi: isolate;
+}
+.mtflpp-dimensions::before,
+.mtflpp-dimensions-text {
+    grid-area: 1 / 1;
+}
+/* Let the localized reserve size the readout, not the changing percentage. */
+.mtflpp-dimensions::before {
+    content: attr(data-reserve);
+    visibility: hidden;
+}
+.mtflpp-dimensions-text {
+    contain: inline-size;
 }
 .mtflpp-actions {
     flex-shrink: 0;

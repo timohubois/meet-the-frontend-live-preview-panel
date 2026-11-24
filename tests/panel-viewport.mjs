@@ -56,7 +56,8 @@ function fixture(saved = {}, width = 480, height = 248, motion = false, scrollba
         querySelector: (selector) => selector === '.mtflpp-canvas' ? canvas : space,
     };
     const stage = { style: {} }, dimensions = { textContent: '' };
-    const viewport = createPreviewViewport(container, stage, dimensions, saved, onChange);
+    const readout = { dataset: {}, querySelector: () => dimensions };
+    const viewport = createPreviewViewport(container, stage, readout, saved, onChange);
     viewport.layout();
     return {
         viewport, container, canvas, space, stage, dimensions, observers, mainWindow, pipWindow, frames,
@@ -69,11 +70,11 @@ function fixture(saved = {}, width = 480, height = 248, motion = false, scrollba
 }
 
 const views = [
-    { device: 'desktop', width: 1280, height: 800 },
-    { device: 'tablet', width: 768, height: 1024 },
-    { device: 'tablet', tabletOrientation: 'landscape', width: 1024, height: 768 },
-    { device: 'mobile', width: 390, height: 844 },
-    { device: 'mobile', mobileOrientation: 'landscape', width: 844, height: 390 },
+    { device: 'desktop', label: 'Desktop', width: 1280, height: 800 },
+    { device: 'tablet', label: 'Tablet', width: 768, height: 1024 },
+    { device: 'tablet', label: 'Tablet', tabletOrientation: 'landscape', width: 1024, height: 768 },
+    { device: 'mobile', label: 'Phone', width: 390, height: 844 },
+    { device: 'mobile', label: 'Phone', mobileOrientation: 'landscape', width: 844, height: 390 },
 ];
 const fits = ['automatic', 'window', 'width', 'custom'];
 const expectedScale = (fit, aw, ah, width, height, dpr = 1) => {
@@ -97,7 +98,7 @@ for (const [name, width, height] of [['floating', 480, 248], ['expanded', 1240, 
             assert.equal(h.space.style.height, `${Math.max(height, top + view.height * scale)}px`);
             const navigable = ['width', 'custom'].includes(fit);
             assert.equal(h.canvas.tabIndex, navigable && (view.height * scale > height + 0.01 || view.width * scale > width + 0.01) ? 0 : -1);
-            assert.equal(h.dimensions.textContent, `${view.width} × ${view.height} px · ${h.viewport.zoomPercent}%`);
+            assert.equal(h.dimensions.textContent, `${view.label} (${view.width} × ${view.height}) · ${h.viewport.zoomPercent}%`);
             assert.equal(h.viewport.zoomPercent, Math.round(scale * dpr * 100));
         });
     }
@@ -237,7 +238,7 @@ test('Automatic is the default and allows blank canvas on all four sides without
     assert.equal(h.stage.style.top, '178px');
     assert.equal(h.stage.style.width, '390px');
     assert.equal(h.stage.style.height, '844px');
-    assert.equal(h.dimensions.textContent, `390 × 844 px · ${h.viewport.zoomPercent}%`);
+    assert.equal(h.dimensions.textContent, `Phone (390 × 844) · ${h.viewport.zoomPercent}%`);
     assert.equal(h.viewport.zoomPercent, 100);
 });
 
@@ -248,7 +249,7 @@ test('Automatic corrects DPR before deciding whether a 1:1 mobile viewport fits'
     assert.equal(h.stage.style.height, '844px');
     assert.equal(h.stage.style.left, '352.5px');
     assert.equal(h.stage.style.top, '161px');
-    assert.equal(h.dimensions.textContent, `390 × 844 px · ${h.viewport.zoomPercent}%`);
+    assert.equal(h.dimensions.textContent, `Phone (390 × 844) · ${h.viewport.zoomPercent}%`);
     assert.equal(h.viewport.zoomPercent, 100);
 });
 
@@ -273,7 +274,7 @@ test('portrait Auto fits the available height without an outer scrollbar', () =>
     assert.equal(h.stage.style.transform, `scale(${339 / 844})`);
     assert.equal(h.stage.style.width, '390px');
     assert.equal(h.stage.style.height, '844px');
-    assert.equal(h.dimensions.textContent, `390 × 844 px · ${h.viewport.zoomPercent}%`);
+    assert.equal(h.dimensions.textContent, `Phone (390 × 844) · ${h.viewport.zoomPercent}%`);
     assert.equal(h.viewport.zoomPercent, 40);
     assert.equal(h.canvas.tabIndex, -1);
     assert.equal(h.canvas.style.overflowY, 'hidden');
@@ -330,7 +331,7 @@ test('DPR changes relayout the camera and rearm exactly one resolution listener 
         assert.equal(h.stage.style.transform, `scale(${1 / dpr})`);
         assert.equal(h.stage.style.width, '390px');
         assert.equal(h.stage.style.height, '844px');
-        assert.equal(h.dimensions.textContent, `390 × 844 px · ${h.viewport.zoomPercent}%`);
+        assert.equal(h.dimensions.textContent, `Phone (390 × 844) · ${h.viewport.zoomPercent}%`);
         assert.equal(h.viewport.zoomPercent, 100);
         const active = h.mainWindow.mediaQueries.filter((query) => query.media.startsWith('(resolution:') && query.listeners.size);
         assert.equal(active.length, 1);
@@ -343,7 +344,7 @@ test('window resize is a fallback when a DPR change does not dispatch a resoluti
     h.mainWindow.devicePixelRatio = 2;
     h.mainWindow.resize();
     assert.equal(h.stage.style.transform, 'scale(0.5)');
-    assert.equal(h.dimensions.textContent, `390 × 844 px · ${h.viewport.zoomPercent}%`);
+    assert.equal(h.dimensions.textContent, `Phone (390 × 844) · ${h.viewport.zoomPercent}%`);
     assert.equal(h.viewport.zoomPercent, 100);
     assert.equal(h.mainWindow.resizeListeners.size, 1);
 });
@@ -354,7 +355,7 @@ test('DPR changes update width-fit reporting without changing its CSS zoom or lo
     const before = h.canvas.scrollTop;
     h.mainWindow.setPixelRatio(2);
     assert.equal(h.stage.style.transform, `scale(${480 / 390})`);
-    assert.equal(h.dimensions.textContent, `390 × 844 px · ${h.viewport.zoomPercent}%`);
+    assert.equal(h.dimensions.textContent, `Phone (390 × 844) · ${h.viewport.zoomPercent}%`);
     assert.equal(h.viewport.zoomPercent, 246);
     assert.equal(h.canvas.scrollTop, before);
 });
@@ -378,7 +379,7 @@ test('PiP uses its own DPR and removes resolution listeners from the previous wi
     h.container.ownerDocument = { defaultView: h.mainWindow };
     h.viewport.afterMove();
     assert.equal(h.stage.style.transform, 'scale(1)');
-    assert.equal(h.dimensions.textContent, `390 × 844 px · ${h.viewport.zoomPercent}%`);
+    assert.equal(h.dimensions.textContent, `Phone (390 × 844) · ${h.viewport.zoomPercent}%`);
     assert.equal(h.viewport.zoomPercent, 100);
 });
 
@@ -388,7 +389,7 @@ test('unavailable or invalid DPR values safely fall back to one', () => {
         h.mainWindow.devicePixelRatio = value;
         h.viewport.layout();
         assert.equal(h.stage.style.transform, 'scale(1)');
-        assert.equal(h.dimensions.textContent, `390 × 844 px · ${h.viewport.zoomPercent}%`);
+        assert.equal(h.dimensions.textContent, `Phone (390 × 844) · ${h.viewport.zoomPercent}%`);
         assert.equal(h.viewport.zoomPercent, 100);
     }
 });
@@ -397,14 +398,14 @@ test('Fit to window and Fit to width can both enlarge beyond 100%, without chang
     const h = fixture({ device: 'mobile' }, 900, 1200);
     h.viewport.setFit('window');
     assert.equal(h.stage.style.transform, `scale(${1200 / 844})`);
-    assert.equal(h.dimensions.textContent, `390 × 844 px · ${h.viewport.zoomPercent}%`);
+    assert.equal(h.dimensions.textContent, `Phone (390 × 844) · ${h.viewport.zoomPercent}%`);
     assert.equal(h.viewport.zoomPercent, 142);
     h.viewport.setFit('width');
     assert.equal(h.stage.style.transform, `scale(${900 / 390})`);
     assert.equal(h.stage.style.height, '844px');
     assert.equal(h.stage.style.top, '0px');
     assert.equal(h.canvas.tabIndex, 0);
-    assert.equal(h.dimensions.textContent, `390 × 844 px · ${h.viewport.zoomPercent}%`);
+    assert.equal(h.dimensions.textContent, `Phone (390 × 844) · ${h.viewport.zoomPercent}%`);
     assert.equal(h.viewport.zoomPercent, 231);
 });
 
@@ -542,7 +543,7 @@ test('orientation motion animates only zoom; CSS dimensions immediately match th
     h.advance(100);
     assert.equal(h.stage.style.width, '844px');
     assert.equal(h.stage.style.height, '390px');
-    assert.equal(h.dimensions.textContent, `844 × 390 px · ${h.viewport.zoomPercent}%`);
+    assert.equal(h.dimensions.textContent, `Phone (844 × 390) · ${h.viewport.zoomPercent}%`);
     h.viewport.layout();
     assert.equal(h.frames.size, 0);
     assert.equal(h.stage.style.transform, `scale(${480 / 844})`);
@@ -600,7 +601,7 @@ async function browserTests({ source, css }) {
         panel.dir = pw === 480 ? 'rtl' : 'ltr';
         panel.dataset.hasPreview = 'false';
         panel.style.cssText = `position:relative;width:${pw}px;height:${ph}px`;
-        panel.innerHTML = '<header class="mtflpp-header"></header><div class="mtflpp-viewport"><div class="mtflpp-canvas" role="region" aria-label="Preview canvas" tabindex="-1"><div class="mtflpp-canvas-space"><div class="mtflpp-stage"><iframe class="mtflpp-frame" title="Test preview"></iframe></div></div></div></div><footer class="mtflpp-devicebar" style="height:48px"><span class="mtflpp-dimensions"></span></footer>';
+        panel.innerHTML = '<header class="mtflpp-header"></header><div class="mtflpp-viewport"><div class="mtflpp-canvas" role="region" aria-label="Preview canvas" tabindex="-1"><div class="mtflpp-canvas-space"><div class="mtflpp-stage"><iframe class="mtflpp-frame" title="Test preview"></iframe></div></div></div></div><footer class="mtflpp-devicebar" style="height:48px"><span class="mtflpp-dimensions"><span class="mtflpp-dimensions-text"></span></span></footer>';
         document.body.append(panel);
         const container = panel.querySelector('.mtflpp-viewport'), stage = panel.querySelector('.mtflpp-stage');
         const canvas = panel.querySelector('.mtflpp-canvas');
@@ -639,7 +640,7 @@ async function browserTests({ source, css }) {
             const rect = stage.getBoundingClientRect(), bounds = canvas.getBoundingClientRect();
             close(rect.width, width * scale, 'Painted width');
             close(rect.height, height * scale, 'Painted height');
-            check(panel.querySelector('.mtflpp-dimensions').textContent === `${width} × ${height} px · ${viewport.zoomPercent}%`, 'The readout reports fixed CSS dimensions and current zoom.');
+            check(panel.querySelector('.mtflpp-dimensions').textContent === `${{ desktop: 'Desktop', tablet: 'Tablet', mobile: 'Phone' }[device]} (${width} × ${height}) · ${viewport.zoomPercent}%`, 'The readout reports fixed CSS dimensions and current zoom.');
             check(viewport.zoomPercent === Math.round(scale * devicePixelRatio * 100), 'Publish the computed DPR-corrected zoom for the single Zoom control.');
             const overflowX = fit === 'custom' && rect.width > canvas.clientWidth + 0.01;
             const overflowY = (widthFirst || fit === 'custom') && rect.height > canvas.clientHeight + 0.01;
@@ -704,7 +705,7 @@ test('trusted Chromium verifies independent scrolling and DPR-corrected physical
                 <div class="mtflpp-canvas" role="region" aria-label="Preview canvas" tabindex="-1">
                     <div class="mtflpp-canvas-space"><div class="mtflpp-stage"></div></div>
                 </div>
-            </div><footer class="mtflpp-devicebar" style="height:48px"><span class="mtflpp-dimensions"></span></footer>
+            </div><footer class="mtflpp-devicebar" style="height:48px"><span class="mtflpp-dimensions"><span class="mtflpp-dimensions-text"></span></span></footer>
         </section><script type="module">
         import { createPreviewViewport } from '/src/panel/viewport.js';
         import { createPreviewFrame } from '/src/preview/frame.js';
@@ -835,7 +836,7 @@ test('trusted Chromium verifies independent scrolling and DPR-corrected physical
                 assert.equal(after.width, 390);
                 assert.equal(after.height, 844);
                 assert.equal(after.page, state.page);
-                assert.equal(after.readout, `390 × 844 px · ${after.zoom}%`);
+                assert.equal(after.readout, `Phone (390 × 844) · ${after.zoom}%`);
                 assert.equal(after.zoom, 100);
                 assert.deepEqual(await evaluate('[canvas.clientWidth, canvas.clientHeight]'), canvasSize, 'DPR changes must not resize the panel.');
                 const rect = await evaluate(`(() => {const r=frame.getBoundingClientRect(); return {x:r.x,y:r.y,width:r.width,height:r.height,scale:1};})()`);
@@ -848,7 +849,7 @@ test('trusted Chromium verifies independent scrolling and DPR-corrected physical
                 await evaluate(`viewport.setFit(${JSON.stringify(fit)})`);
                 const after = await evaluate(`({...canvasInputState(), readout:document.querySelector('.mtflpp-dimensions').textContent, paintedZoom:Math.round(document.querySelector('.mtflpp-stage').getBoundingClientRect().width / 390 * devicePixelRatio * 100)})`);
                 assert.equal(after.zoom, after.paintedZoom, 'The Zoom control consumes the same computed percentage as the painted preview.');
-                assert.equal(after.readout, `390 × 844 px · ${after.zoom}%`);
+                assert.equal(after.readout, `Phone (390 × 844) · ${after.zoom}%`);
                 assert.equal(after.width, 390);
                 assert.equal(after.height, 844);
                 assert.equal(after.page, state.page, 'Changing zoom must preserve the native page scroll position.');
