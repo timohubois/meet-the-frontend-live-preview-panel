@@ -855,9 +855,12 @@ for (const fail of [false, true]) {
         vm.runInNewContext(entry, {
             window: { meetTheFrontendLivePreviewPanel: { strings: { bootFailed: 'Unavailable' } } },
             imports: {
+                '@wordpress/element': {},
                 './screens/block-editor.js': { createBlockEditor: () => { calls.push('observePreviewInputs'); return native; } },
-                './preview/live-preview.js': { createLivePreview: (config, editor) => {
+                './preview/live-preview.js': { createLivePreview: (config, editor, { inlineLauncher, nativeLauncher }) => {
                     assert.equal(editor, native);
+                    assert.equal(inlineLauncher, undefined, 'Gutenberg does not add an in-page launcher.');
+                    assert.equal(nativeLauncher, undefined, 'Keep the floating launcher when the native menu API is unavailable.');
                     calls.push('preview');
                     if (fail) throw new Error('Fixture failure');
                     return session;
@@ -868,3 +871,68 @@ for (const fail of [false, true]) {
         assert.deepEqual(calls, fail ? ['observePreviewInputs', 'preview', 'destroy', 'notice'] : ['observePreviewInputs', 'preview', 'connect']);
     });
 }
+
+test('the block entry adds a separate action to the native View menu', async () => {
+    const entry = await sourceForVm(new URL('../src/block-editor.js', import.meta.url));
+    const PreviewMenuItem = () => {};
+    const calls = [];
+    const preview = { openFromLauncher: () => calls.push('open') };
+    const fallbackMedia = { matches: false };
+    let menu, options, viewHidden = false;
+    const view = { focus(settings) {
+        assert.equal(settings.preventScroll, true);
+        if (!viewHidden) {
+            document.activeElement = view;
+            calls.push('focus View');
+        }
+    } };
+    const editingArea = { focus(settings) {
+        assert.equal(settings.preventScroll, true);
+        document.activeElement = editingArea;
+        calls.push('focus editing area');
+    } };
+    const document = {
+        activeElement: null,
+        querySelector(selector) {
+            if (selector === '.editor-preview-dropdown__toggle') return view;
+            assert.equal(selector, '.interface-interface-skeleton__content[tabindex="-1"]');
+            return editingArea;
+        },
+    };
+    vm.runInNewContext(entry, {
+        window: {
+            meetTheFrontendLivePreviewPanel: { strings: {
+                showLivePreview: 'Show live preview', showLivePreviewHelp: 'See unsaved changes in a floating window.',
+            } },
+            matchMedia(query) {
+                assert.equal(query, '(max-width: 782px)');
+                return fallbackMedia;
+            },
+            wp: { editor: { PluginPreviewMenuItem: PreviewMenuItem }, plugins: {
+                registerPlugin(name, plugin) { assert.equal(name, 'meet-the-frontend-live-preview-panel'); menu = plugin; },
+            } },
+        },
+        document,
+        imports: {
+            '@wordpress/element': { createElement: (component, props, text) => ({ component, props, text }) },
+            './screens/block-editor.js': { createBlockEditor: () => ({ connect: (value) => assert.equal(value, preview) }) },
+            './preview/live-preview.js': { createLivePreview: (config, editor, settings) => { options = settings; return preview; } },
+            './panel/startup-error.js': { showStartupError: (message, error) => { throw error; } },
+        },
+    });
+    const action = menu.render();
+    assert.equal(action.component, PreviewMenuItem);
+    assert.equal(action.props.role, 'menuitem');
+    assert.equal(action.props.icon, null, 'Suppress the default plugin icon.');
+    assert.equal(action.props.info, 'See unsaved changes in a floating window.');
+    assert.equal(action.text, 'Show live preview');
+    action.props.onClick();
+    assert.equal(options.nativeLauncher.fallbackMedia, fallbackMedia);
+    options.nativeLauncher.focus();
+    assert.equal(document.activeElement, view);
+    viewHidden = true;
+    document.activeElement = null;
+    options.nativeLauncher.focus();
+    assert.equal(document.activeElement, editingArea);
+    assert.deepEqual(calls, ['open', 'focus View', 'focus editing area']);
+});

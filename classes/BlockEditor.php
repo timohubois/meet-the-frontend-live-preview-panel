@@ -54,7 +54,12 @@ final class BlockEditor
             'Return to editing this post to resume its live preview.',
             'meet-the-frontend-live-preview-panel'
         );
-        $this->panel->enqueue('block-editor', $config, ['wp-editor']);
+        $config['strings']['showLivePreview'] = __('Show live preview', 'meet-the-frontend-live-preview-panel');
+        $config['strings']['showLivePreviewHelp'] = __(
+            'See unsaved changes in a floating window.',
+            'meet-the-frontend-live-preview-panel'
+        );
+        $this->panel->enqueue('block-editor', $config, ['wp-editor', 'wp-plugins']);
     }
 
     public function renderPanel(): void
