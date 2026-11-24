@@ -4,18 +4,21 @@ import vm from 'node:vm';
 import { sourceForVm } from './helpers/modules.mjs';
 
 const editorSource = await sourceForVm(new URL('../src/classic-editor.js', import.meta.url));
+const termSource = await sourceForVm(new URL('../src/term-editor.js', import.meta.url));
 const revisionsSource = await sourceForVm(new URL('../src/revision-browser.js', import.meta.url));
 const failureSource = await sourceForVm(new URL('../src/panel/startup-error.js', import.meta.url));
 
 function fixture(screen, { configured = true, formAvailable = true, modelAvailable = true, fail = false } = {}) {
     const calls = [], removed = [], notices = [], errors = [];
     const model = { get() {}, on() {}, off() {} };
-    const launcher = {};
-    const form = { querySelector: (selector) => selector === '#mtflpp-publish-preview button' ? launcher : null };
+    const launcher = {}, setupAcfTermEditor = () => {};
+    const launcherId = { editor: 'mtflpp-publish-preview', term: 'mtflpp-term-preview' }[screen];
+    const form = { querySelector: (selector) => selector === `#${launcherId} button` ? launcher : null };
     const native = { destroy: () => calls.push('destroy') };
     const config = { strings: { bootFailed: 'Unavailable' } };
     const pluginIds = ['mtflpp-panel', 'mtflpp-toggle'];
-    if (screen === 'editor') pluginIds.push('mtflpp-publish-preview');
+    if (launcherId) pluginIds.push(launcherId);
+    const formId = screen === 'term' ? 'edittag' : 'post';
     const nodes = new Map(pluginIds.map((id) => [id, { remove: () => removed.push(id) }]));
     const context = {
         window: {
@@ -24,7 +27,7 @@ function fixture(screen, { configured = true, formAvailable = true, modelAvailab
             wp: modelAvailable ? { revisions: { view: { frame: { model } } } } : {},
         },
         document: {
-            getElementById: (id) => id === 'post' ? (formAvailable ? form : null)
+            getElementById: (id) => id === formId ? (formAvailable ? form : null)
                 : id === 'wpbody-content' ? { prepend: (node) => notices.push(node) } : nodes.get(id),
             createElement: () => ({ children: [], setAttribute() {}, append(node) { this.children.push(node); } }),
         },
@@ -45,6 +48,15 @@ function fixture(screen, { configured = true, formAvailable = true, modelAvailab
             calls.push('editor');
             if (fail) throw new Error('Fixture startup failure');
         } },
+        './compatibility/acf-term-editor.js': { setupAcfTermEditor },
+        './screens/term-editor.js': { initTermPreview(received, target, setup, button) {
+            assert.equal(received, config);
+            assert.equal(target, form);
+            assert.equal(setup, setupAcfTermEditor);
+            assert.equal(button, launcher);
+            calls.push('term');
+            if (fail) throw new Error('Fixture startup failure');
+        } },
         './screens/revision-browser.js': { initRevisionPreview(received, selection) {
             assert.equal(received, config);
             assert.equal(selection, model);
@@ -53,7 +65,7 @@ function fixture(screen, { configured = true, formAvailable = true, modelAvailab
         } },
         './panel/startup-error.js': { showStartupError },
     };
-    vm.runInNewContext(screen === 'editor' ? editorSource : revisionsSource, context);
+    vm.runInNewContext({ editor: editorSource, term: termSource, revisions: revisionsSource }[screen], context);
     return { calls, removed, notices, errors };
 }
 
@@ -78,6 +90,19 @@ for (const options of [{ configured: false }, { formAvailable: false }]) {
         assert.deepEqual(h.removed, []);
     });
 }
+
+test('term preview uses the button inside the native edit form', () => {
+    const h = fixture('term');
+    assert.deepEqual(h.calls, ['term']);
+    assert.equal(h.errors.length, 0);
+});
+
+test('term preview startup failure removes its button and panel without touching the native form', () => {
+    const h = fixture('term', { fail: true });
+    assert.deepEqual(h.calls, ['term']);
+    assert.deepEqual(h.removed, ['mtflpp-panel', 'mtflpp-toggle', 'mtflpp-term-preview']);
+    assert.equal(h.notices[0].children[0].textContent, 'Unavailable');
+});
 
 test('the revision entry uses the existing native selection without editor observers', () => {
     const h = fixture('revisions');

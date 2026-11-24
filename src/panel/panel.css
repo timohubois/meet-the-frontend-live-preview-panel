@@ -620,6 +620,9 @@
     padding-block-start: 6px; /* Keep a gap even when the row clears a float. */
     margin-block-end: 4px;
 }
+.mtflpp-term-launcher {
+    margin-block: 14px 4px;
+}
 .mtflpp-launcher-label {
     overflow: hidden;
     text-overflow: ellipsis;

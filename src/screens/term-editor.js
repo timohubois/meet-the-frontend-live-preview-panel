@@ -1,6 +1,6 @@
 import { createLivePreview } from '../preview/live-preview.js';
 
-export function initTermPreview(config, form, setupFields) {
+export function initTermPreview(config, form, setupFields, inlineLauncher) {
     const nameField = '.term-name-wrap input[name="name"]';
     const descriptionField = '.term-description-wrap textarea[name="description"]';
     const editorEvents = 'input change undo redo SetContent';
@@ -40,7 +40,7 @@ export function initTermPreview(config, form, setupFields) {
                 },
             };
         },
-    });
+    }, { inlineLauncher });
     fields = setupFields?.(config, form, preview.changed);
     function changed(event) {
         if (event.target.matches(nameField)) preview.setTitle(event.target.value);

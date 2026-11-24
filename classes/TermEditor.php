@@ -37,6 +37,7 @@ final class TermEditor
             return;
         }
 
+        add_action("{$term->taxonomy}_term_edit_form_top", [$this, 'renderLauncher']);
         $this->panel->enqueue('term-editor', [
             'endpoint' => rest_url('meet-the-frontend-live-preview-panel/v1/terms/' . $term->term_id . '/preview'),
             'termId' => $term->term_id,
@@ -51,6 +52,21 @@ final class TermEditor
                 ),
             ] + $this->panel->liveStrings(),
         ], ['jquery']);
+    }
+
+    public function renderLauncher(WP_Term $term): void
+    {
+        if ($this->editorTerm()?->term_id !== $term->term_id) {
+            return;
+        }
+        ?>
+        <div id="mtflpp-term-preview" class="mtflpp-term-launcher">
+            <button type="button" class="button button-secondary" aria-controls="mtflpp-panel"
+                aria-expanded="false" disabled>
+                <?php esc_html_e('Live Preview Changes', 'meet-the-frontend-live-preview-panel'); ?>
+            </button>
+        </div>
+        <?php
     }
 
     public function renderPanel(): void
