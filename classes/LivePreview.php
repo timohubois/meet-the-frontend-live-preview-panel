@@ -486,7 +486,7 @@ final class LivePreview
         $action = $this->stateAction($postId, $revisionId);
         return new WP_REST_Response([
             // Our state token authorizes this revision; native autosave parameters would select recovery data.
-            'url' => get_preview_post_link($post, [
+            'url' => FrontendPreview::previewUrl($post, [
                 'mtflpp_post' => $postId,
                 'mtflpp_revision' => $revisionId,
                 'mtflpp_token' => wp_create_nonce($action),

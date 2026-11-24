@@ -85,6 +85,15 @@ output such as Xdebug diagnostics, while the matcher itself stays dependency-neu
 behavior through the same WordPress hooks that external plugins and themes can use.
 Compatibility setup is imported by the browser entry points, not the core screen modules.
 
+## WordPress Posts page
+
+Live and saved-revision previews for the page assigned under **Settings → Reading**
+use its public permalink with the usual signed source arguments, but not core’s
+`preview=true` flag. After WordPress matches the posts index to that page, the
+plugin overlays a detached queried-page object and binds the normal read adapters.
+Native title displays can use the preview title; raw `get_post($id)` reads and the
+posts loop stay saved. Canonical routing and template selection remain with WordPress.
+
 ## Taxonomy term archives
 
 WordPress does not provide term revisions or native term previews. The term editor
