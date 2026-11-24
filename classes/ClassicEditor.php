@@ -12,7 +12,22 @@ final class ClassicEditor
         private readonly Panel $panel
     ) {
         add_action('admin_enqueue_scripts', [$this, 'enqueueEditor']);
+        add_action('post_submitbox_minor_actions', [$this, 'renderLauncher']);
         add_action('admin_footer', [$this, 'renderPanel']);
+    }
+
+    public function renderLauncher(WP_Post $post): void
+    {
+        if ($this->editorPost()?->ID !== $post->ID) {
+            return;
+        }
+        ?>
+        <div id="mtflpp-publish-preview" class="mtflpp-publish-launcher">
+            <button type="button" class="button" aria-controls="mtflpp-panel" aria-expanded="false" disabled>
+                <?php esc_html_e('Live Preview Changes', 'meet-the-frontend-live-preview-panel'); ?>
+            </button>
+        </div>
+        <?php
     }
 
     private function editorPost(): ?WP_Post

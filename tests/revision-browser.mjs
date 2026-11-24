@@ -13,6 +13,17 @@ const revision = (id, address = url(id)) => ({
 
 function fixture({ visible = true, selected = revision(11), isolated = false, excludedSelectors = [], deferRestore = false } = {}) {
     const timers = new Map(), listeners = new Map(), events = new Map(), reports = [], allFrames = [], scrolls = [];
+    const adjacent = [], classes = new Set(['mtflpp-launcher']);
+    const attributes = new Map();
+    const button = { setAttribute: (key, value) => attributes.set(key, value) };
+    const container = {
+        classList: { replace(from, to) { classes.delete(from); classes.add(to); } },
+        append: (element) => assert.equal(element, button),
+    };
+    const doc = {
+        getElementById: (id) => id === 'mtflpp-toggle' ? container : null,
+        createElement: (tag) => { assert.equal(tag, 'button'); return button; },
+    };
     const captures = [], comparisons = [], restorations = [], viewportChanges = [];
     let options, comparisonSelectors, nextTimer = 0, title = '', clears = 0, returned = 0;
     const children = [];
@@ -53,7 +64,7 @@ function fixture({ visible = true, selected = revision(11), isolated = false, ex
         fetch() { throw new Error('Revision browsing must not fetch a write endpoint.'); },
     };
     const strings = {
-        title: 'Revision preview', revisionLabel: '%1$s — %2$s', currentVersion: 'Current version',
+        title: 'Revision preview', previewRevision: 'Preview revision', revisionLabel: '%1$s — %2$s', currentVersion: 'Current version',
         updating: 'Updating', current: 'Loaded', stale: 'Pending', unavailable: 'Unavailable',
         failed: 'Failed', originMismatch: panelStrings.originMismatch,
     };
@@ -89,9 +100,11 @@ function fixture({ visible = true, selected = revision(11), isolated = false, ex
         } },
     };
     const init = vm.runInNewContext(`${source}\ninitRevisionPreview`, context);
-    init({ postId: 1, currentPreviewUrl: url(1), strings, comparisonExcludedSelectors: excludedSelectors }, model);
+    init({ postId: 1, currentPreviewUrl: url(1), strings, comparisonExcludedSelectors: excludedSelectors }, model, {
+        ownerDocument: doc, after: (element) => adjacent.push(element),
+    });
     return {
-        view, options, reports, children, allFrames, timers, scrolls, captures, comparisons, restorations, comparisonSelectors, listeners,
+        view, options, adjacent, classes, attributes, container, button, reports, children, allFrames, timers, scrolls, captures, comparisons, restorations, comparisonSelectors, listeners,
         viewportChanges,
         get title() { return title; }, get clears() { return clears; }, get returned() { return returned; },
         get last() { return reports.at(-1); },
@@ -115,6 +128,18 @@ function fixture({ visible = true, selected = revision(11), isolated = false, ex
         hide: (persisted = false) => events.get('pagehide')({ persisted }),
     };
 }
+
+test('the revision launcher uses a native text button next to the return link', () => {
+    const h = fixture({ visible: false });
+    assert.equal(h.options.inlineLauncher, h.button);
+    assert.equal(h.options.canRememberVisibility, false);
+    assert.deepEqual(h.adjacent, [h.container]);
+    assert.deepEqual([...h.classes], ['mtflpp-inline-launcher']);
+    assert.equal(h.button.type, 'button');
+    assert.equal(h.button.className, 'button-link');
+    assert.equal(h.button.textContent, 'Preview revision');
+    assert.equal(h.attributes.get('aria-controls'), 'mtflpp-panel');
+});
 
 test('revision selection intent follows accepted frames, not canceled selections or native navigation', async () => {
     const h = fixture();

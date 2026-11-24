@@ -2,6 +2,8 @@
 export function showStartupError(message, error) {
     document.getElementById('mtflpp-panel')?.remove();
     document.getElementById('mtflpp-toggle')?.remove();
+    document.getElementById('mtflpp-publish-preview')?.remove();
+    document.getElementById('mtflpp-term-preview')?.remove();
     const notice = document.createElement('div');
     notice.className = 'notice notice-error';
     notice.setAttribute('role', 'alert');

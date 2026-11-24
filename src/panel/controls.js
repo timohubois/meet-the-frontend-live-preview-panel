@@ -175,7 +175,10 @@ export function createPreviewControls(panel, strings, callbacks) {
     }
 
     function actionsMenu() {
-        const { canPip, canFullscreen, inPage, inPip, dock, rememberVisibility, rememberPosition, followChanges } = state;
+        const {
+            canPip, canFullscreen, inPage, inPip, dock,
+            canRememberVisibility, rememberVisibility, rememberPosition, followChanges,
+        } = state;
         return h(DropdownMenu, {
             className: 'mtflpp-actions', label: strings.actions, icon: icons.more, open,
             onToggle(value) {
@@ -208,7 +211,7 @@ export function createPreviewControls(panel, strings, callbacks) {
                 },
             })),
             h(MenuGroup, { label: strings.preferences },
-                h(MenuItem, {
+                canRememberVisibility !== false && h(MenuItem, {
                     role: 'menuitemcheckbox', isSelected: rememberVisibility, icon: rememberVisibility ? icons.check : undefined,
                     info: strings.rememberVisibilityHelp,
                     onClick: command(callbacks.rememberVisibility), 'data-action': 'remember-visibility',
@@ -263,7 +266,9 @@ export function createPreviewControls(panel, strings, callbacks) {
         empty.retry && h(Button, {
             key: 'retry', variant: 'primary', disabled: empty.disabled, onClick: callbacks.retry, 'data-action': 'retry',
         }, empty.action),
-        empty.close && h(Button, { key: 'close', variant: 'secondary', onClick: callbacks.close, 'data-action': 'close' }, strings.close),
+        empty.close && h(Button, {
+            key: 'close', variant: 'secondary', onClick: callbacks.close, 'data-action': 'close',
+        }, strings.close),
         empty.note && h('p', { className: 'mtflpp-empty-note' }, empty.note),
         );
     }

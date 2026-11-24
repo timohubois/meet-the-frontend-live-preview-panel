@@ -12,7 +12,9 @@ window.jQuery(() => {
             || typeof model.off !== 'function') {
             throw new Error('The native revision selection is unavailable.');
         }
-        initRevisionPreview(config, model);
+        const backLink = document.querySelector('#wpbody-content > .wrap > h1.long-header + a');
+        if (!backLink) throw new Error('The native revision header is unavailable.');
+        initRevisionPreview(config, model, backLink);
     } catch (error) {
         showStartupError(config.strings.bootFailed, error);
     }

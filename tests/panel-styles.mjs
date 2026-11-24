@@ -19,6 +19,29 @@ function browserTests({ core, panel, strings }) {
     document.body.append(shell, reference);
     const button = shell.querySelector('button');
     const results = [];
+    for (const [mode, layout] of [
+        ['float', '.save { float: left } .native { float: right }'],
+        ['flex', '.publish-actions { display: flex; flex-wrap: wrap; gap: 8px } .native { margin-inline-start: auto }'],
+    ]) {
+        const name = `Classic preview buttons are spaced and right-aligned in the ${mode} Publish box`;
+        const fixture = document.createElement('div');
+        fixture.innerHTML = `<style>${layout}</style>
+            <div class="publish-actions" style="width: 258px; padding: 10px">
+                <div class="save"><button>Save Draft</button></div>
+                <div class="native"><button>Preview</button></div>
+                <div class="mtflpp-publish-launcher" hidden><button>Live Preview Changes</button></div>
+            </div>`;
+        document.body.append(fixture);
+        const [save, native, live] = fixture.querySelectorAll('button');
+        const topLeft = (button) => [button.getBoundingClientRect().top, button.getBoundingClientRect().left].join();
+        const before = [topLeft(save), topLeft(native)].join();
+        live.parentElement.hidden = false;
+        const nativeRect = native.getBoundingClientRect(), liveRect = live.getBoundingClientRect();
+        results.push({ name, error: Math.abs(nativeRect.right - liveRect.right) > 0.5 || liveRect.top - nativeRect.bottom < 6
+            ? 'Live Preview Changes must sit at least 6 px below Preview, right-aligned.'
+            : before !== [topLeft(save), topLeft(native)].join() ? 'Native buttons must not move.' : undefined });
+        fixture.remove();
+    }
     const properties = ['color', 'backgroundColor', 'cursor', 'outlineStyle', 'outlineColor', 'outlineWidth', 'boxShadow', 'opacity', 'width', 'minWidth', 'height', 'padding', 'borderRadius'];
     const appearance = (element) => properties.map((property) => getComputedStyle(element)[property]);
     const shortcut = document.createElement('div');
@@ -193,5 +216,5 @@ test('panel styles preserve native surfaces, component states and balanced messa
         readFile(corePath, 'utf8'),
         readFile(new URL('../build/classic-editor.css', import.meta.url), 'utf8'),
     ]);
-    await runChromiumTests(t, { script: `(${browserTests.toString()})(${JSON.stringify({ core, panel, strings: panelStrings })})`, count: 14 });
+    await runChromiumTests(t, { script: `(${browserTests.toString()})(${JSON.stringify({ core, panel, strings: panelStrings })})`, count: 16 });
 });

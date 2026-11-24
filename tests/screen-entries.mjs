@@ -4,16 +4,22 @@ import vm from 'node:vm';
 import { sourceForVm } from './helpers/modules.mjs';
 
 const editorSource = await sourceForVm(new URL('../src/classic-editor.js', import.meta.url));
+const termSource = await sourceForVm(new URL('../src/term-editor.js', import.meta.url));
 const revisionsSource = await sourceForVm(new URL('../src/revision-browser.js', import.meta.url));
 const failureSource = await sourceForVm(new URL('../src/panel/startup-error.js', import.meta.url));
 
-function fixture(screen, { configured = true, formAvailable = true, modelAvailable = true, fail = false } = {}) {
+function fixture(screen, { configured = true, formAvailable = true, modelAvailable = true, headerAvailable = true, fail = false } = {}) {
     const calls = [], removed = [], notices = [], errors = [];
     const model = { get() {}, on() {}, off() {} };
-    const form = {};
+    const launcher = {}, backLink = {}, setupAcfTermEditor = () => {};
+    const launcherId = { editor: 'mtflpp-publish-preview', term: 'mtflpp-term-preview' }[screen];
+    const form = { querySelector: (selector) => selector === `#${launcherId} button` ? launcher : null };
     const native = { destroy: () => calls.push('destroy') };
     const config = { strings: { bootFailed: 'Unavailable' } };
-    const nodes = new Map(['mtflpp-panel', 'mtflpp-toggle'].map((id) => [id, { remove: () => removed.push(id) }]));
+    const pluginIds = ['mtflpp-panel', 'mtflpp-toggle'];
+    if (launcherId) pluginIds.push(launcherId);
+    const formId = screen === 'term' ? 'edittag' : 'post';
+    const nodes = new Map(pluginIds.map((id) => [id, { remove: () => removed.push(id) }]));
     const context = {
         window: {
             jQuery: (ready) => ready(),
@@ -21,7 +27,8 @@ function fixture(screen, { configured = true, formAvailable = true, modelAvailab
             wp: modelAvailable ? { revisions: { view: { frame: { model } } } } : {},
         },
         document: {
-            getElementById: (id) => id === 'post' ? (formAvailable ? form : null)
+            querySelector: (selector) => selector === '#wpbody-content > .wrap > h1.long-header + a' && headerAvailable ? backLink : null,
+            getElementById: (id) => id === formId ? (formAvailable ? form : null)
                 : id === 'wpbody-content' ? { prepend: (node) => notices.push(node) } : nodes.get(id),
             createElement: () => ({ children: [], setAttribute() {}, append(node) { this.children.push(node); } }),
         },
@@ -35,21 +42,32 @@ function fixture(screen, { configured = true, formAvailable = true, modelAvailab
             calls.push('observe');
             return native;
         } },
-        './screens/classic-editor.js': { initLivePreview(received, observer) {
+        './screens/classic-editor.js': { initLivePreview(received, observer, button) {
             assert.equal(received, config);
             assert.equal(observer, native);
+            assert.equal(button, launcher);
             calls.push('editor');
             if (fail) throw new Error('Fixture startup failure');
         } },
-        './screens/revision-browser.js': { initRevisionPreview(received, selection) {
+        './compatibility/acf-term-editor.js': { setupAcfTermEditor },
+        './screens/term-editor.js': { initTermPreview(received, target, setup, button) {
+            assert.equal(received, config);
+            assert.equal(target, form);
+            assert.equal(setup, setupAcfTermEditor);
+            assert.equal(button, launcher);
+            calls.push('term');
+            if (fail) throw new Error('Fixture startup failure');
+        } },
+        './screens/revision-browser.js': { initRevisionPreview(received, selection, adjacentLink) {
             assert.equal(received, config);
             assert.equal(selection, model);
+            assert.equal(adjacentLink, backLink);
             calls.push('revisions');
             if (fail) throw new Error('Fixture startup failure');
         } },
         './panel/startup-error.js': { showStartupError },
     };
-    vm.runInNewContext(screen === 'editor' ? editorSource : revisionsSource, context);
+    vm.runInNewContext({ editor: editorSource, term: termSource, revisions: revisionsSource }[screen], context);
     return { calls, removed, notices, errors };
 }
 
@@ -62,7 +80,7 @@ test('the editor observes native operations and initializes synchronously withou
 test('editor initialization failure detaches native observers and removes only plugin UI', () => {
     const h = fixture('editor', { fail: true });
     assert.deepEqual(h.calls, ['observe', 'editor', 'destroy']);
-    assert.deepEqual(h.removed, ['mtflpp-panel', 'mtflpp-toggle']);
+    assert.deepEqual(h.removed, ['mtflpp-panel', 'mtflpp-toggle', 'mtflpp-publish-preview']);
     assert.equal(h.notices[0].children[0].textContent, 'Unavailable');
     assert.equal(h.errors.length, 1);
 });
@@ -75,13 +93,26 @@ for (const options of [{ configured: false }, { formAvailable: false }]) {
     });
 }
 
+test('term preview uses the button inside the native edit form', () => {
+    const h = fixture('term');
+    assert.deepEqual(h.calls, ['term']);
+    assert.equal(h.errors.length, 0);
+});
+
+test('term preview startup failure removes its button and panel without touching the native form', () => {
+    const h = fixture('term', { fail: true });
+    assert.deepEqual(h.calls, ['term']);
+    assert.deepEqual(h.removed, ['mtflpp-panel', 'mtflpp-toggle', 'mtflpp-term-preview']);
+    assert.equal(h.notices[0].children[0].textContent, 'Unavailable');
+});
+
 test('the revision entry uses the existing native selection without editor observers', () => {
     const h = fixture('revisions');
     assert.deepEqual(h.calls, ['revisions']);
     assert.equal(h.errors.length, 0);
 });
 
-for (const options of [{ modelAvailable: false }, { fail: true }]) {
+for (const options of [{ modelAvailable: false }, { headerAvailable: false }, { fail: true }]) {
     test(`revision startup failure preserves native comparison and restore with ${JSON.stringify(options)}`, () => {
         const h = fixture('revisions', options);
         assert.deepEqual(h.removed, ['mtflpp-panel', 'mtflpp-toggle']);

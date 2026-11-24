@@ -30,7 +30,7 @@ function browserTests({ core, css, geometry, source }) {
                 ${css}
                 </style></head><body><div id="wpadminbar"></div>
                 <div id="wpcontent"><div id="wpbody-content"><div class="wrap">Editor content</div></div></div>
-                <div id="mtflpp-toggle" class="mtflpp-launcher" hidden><button type="button" class="components-button is-secondary"><span class="mtflpp-launcher-label">Revision preview</span></button></div>
+                <div id="mtflpp-toggle" class="mtflpp-launcher" hidden><button type="button" class="components-button is-secondary"><span class="mtflpp-launcher-label">Floating live preview</span></button></div>
                 <section id="mtflpp-panel" class="mtflpp-panel" aria-labelledby="mtflpp-title" hidden>
                     <header class="mtflpp-header"><div class="mtflpp-move-control"><button>Move</button></div>
                         <div class="mtflpp-titlebar"><h2 id="mtflpp-title" class="mtflpp-caption">Live preview</h2></div>
@@ -41,8 +41,8 @@ function browserTests({ core, css, geometry, source }) {
                 </section></body></html>`);
             doc.close();
             const win = doc.defaultView;
-            // A left-edge corner remembered with the shorter editor launcher is also restored
-            // on revision screens. Measure the full text-only label.
+            // A saved corner may come from a screen or language with a shorter launcher label.
+            // Measure the full text-only label before fitting it.
             const saved = { bounds: { x: -348, y: -268, width: 480, height: 340 }, dock: null, anchor: 'right', expanded: false };
             const preferences = new Map([['panelOpen', false], ['layout', saved]]);
             const focusCalls = [];
@@ -95,7 +95,7 @@ function browserTests({ core, css, geometry, source }) {
             const initial = launcher.getBoundingClientRect();
             if (initial.left < viewportLeft - 1 || initial.right > viewportRight + 1
                 || initial.top < doc.getElementById('wpadminbar').getBoundingClientRect().bottom - 1 || initial.bottom > height + 1) {
-                throw new Error('Startup must fit the fully rendered revision launcher before any resize or scroll.');
+                throw new Error('Startup must fit the fully rendered floating launcher before any resize or scroll.');
             }
             if (preferences.get('layout') !== saved) throw new Error('Startup fitting must not rewrite the shared preferred corner.');
             actions.reset();

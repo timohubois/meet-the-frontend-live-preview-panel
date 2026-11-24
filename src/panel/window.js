@@ -6,7 +6,8 @@ import { createPanelGeometry } from './geometry.js';
 
 // Bind the PHP-rendered panel. Never capture fields, fetch previews, acquire locks or control native saves.
 export function createPreviewPanel(strings, {
-    postTitle = '', publicRedirect, onOpen, onClose, onRefresh, onRetry, beforeMove, afterMove, beforeViewportChange,
+    postTitle = '', publicRedirect, inlineLauncher, nativeLauncher, canRememberVisibility = true,
+    onOpen, onClose, onRefresh, onRetry, beforeMove, afterMove, beforeViewportChange,
 }) {
     const mainWindow = window;
     const mainDocument = document;
@@ -20,14 +21,14 @@ export function createPreviewPanel(strings, {
         rememberVisibility: true, rememberPosition: true, panelOpen: true, scrollToChanges: true, viewport: 'desktop',
         fitMode: defaultFit, customZoom: 100, tabletOrientation: 'portrait', mobileOrientation: 'portrait',
     });
+    const floatingLauncherAvailable = () => !inlineLauncher && (!nativeLauncher || nativeLauncher.fallbackMedia.matches);
     let rememberVisibility = preferences.get(scope, 'rememberVisibility') !== false;
     let rememberPosition = preferences.get(scope, 'rememberPosition') !== false;
     let followChanges = preferences.get(scope, 'scrollToChanges') !== false;
-    const showOnLoad = !rememberVisibility || preferences.get(scope, 'panelOpen') !== false;
-    const launcherContainer = mainDocument.getElementById('mtflpp-toggle');
+    const launcherContainer = inlineLauncher?.parentElement ?? mainDocument.getElementById('mtflpp-toggle');
     const panel = mainDocument.getElementById('mtflpp-panel');
     if (!launcherContainer || !panel) throw new Error('Preview panel markup is missing.');
-    const launcher = createPreviewLauncher(launcherContainer);
+    const launcher = inlineLauncher || createPreviewLauncher(launcherContainer);
 
     const move = panel.querySelector('.mtflpp-move-control');
     const resize = panel.querySelector('.mtflpp-resize');
@@ -69,7 +70,7 @@ export function createPreviewPanel(strings, {
         return { left, top, right, bottom, width: right - left, height: bottom - top };
     }
 
-    let visible = showOnLoad;
+    let visible = canRememberVisibility && (!rememberVisibility || preferences.get(scope, 'panelOpen') !== false);
     let pipWindow;
     const savedLayout = preferences.get(scope, 'layout');
     // Older layouts retain their last preset in the dock or, after dragging, the shared anchor.
@@ -259,7 +260,7 @@ export function createPreviewPanel(strings, {
     }
 
     function rememberPanelVisibility(value) {
-        if (rememberVisibility && preferences.get(scope, 'panelOpen') !== value) {
+        if (canRememberVisibility && rememberVisibility && preferences.get(scope, 'panelOpen') !== value) {
             preferenceActions.set(scope, 'panelOpen', value);
         }
     }
@@ -301,7 +302,7 @@ export function createPreviewPanel(strings, {
 
     function draw() {
         if (pipWindow) return;
-        if (!visible) {
+        if (!visible && floatingLauncherAvailable()) {
             const rect = launcherRect();
             const factor = geometry.anchorFactor;
             Object.assign(launcherContainer.style, {
@@ -348,7 +349,8 @@ export function createPreviewPanel(strings, {
         for (const edge of resizeEdges) edge.hidden = !movable || !usableEdge(edge.dataset.resizeEdge);
         const retry = takeOverAction || (current.canRetry && ['error', 'conflict'].includes(current.state));
         controls.update({
-            inPage, inPip: !!pipWindow, movable, dock: geometry.dock, rememberVisibility, rememberPosition, followChanges, device: responsiveViewport.device,
+            inPage, inPip: !!pipWindow, movable, dock: geometry.dock,
+            canRememberVisibility, rememberVisibility, rememberPosition, followChanges, device: responsiveViewport.device,
             busy: current.hasPreview && ['stale', 'loading', 'handover'].includes(current.state) && current.text !== strings.saving,
             empty: current.hasPreview ? null : {
                 ...presentation(), busy: ['loading', 'stale', 'ready', 'handover'].includes(current.state),
@@ -495,7 +497,7 @@ export function createPreviewPanel(strings, {
     resize.addEventListener('blur', () => resize.classList.remove('mtflpp-help-dismissed'));
     geometryControl(move);
     geometryControl(header);
-    geometryControl(launcher);
+    if (!inlineLauncher) geometryControl(launcher);
     geometryControl(resize, true);
     for (const edge of resizeEdges) geometryControl(edge, true, edge.dataset.resizeEdge);
     // Viewport corrections are temporary, not new saved layout preferences.
@@ -583,13 +585,36 @@ export function createPreviewPanel(strings, {
         }
     }
 
-    // Only explicit user opening/closing changes the preference, never coordinator cleanup or window moves.
+    function updateVisibility() {
+        panel.hidden = !visible;
+        launcherContainer.hidden = !inlineLauncher && (visible || !floatingLauncherAvailable());
+        launcher.setAttribute('aria-expanded', String(visible));
+    }
+
+    nativeLauncher?.fallbackMedia.addEventListener('change', () => {
+        draw();
+        updateVisibility();
+    });
+
+    // Only explicit opening and closing changes saved visibility.
     function closePanel() {
         controls.closeMenu();
         rememberPanelVisibility(false);
         onClose();
-        launcher.focus();
+        if (inlineLauncher || floatingLauncherAvailable()) launcher.focus();
+        else nativeLauncher.focus();
     }
+
+    function openFromLauncher(focus = true) {
+        if (visible) {
+            controls.focus('actions');
+            return;
+        }
+        rememberPanelVisibility(true);
+        onOpen();
+        if (visible && focus) controls.focus('actions');
+    }
+
     launcher.addEventListener('click', (event) => {
         if (launcherDragClick && event.detail !== 0) {
             launcherDragClick = false;
@@ -597,9 +622,7 @@ export function createPreviewPanel(strings, {
             return;
         }
         launcherDragClick = false;
-        rememberPanelVisibility(true);
-        onOpen();
-        if (visible && event.detail === 0) controls.focus('actions');
+        openFromLauncher(event.detail === 0);
     });
     controls = createPreviewControls(panel, strings, {
         refresh: () => { if (current.canRefresh) onRefresh(); },
@@ -655,10 +678,9 @@ export function createPreviewPanel(strings, {
     });
     report(strings.loading, 'loading', { canRetry: false });
     draw();
-    // Reveal only after binding controls and positioning the server-rendered panel.
-    panel.hidden = !visible;
-    launcherContainer.hidden = visible;
-    launcher.setAttribute('aria-expanded', String(visible));
+    // Reveal the positioned panel and enable any server-rendered launcher after binding controls.
+    updateVisibility();
+    if (inlineLauncher) inlineLauncher.disabled = false;
 
     return {
         // The coordinator owns frame contents; the panel owns their document and viewport geometry.
@@ -666,6 +688,7 @@ export function createPreviewPanel(strings, {
         canvasTarget: responsiveViewport.canvasTarget,
         get visible() { return visible; },
         get followChanges() { return followChanges; },
+        openFromLauncher,
         setVisible(value) {
             if (!value) {
                 controls.closeMenu();
@@ -675,9 +698,7 @@ export function createPreviewPanel(strings, {
             }
             visible = value;
             draw();
-            panel.hidden = !visible;
-            launcherContainer.hidden = visible;
-            launcher.setAttribute('aria-expanded', String(visible));
+            updateVisibility();
         },
         report,
         setTitle,

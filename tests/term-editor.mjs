@@ -27,15 +27,17 @@ test('term preview follows native fields even when a plugin duplicates or replac
         addEventListener: (type, callback) => handlers.set(type, callback),
     };
     const events = [], requests = [];
+    const launcher = {};
     let adapter;
     const preview = { start: () => events.push('started'), changed: () => events.push('changed'),
         setTitle: (value) => events.push(value) };
     const context = {
-        URLSearchParams,
+        URLSearchParams, launcher,
         window: { addEventListener() {} },
-        imports: { '../preview/live-preview.js': { createLivePreview(received, editor) {
+        imports: { '../preview/live-preview.js': { createLivePreview(received, editor, { inlineLauncher }) {
             assert.equal(received, config);
             assert.equal(editor.title, 'Saved name');
+            assert.equal(inlineLauncher, launcher);
             adapter = editor;
             return preview;
         } } },
@@ -45,7 +47,7 @@ test('term preview follows native fields even when a plugin duplicates or replac
         },
         config, form,
     };
-    vm.runInNewContext(`${source}\ninitTermPreview(config, form);`, context);
+    vm.runInNewContext(`${source}\ninitTermPreview(config, form, undefined, launcher);`, context);
     assert.deepEqual([...handlers.keys()], ['input', 'change']);
     name.value = "Changed O'Reilly";
     // A startup script re-renders the native row after we bind the form listeners.

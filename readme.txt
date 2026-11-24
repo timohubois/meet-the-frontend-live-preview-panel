@@ -3,7 +3,7 @@ Contributors: timohubois
 Tags: preview, editor
 Requires at least: 6.9
 Tested up to: 7.1
-Stable tag: 1.2.3
+Stable tag: 1.3.0
 Requires PHP: 8.3
 License: GPLv3 or later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
@@ -16,7 +16,7 @@ Meet the Frontend – Live Preview Panel shows unsaved changes in a movable, res
 
 **Features**
 
-* Move, resize or dock the panel without leaving the editor, using a mouse or keyboard.
+* Use **View → Show live preview** to open a movable, resizable preview in the Block Editor. In the classic editor, use **Live Preview Changes** in the Publish box. In the term editor, use **Live Preview Changes** above the Name field.
 * Inspect Desktop, Tablet and Phone viewports with rotation and zoom.
 * Follow detected content changes automatically, or keep your own scroll position.
 * See when the preview follows a same-site redirect or the saved public post URL redirects.
@@ -28,7 +28,7 @@ Save new posts as drafts first. Live post previews work even when WordPress revi
 
 1. Install and activate **Meet the Frontend – Live Preview Panel** through **Plugins > Add New**, or upload an installable plugin ZIP using **Upload Plugin**.
 2. Open a post, page or supported custom post type in the Block Editor or classic editor. Save new posts as drafts first. For a category, tag or public custom taxonomy term, open its **Edit** screen.
-3. Open **Live preview**, edit a supported field and the preview refreshes after a short pause.
+3. Open the live preview and edit a supported field. The preview refreshes after a short pause.
 
 == Frequently Asked Questions ==
 
@@ -54,7 +54,7 @@ Flynt is not required and has no separate integration.
 
 = Can I preview older revisions? =
 
-Yes. Open WordPress's revision history and use **Revision preview**. The panel follows the right-hand **To** selection without restoring it or changing your saved post.
+Yes. **Preview revision**, next to **Go to editor**, opens a floating window without narrowing the diff. It follows the right-hand **To** selection without restoring it or changing your saved post.
 
 Historical content and supported stored fields use your current theme and settings. The post's author, publication date, categories and tags remain current. Not every field has a historical value. Some values remain current, while missing historical values may be empty. This is a content preview, not a snapshot of the whole site.
 
@@ -66,13 +66,13 @@ Live updates pause during native saving or Preview, then resume. If the panel as
 
 = How do I adjust the preview? =
 
-Drag the titlebar to move the panel and its borders or corners to resize it. **Preview options** contains docking, reset and preference controls. Use the move grip or resize control with arrow keys, holding Shift for larger steps.
+Drag the floating window's titlebar to move it and its borders or corners to resize it. **Preview options** contains placement, reset and preference controls. Use the move grip or resize control with arrow keys, holding Shift for larger steps.
 
 Choose Desktop, Tablet or Phone and use Zoom to fit the preview or inspect it more closely. Click the selected Tablet or Phone button again to rotate it. These are viewport presets, not device or touch emulation.
 
 **Scroll to my changes** follows detected changes where possible. Turn it off to retain manual positioning; it does not operate custom tabs, sliders or other interactive widgets.
 
-Panel preferences are remembered across posts and editors. You can turn remembering of the open/closed state and window size and position on or off in **Preview options**.
+Panel preferences are remembered across posts and editors. In **Preview options**, you can turn off remembering the panel's size and position or, in the post and term editors, its open or closed state. Revisions always starts with the panel closed. Closing the floating panel stops live updates.
 
 Fullscreen and **Keep on top** appear only when supported. Keep on top uses Document Picture-in-Picture; your browser and desktop window manager control its availability and behavior. Neither mode reopens automatically or is required for the in-editor panel.
 
@@ -102,16 +102,21 @@ Report issues or contribute on [GitHub](https://github.com/timohubois/meet-the-f
 
 == Screenshots ==
 
-1. Preview unsaved changes alongside the Block Editor.
-2. Preview unsaved changes alongside the classic editor.
-3. Preview unsaved category names and descriptions on the category archive.
-4. Preview saved revisions without restoring them.
-5. Preview changes to supported ACF PRO Flexible Content fields.
+1. Open Show live preview from the Block Editor’s View menu to check how an unsaved headline wraps over the featured image.
+2. Use Live Preview Changes in the classic editor’s Publish box to see unsaved edits.
+3. Use Live Preview Changes above the Name field to preview unsaved category edits on the archive.
+4. Open Preview revision beside Go to editor to see a saved version without restoring it.
+5. Preview unsaved edits to ACF PRO Flexible Content fields in the classic editor.
 6. Check responsive layouts with device viewport presets.
-7. Enlarge the preview while keeping the editor in view.
+7. Resize the floating preview for a closer look while keeping the editor in view.
 8. Keep the preview in a separate Picture-in-Picture window where supported.
 
 == Changelog ==
+
+= 1.3.0 =
+* Open the floating live preview from the Block Editor's View menu. On narrow screens, use the floating launcher.
+* Open live previews from the Classic Editor's Publish box and from term edit screens, without replacing WordPress's native controls.
+* Use Preview revision next to Go to editor to see the selected revision without restoring it. The revision panel starts closed and leaves the comparison at full width.
 
 = 1.2.3 =
 * Keep the part you edited in view when switching or rotating preview devices, and follow more visible changes, including whitespace edits.

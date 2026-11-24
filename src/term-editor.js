@@ -7,7 +7,7 @@ const config = window.meetTheFrontendLivePreviewPanel;
 const form = document.getElementById('edittag');
 if (config && form) {
     try {
-        initTermPreview(config, form, setupAcfTermEditor);
+        initTermPreview(config, form, setupAcfTermEditor, form.querySelector('#mtflpp-term-preview button'));
     } catch (error) {
         showStartupError(config.strings.bootFailed, error);
     }
