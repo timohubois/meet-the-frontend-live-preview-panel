@@ -17,7 +17,7 @@ Meet the Frontend – Live Preview Panel shows unsaved changes in a movable, res
 **Features**
 
 * Move, resize or dock the panel without leaving the editor, using a mouse or keyboard.
-* Inspect Computer, Tablet and Phone viewports with rotation and zoom.
+* Inspect Desktop, Tablet and Phone viewports with rotation and zoom.
 * Follow detected content changes automatically, or keep your own scroll position.
 * See when the preview follows a same-site redirect or the saved public post URL redirects.
 * Remember panel preferences across posts and editors. Use fullscreen or **Keep on top** (Picture-in-Picture) where supported.
@@ -68,7 +68,7 @@ Live updates pause during native saving or Preview, then resume. If the panel as
 
 Drag the titlebar to move the panel and its borders or corners to resize it. **Preview options** contains docking, reset and preference controls. Use the move grip or resize control with arrow keys, holding Shift for larger steps.
 
-Choose Computer, Tablet or Phone and use Zoom to fit the preview or inspect it more closely. Click the selected Tablet or Phone button again to rotate it. These are viewport presets, not device or touch emulation.
+Choose Desktop, Tablet or Phone and use Zoom to fit the preview or inspect it more closely. Click the selected Tablet or Phone button again to rotate it. These are viewport presets, not device or touch emulation.
 
 **Scroll to my changes** follows detected changes where possible. Turn it off to retain manual positioning; it does not operate custom tabs, sliders or other interactive widgets.
 

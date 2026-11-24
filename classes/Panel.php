@@ -264,7 +264,7 @@ final class Panel
             'pixelZoomHelp' => __('100% = pixel for pixel.', 'meet-the-frontend-live-preview-panel'),
             'rotateLandscape' => __('Turn sideways', 'meet-the-frontend-live-preview-panel'),
             'rotatePortrait' => __('Turn upright', 'meet-the-frontend-live-preview-panel'),
-            'desktop' => __('Computer', 'meet-the-frontend-live-preview-panel'),
+            'desktop' => __('Desktop', 'meet-the-frontend-live-preview-panel'),
             'tablet' => __('Tablet', 'meet-the-frontend-live-preview-panel'),
             'mobile' => __('Phone', 'meet-the-frontend-live-preview-panel'),
             'expand' => __('Make preview bigger', 'meet-the-frontend-live-preview-panel'),

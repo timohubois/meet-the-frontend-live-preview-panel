@@ -1,5 +1,7 @@
 // Fixed CSS viewport geometry; the surrounding canvas changes only its visual zoom.
-export function createPreviewViewport(container, stage, dimensions, saved = {}, onChange = () => {}) {
+export function createPreviewViewport(container, stage, dimensions, saved = {}, onChange = () => {}, deviceLabels = {
+    desktop: 'Desktop', tablet: 'Tablet', mobile: 'Phone',
+}) {
     const mainWindow = container.ownerDocument.defaultView;
     const canvas = container.querySelector('.mtflpp-canvas');
     const space = container.querySelector('.mtflpp-canvas-space');
@@ -97,7 +99,7 @@ export function createPreviewViewport(container, stage, dimensions, saved = {}, 
         const changed = nextZoom !== zoomPercent || dpr !== lastDpr;
         zoomPercent = nextZoom;
         lastDpr = dpr;
-        const text = `${width} × ${height} px · ${fit === 'custom' ? customZoom : zoomPercent}%`;
+        const text = `${deviceLabels[device]} (${width} × ${height}) · ${fit === 'custom' ? customZoom : zoomPercent}%`;
         if (dimensions.textContent !== text) dimensions.textContent = text;
         if (changed) onChange();
         const from = scale ?? target;
