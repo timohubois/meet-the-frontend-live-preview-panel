@@ -225,7 +225,7 @@ try {
             }
             $block = $termBlock('core/term-description', $term);
             $check(str_contains($block->render(), '<strong>emphasis</strong>'), 'Contextual descriptions update too.');
-            if (class_exists(\Timber\Timber::class)) {
+            if (method_exists(\Timber\Term::class, 'wp_object')) {
                 $direct = \Timber\Timber::get_term($term->term_id);
                 $check($direct->name === $name && $direct->link() === get_term_link($term), 'Adapt Timber ID imports.');
                 $check(\Timber\Timber::get_term()->name === $name, 'Adapt Timber’s current archive lookup.');
@@ -249,19 +249,28 @@ try {
                 } finally {
                     remove_filter('timber/term/class', $customClass);
                 }
+            } elseif (class_exists(\Timber\Term::class)) {
+                $direct = new \Timber\Term($term->term_id, $term->taxonomy);
+                $archive = new \Timber\Term(clone get_queried_object());
+                $check($archive->title() === $name, 'Timber 1 can use the native queried preview term.');
+                $check($direct->title() === $term->name, 'Timber 1 raw term lookups must stay saved.');
+                $check(
+                    str_contains($direct->description(), '<strong>emphasis</strong>'),
+                    'Timber 1 descriptions must use the native preview display filters.'
+                );
             }
         });
         $withRequest($url, ['pagename' => 'nonexistent'], static function (int $status) use ($check, $term): void {
             $check($status === 200 && !has_filter('wp_template_enhancement_output_buffer'), 'Skip other URLs.');
             $check(!str_contains(term_description($term->term_id), 'First paragraph'), 'No off-target overlay.');
-            if (class_exists(\Timber\Timber::class)) {
+            if (method_exists(\Timber\Term::class, 'wp_object')) {
                 $check(\Timber\Timber::get_term($term->term_id)->name === $term->name, 'No off-target Timber overlay.');
             }
         });
         $withRequest(get_term_link($term), $query, static function (int $status) use ($check, $term): void {
             $check(single_term_title('', false) === $term->name && $status === 200, 'Keep the public archive saved.');
             $check(get_the_archive_description() === "<p>Saved description</p>\n", 'Leave public description intact.');
-            if (class_exists(\Timber\Timber::class)) {
+            if (method_exists(\Timber\Term::class, 'wp_object')) {
                 $check(\Timber\Timber::get_term()->name === $term->name, 'Public Timber imports stay saved.');
             }
             $type = WP_Block_Type_Registry::get_instance()->get_registered('core/term-description');
@@ -312,7 +321,7 @@ try {
                     }
                 }
                 $check(get_queried_object()->name === $name, 'Do not change the queried term during link generation.');
-                if (class_exists(\Timber\Timber::class)) {
+                if (method_exists(\Timber\Term::class, 'wp_object')) {
                     foreach ([$term->term_id, get_queried_object()] as $inputTerm) {
                         $item = \Timber\Timber::get_term($inputTerm);
                         $check($item->link() === $savedLink && $item->title() === $name, 'Keep the saved Timber URL.');
@@ -334,7 +343,7 @@ try {
         remove_filter('term_link', $nameLink);
     }
 
-    if (class_exists(\Timber\Timber::class)) {
+    if (method_exists(\Timber\Term::class, 'wp_object')) {
         $descriptionLink = static fn (string $url, \Timber\Term $item): string => $item->ID === $term->term_id
             ? add_query_arg('description-label', sanitize_title($item->description()), $url) : $url;
         $formatDescription = static fn (string $value, int $id): string => $id === $term->term_id
