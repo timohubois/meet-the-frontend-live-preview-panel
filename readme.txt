@@ -3,7 +3,7 @@ Contributors: timohubois
 Tags: preview, editor
 Requires at least: 6.9
 Tested up to: 7.1
-Stable tag: 1.2.3
+Stable tag: 1.3.0
 Requires PHP: 8.3
 License: GPLv3 or later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
@@ -112,6 +112,11 @@ Report issues or contribute on [GitHub](https://github.com/timohubois/meet-the-f
 8. Keep the preview in a separate Picture-in-Picture window where supported.
 
 == Changelog ==
+
+= 1.3.0 =
+* Open the floating live preview from the Block Editor's View menu. On narrow screens, use the floating launcher.
+* Open live previews from the Classic Editor's Publish box and from term edit screens, without replacing WordPress's native controls.
+* Use Preview revision next to Go to editor to see the selected revision without restoring it. The revision panel starts closed and leaves the comparison at full width.
 
 = 1.2.3 =
 * Keep the part you edited in view when switching or rotating preview devices, and follow more visible changes, including whitespace edits.
