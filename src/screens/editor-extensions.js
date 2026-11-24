@@ -84,6 +84,7 @@ export function createEditorExtensions(setupAction, context) {
                         type: 'order', value: JSON.stringify(submitted), members: JSON.stringify(submitted.sort()),
                     });
                 }
+                return Object.fromEntries(hooks.applyFilters('previewComparisonValues', result, body));
             } catch { /* Optional hints cannot break capture on an unavailable native form. */ }
             return Object.fromEntries(result);
         },

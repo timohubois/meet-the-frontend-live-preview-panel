@@ -11,7 +11,7 @@ export function createPreviewComparison(excludedSelectors = []) {
                 snapshots.set(doc, {
                     source: source ? contentSnapshot(source, doc, selectors) : null,
                     dom: contentSnapshot(doc, doc, selectors),
-                    values: values && Object.fromEntries(Object.entries(values).map(([key, value]) => [key, { ...value }])),
+                    values: values && structuredClone(values),
                 });
             } catch { /* An unreadable document must not block native output or scroll restoration. */ }
         },
@@ -24,18 +24,32 @@ export function createPreviewComparison(excludedSelectors = []) {
                 const edited = valuesChanged(before.values, after.values);
                 const captured = !!before.source && !!after.source;
                 const transition = !!before.source !== !!after.source;
+                const move = inputMove(before.values, after.values,
+                    captured && !edited && !inputOrderChanged(before.values, after.values));
+                const sourceChanges = captured ? changedCandidates(before.source, after.source, move, true) : [];
+                if (move?.boundaryGroups?.length) {
+                    const meaningful = sourceChanges.filter((item) => item.priority > 0);
+                    if (meaningful.length === 1 && meaningful[0].boundary) {
+                        return renderedBoundary(meaningful[0].boundary, after.source?.excluded);
+                    }
+                }
                 const candidates = [
-                    ...(captured ? changedCandidates(before.source, after.source).map((item) => ({ ...item, source: true })) : []),
-                    ...changedCandidates(before.dom, after.dom),
+                    ...sourceChanges.map((item) => ({ ...item, source: true })),
+                    ...changedCandidates(before.dom, after.dom, move),
                 ];
                 const rendered = new Map();
-                // With clean source, runtime-only mutations need author evidence. A known input
-                // change can support transformed/conditional DOM content without a literal match;
-                // unrelated DOM-only styling isn't enough. Correlated source/DOM signals aren't votes.
-                const eligible = rankCandidates(candidates, hints).filter((item) => (item.source || (!captured && !transition)
-                    || item.input || (edited && item.priority === 2)) && (item.priority > 0 || item.input)
+                const ranked = rankCandidates(candidates, hints).filter((item) => (item.priority > 0 || item.input)
                     && (!item.spacing || renderedSpacingChanged(item, rendered, after.dom?.excluded)));
-                return selectChange(eligible, !captured && (edited || inputOrderChanged(before.values, after.values)));
+                // When source is available, a field change alone cannot confirm live text or styling.
+                // Keep conditional insertions/removals as a fallback when there is no source change.
+                const mayFollowConditionalContent = captured && edited && !ranked.some((item) => item.source);
+                const eligible = ranked.filter((item) => item.source || item.input || (!captured && !transition)
+                    || (mayFollowConditionalContent && (item.kind === 'insert' || item.kind === 'delete')));
+                return selectChange(eligible, {
+                    rowMove: !!move, excluded: after.source?.excluded ?? after.dom?.excluded,
+                    canFollowLiveReorder: !captured && (edited || inputOrderChanged(before.values, after.values)),
+                    canFollowLiveMove: !captured && !transition,
+                });
             } catch { return null; } // Optional comparison must never prevent displaying native output.
         },
     };
@@ -84,7 +98,7 @@ function resolveRegion(candidate, hints, textOf) {
             && (oldMatches.length <= matchingEntries(candidate.newRange, hint.before, textOf, hint, true).length
                 || newMatches.length <= matchingEntries(candidate.oldRange, hint.after, textOf, hint, false).length)) continue;
         for (const entry of newMatches) {
-            if (wrapping && !oldMatches.some((old) => old.signature !== entry.signature)) continue;
+            if (wrapping && !oldMatches.some((old) => markupChanged(old, entry, textOf))) continue;
             resolved.push({
                 ...candidate, unresolved: false, before: null, after: entry,
                 kind: 'content', input: hint.before && hint.after ? 2 : 1, priority: 2, matches: [hint],
@@ -94,7 +108,7 @@ function resolveRegion(candidate, hints, textOf) {
     return resolved;
 }
 
-function selectChange(eligible, canFollowLiveReorder) {
+function selectChange(eligible, reorder) {
     if (!eligible.length) return null;
     // Ordered evidence, not percentages or added votes: paired input > one-sided input
     // > rendered-only; content/structure > presentation > unconfirmed reference churn.
@@ -102,7 +116,7 @@ function selectChange(eligible, canFollowLiveReorder) {
     const supported = eligible.filter((item) => item.input === bestInput);
     const priority = supported.reduce((best, item) => Math.max(best, item.priority), 0);
     const best = supported.filter((item) => item.priority === priority);
-    if (best.some((item) => item.unresolved)) return identifyRegion(best, canFollowLiveReorder);
+    if ((reorder.rowMove && !bestInput) || best.some((item) => item.unresolved)) return identifyRegion(best, reorder);
     // A wrapper can contain the same transition as its edited child without changing
     // that text itself. Prefer the precise child, but keep independently edited parent text.
     const precise = best.filter((item) => !item.input || item.directInput || !best.some((other) =>
@@ -129,7 +143,19 @@ function selectChange(eligible, canFollowLiveReorder) {
 
 // A local replacement or reorder can identify its container without identifying one edited child.
 // Do not combine unrelated changes or follow browser-only movement in a captured page.
-function identifyRegion(changes, canFollowLiveReorder) {
+function identifyRegion(changes, { rowMove, excluded, canFollowLiveReorder, canFollowLiveMove }) {
+    if (rowMove) {
+        const move = changes.find((item) => item.moved && (item.source || canFollowLiveMove));
+        const target = move?.moved.node;
+        if (!target?.isConnected || !move.after.node?.contains(target)) return null;
+        const onlyMove = changes.every((change) => change === move
+            || (move.source && !change.source && (change.moved || change.regionChange === 'reorder')));
+        if (!onlyMove) return null;
+        if (target.ownerDocument.defaultView.getComputedStyle(target).display !== 'contents') return target;
+        // A moved row needs a position inside that row, not an excluded or relocated child.
+        return findMappedElement(move.moved, (node) => target.contains(node)
+            && (!excluded || !node.closest(excluded)) && hasRenderedBox(node));
+    }
     const region = changes.find((item) => item.unresolved && (item.regionChange === 'replacement'
         || (item.regionChange === 'reorder' && (item.source || canFollowLiveReorder))));
     const node = region?.after.node;
@@ -174,24 +200,48 @@ function identifyElement(changes) {
     return identified.size === 1 ? identified.values().next().value : null;
 }
 
-function liveElement(entry) {
-    if (entry?.node) return entry.node;
+function findMappedElement(entry, eligible) {
+    if (entry?.node && eligible(entry.node)) return entry.node;
     for (const child of entry?.children || []) {
-        const node = liveElement(child);
+        const node = findMappedElement(child, eligible);
         if (node) return node;
     }
     return null;
 }
 
+function liveElement(entry) {
+    return findMappedElement(entry, () => true);
+}
+
+function hasRenderedBox(node) {
+    return node.getClientRects().length && node.ownerDocument.defaultView.getComputedStyle(node).visibility === 'visible';
+}
+
 function renderedElement(entry) {
-    const node = entry?.node;
-    if (node?.getClientRects().length
-        && node.ownerDocument.defaultView.getComputedStyle(node).visibility === 'visible') return node;
-    for (const child of entry?.children || []) {
-        const rendered = renderedElement(child);
-        if (rendered) return rendered;
+    return findMappedElement(entry, hasRenderedBox);
+}
+
+// The seam starts at the second box, regardless of which side the empty space moved to.
+function renderedBoundary({ before, after }, excluded) {
+    for (const [first, second] of [before, after]) {
+        const a = first.node, b = second.node;
+        if (!a?.isConnected || !b?.isConnected || a.nextElementSibling !== b) return null;
+        const boxes = [];
+        for (const node of [a, b]) {
+            const { position, marginTop, marginBottom } = node.ownerDocument.defaultView.getComputedStyle(node);
+            if ((excluded && node.closest(excluded)) || !hasRenderedBox(node) || !['static', 'relative'].includes(position)
+                || node.closest('[hidden], details:not([open])')
+                || node.checkVisibility?.({ opacityProperty: true, contentVisibilityAuto: true }) === false) return null;
+            const box = node.getBoundingClientRect();
+            // Empty blocks can occupy space through margins alone.
+            if (!box.height && !(parseFloat(marginTop) > 0 || parseFloat(marginBottom) > 0)) return null;
+            boxes.push(box);
+        }
+        const [firstBox, secondBox] = boxes;
+        if (firstBox.bottom > secondBox.top
+            || Math.max(firstBox.left, secondBox.left) >= Math.min(firstBox.right, secondBox.right)) return null;
     }
-    return null;
+    return after[1].node;
 }
 
 // The payload is data from this verified response, never inserted into the live DOM or executed.
@@ -343,8 +393,23 @@ function couldBeSeparateReplacements(before, after) {
     return false;
 }
 
-function changedCandidates(previous, next) {
+function changedCandidates(previous, next, move, cleanSource = false) {
     const identities = new Map(), keys = new Map(), presentationKeys = new Map(), exactKeys = new Map(), candidates = [];
+    let rowAnchors;
+    function matchesRow(old, dest, groups) {
+        rowAnchors ??= [uniqueRowAnchors(previous, new Set(groups.flat())), uniqueRowAnchors(next, new Set(groups.flat()))];
+        const [oldAnchors, newAnchors] = rowAnchors;
+        const matched = new Map();
+        for (const [label, anchor] of oldAnchors) {
+            const target = newAnchors.get(label);
+            if (!target) continue;
+            if ((old !== anchor.entry && !containsEntry(old, anchor.entry))
+                || (dest !== target.entry && !containsEntry(dest, target.entry))) return false;
+            matched.set(label, anchor.substantive && target.substantive);
+        }
+        return groups.some((group) => group.every((label) => matched.has(label))
+            && group.some((label) => matched.get(label)));
+    }
     function intern(value) {
         const signature = JSON.stringify(value);
         if (!identities.has(signature)) identities.set(signature, identities.size + 1);
@@ -408,7 +473,7 @@ function changedCandidates(previous, next) {
             return keys.get(old) === keys.get(next) && corresponds(old, next, presentationKeys)
                 && corresponds(old, next, exactKeys);
         }
-        function unresolved(oldStart, oldEnd, newStart, newEnd, reason) {
+        function unresolved(oldStart, oldEnd, newStart, newEnd, reason, moved, boundary) {
             const oldRange = before.slice(oldStart, oldEnd), newRange = after.slice(newStart, newEnd);
             const replaced = reason === 'replacement' && local
                 && oldRange.some((entry) => !newPositions.has(keys.get(entry)))
@@ -416,7 +481,38 @@ function changedCandidates(previous, next) {
                 && (!couldBeSeparateReplacements(oldRange, newRange)
                     || (parent.tag === 'form' && replacesFormFields(oldRange, newRange)));
             const regionChange = local && (reason === 'reorder' || replaced) ? reason : undefined;
-            candidates.push({ kind: 'region', after: parent, priority: 2, unresolved: true, regionChange, oldRange, newRange });
+            candidates.push({ kind: 'region', after: parent, priority: 2, unresolved: true,
+                regionChange, oldRange, newRange, moved, boundary });
+        }
+        function movedEntry(oldStart, oldEnd, newStart, newEnd) {
+            if (!move?.groups.length) return;
+            const length = Math.abs(move.offset) + 1;
+            if (oldEnd - oldStart !== length || newEnd - newStart !== length) return;
+            const from = move.offset > 0 ? oldStart : oldEnd - 1;
+            const to = move.offset > 0 ? newEnd - 1 : newStart;
+            const key = contentKey(before[from]);
+            if (oldPositions.get(key) !== from || newPositions.get(key) !== to) return;
+            const shift = move.offset > 0 ? length - 1 : 1;
+            for (let i = 0; i < length; i++) {
+                if (!aligned(before[oldStart + i], after[newStart + (i + shift) % length])) return;
+            }
+            // An unrelated list or reversed output can show the same rotation. Require a
+            // unique, unchanged value from the dropped row inside both rendered sections.
+            if (matchesRow(before[from], after[to], move.groups)) return after[to];
+        }
+        function adjacentBoundary(oldStart, oldEnd, newStart, newEnd) {
+            if (!cleanSource || !move?.boundaryGroups?.length || oldEnd - oldStart !== 2 || newEnd - newStart !== 2) return;
+            const oldPair = before.slice(oldStart, oldEnd), newPair = after.slice(newStart, newEnd);
+            const keysOf = (entry) => presentationKeys.get(entry);
+            const [a, b] = oldPair.map(keysOf);
+            if (a === b || b !== keysOf(newPair[0]) || a !== keysOf(newPair[1])) return;
+            // Presentation can distinguish different empty layouts; an ID alone cannot.
+            const from = move.offset > 0 ? 0 : 1, crossed = 1 - from;
+            const blank = oldPair[from], key = keysOf(blank);
+            if (before.filter((entry) => keysOf(entry) === key).length !== 1
+                || after.filter((entry) => keysOf(entry) === key).length !== 1
+                || !isEmptyLayout(blank) || !matchesRow(oldPair[crossed], newPair[from], move.boundaryGroups)) return;
+            return { before: oldPair, after: newPair };
         }
         function reordered(oldStart, oldEnd, newStart, newEnd) {
             const length = oldEnd - oldStart;
@@ -470,8 +566,14 @@ function changedCandidates(previous, next) {
                 return;
             }
             // Compare order before choosing anchors so a move is not split into an insertion and a deletion.
-            if (local && reordered(oldStart, oldEnd, newStart, newEnd)) {
-                unresolved(oldStart, oldEnd, newStart, newEnd, 'reorder');
+            const moved = movedEntry(oldStart, oldEnd, newStart, newEnd);
+            const boundary = adjacentBoundary(oldStart, oldEnd, newStart, newEnd);
+            if (moved || boundary || (local && reordered(oldStart, oldEnd, newStart, newEnd))) {
+                if (boundary) {
+                    compare(boundary.before[0], boundary.after[1]);
+                    compare(boundary.before[1], boundary.after[0]);
+                }
+                unresolved(oldStart, oldEnd, newStart, newEnd, 'reorder', moved, boundary);
                 return;
             }
             let anchors = findAnchors(oldStart, oldEnd, newStart, newEnd, oldPositions, newPositions, contentKey);
@@ -582,8 +684,8 @@ function entryText(entry, cache = new Map()) {
 
 function valuesChanged(before, after) {
     if (!before || !after) return false;
-    const differs = (from, to) => Object.entries(from).some(([key, hint]) => hint?.type !== 'order'
-        && (!Object.hasOwn(to, key) || hint?.type !== to[key]?.type || hint?.value !== to[key]?.value));
+    const differs = (from, to) => Object.entries(from).some(([key, hint]) => ['text', 'html', 'value'].includes(hint?.type)
+        && (!Object.hasOwn(to, key) || hint.type !== to[key]?.type || hint.value !== to[key]?.value));
     return differs(before, after) || differs(after, before);
 }
 
@@ -593,6 +695,159 @@ function inputOrderChanged(before, after) {
         const old = before[key];
         return old?.type === 'order' && old.members === next.members && old.value !== next.value;
     });
+}
+
+// An order hint can name a moved item, but its claim must agree with both submitted snapshots.
+function inputMove(before, after, allowBoundary) {
+    if (!before || !after) return;
+    const changes = Object.entries(after).filter(([key, next]) => next?.type === 'row-order'
+        && before[key]?.type === 'row-order' && before[key].value !== next.value);
+    if (changes.length !== 1) return;
+    const [[key, next]] = changes;
+    const old = before[key];
+    if (!next.moved || next.members !== old.members) return;
+    const a = JSON.parse(old.value), b = JSON.parse(next.value);
+    const from = a.indexOf(next.moved), to = b.indexOf(next.moved);
+    if (from === -1 || to === -1 || from === to || a.length !== b.length) return;
+    a.splice(from, 1);
+    b.splice(to, 1);
+    if (!a.every((item, index) => item === b[index])) return;
+
+    const offset = to - from;
+    const groups = rowGroups(key, next.moved, a, before, after);
+    let boundaryGroups;
+    if (allowBoundary && Math.abs(offset) === 1 && !groups.length
+        && hasNoRowText(old, next.moved, before) && hasNoRowText(next, next.moved, after)) {
+        const crossed = a.splice(Math.min(from, to), 1)[0];
+        boundaryGroups = rowGroups(key, crossed, [...a, next.moved], before, after);
+    }
+    return { offset, groups, boundaryGroups };
+}
+
+function hasNoRowText(order, row, values) {
+    const html = new Map();
+    return order.fieldsByRow?.[row]?.every((name) => rowFieldText(values[name], html)?.label === '');
+}
+
+function isEmptyLayout(entry) {
+    return !entry.text && !entry.media?.some(Boolean)
+        && !/^(?:a|button|input|select|textarea|form|details|img|video|audio|iframe|canvas|svg|object|embed)$/.test(entry.tag)
+        && entry.children.every(isEmptyLayout);
+}
+
+function rowGroups(key, row, siblings, before, after) {
+    const { fieldsByRow } = after[key], oldFields = before[key].fieldsByRow;
+    if ([row, ...siblings].some((item) => !oldFields?.[item] || !fieldsByRow?.[item])) return [];
+    const groups = [], html = new Map(), previousNames = new Set(oldFields[row]);
+    let peers;
+    function submittedLabels(names, values) {
+        const labels = new Set();
+        function collect(entry, cache) {
+            // A sibling can supply an exact element's text, even from inside a longer HTML field.
+            labels.add(normalizedText(entryText(entry, cache)));
+            for (const child of entry.children) collect(child, cache);
+        }
+        for (const name of names) {
+            const field = rowFieldText(values[name], html);
+            if (!field) return null; // An unreadable sibling field cannot establish uniqueness.
+            if (field.entry) collect(field.entry, field.cache);
+            else labels.add(field.label);
+        }
+        return labels;
+    }
+    function shared(label, blocks) {
+        // Check each sibling in each submission, never a pool of different rows or snapshots.
+        peers ??= siblings.flatMap((row) => [submittedLabels(oldFields[row], before), submittedLabels(fieldsByRow[row], after)]);
+        return peers.some((peer) => !peer || peer.has(label) || (blocks.length && blocks.every((block) => peer.has(block))));
+    }
+    for (const name of fieldsByRow[row]) {
+        const hint = after[name], previous = before[name];
+        if (!previousNames.has(name) || !hint || previous?.type !== hint.type || previous?.value !== hint.value) continue;
+        const field = rowFieldText(hint, html);
+        if (!field?.label) continue;
+        const { entry, cache, label } = field;
+        if (!entry) {
+            if (!shared(label, [])) groups.push([label]);
+            continue;
+        }
+        const blocks = rowTextBlocks(entry, cache).map((block) => normalizedText(entryText(block, cache)));
+        const anchors = uniqueRowAnchors(entry, new Set([label, ...blocks]), cache);
+        // Rendering all the blocks as one label doesn't make them unique to this row.
+        if (anchors.get(label)?.substantive && !shared(label, blocks.join(' ') === label ? blocks : [])) groups.push([label]);
+        // Match authored blocks together without requiring an action-only paragraph.
+        const witnesses = [...new Set(blocks.filter((text) => anchors.has(text)))];
+        if (witnesses.length > 1 && witnesses.some((text) => anchors.get(text).substantive)
+            && !shared(label, witnesses)) groups.push(witnesses);
+    }
+    return groups;
+}
+
+function rowFieldText(hint, html) {
+    if (typeof hint?.value !== 'string') return;
+    if (hint.type === 'text') return { label: normalizedText(hint.value) };
+    if (hint.type !== 'html') return;
+    if (!html.has(hint.value)) {
+        try {
+            const doc = new DOMParser().parseFromString(hint.value, 'text/html');
+            const entry = contentSnapshot(doc, doc, [], doc.body), cache = new Map();
+            html.set(hint.value, { entry, cache, label: normalizedText(entryText(entry, cache)) });
+        } catch { html.set(hint.value, null); } // Unreadable formatted fields are optional evidence.
+    }
+    return html.get(hint.value);
+}
+
+function rowTextBlocks(entry, cache) {
+    const blocks = entry.children.flatMap((child) => rowTextBlocks(child, cache));
+    if (blocks.length || !/^(?:p|h[1-6]|li|d[dt]|blockquote|pre|figcaption)$/.test(entry.tag)) return blocks;
+    return normalizedText(entryText(entry, cache)) ? [entry] : [];
+}
+
+// Classify the text that actually supplies an anchor, not the tag of its common wrapper.
+function rowTextEvidence(entry, label, cache) {
+    let evidence;
+    // A literal symbol can be the whole field, but separators between actions aren't a content witness.
+    if (entry.text === label || /[\p{L}\p{N}]/u.test(entry.text || '')) evidence = ownRowTextEvidence(entry, cache);
+    for (const child of entry.children) {
+        if (evidence === 'content') break;
+        evidence = rowTextEvidence(child, label, cache) || evidence;
+    }
+    return evidence;
+}
+
+function ownRowTextEvidence(entry, cache) {
+    let evidence = 'content';
+    for (let current = entry; current; current = current.parent) {
+        const role = current.attributes.find(([name]) => name === 'role')?.[1] ?? '';
+        if (current.tag === 'button' || /(?:^|\s)button(?:\s|$)/.test(role)) return;
+        if (current.tag !== 'a' && !/(?:^|\s)link(?:\s|$)/.test(role)) continue;
+        const blocks = rowTextBlocks(current, cache);
+        if (blocks.length < 2 || !blocks.some((block) => /^h[1-6]$/.test(block.tag))) return;
+        const block = blocks.find((item) => item === entry || containsEntry(item, entry));
+        if (!block) return;
+        // A linked card's paragraph might itself be the CTA. It can corroborate, not identify.
+        if (!/^h[1-6]$/.test(block.tag)) evidence = 'support';
+    }
+    return evidence;
+}
+
+function uniqueRowAnchors(root, labels, text = new Map()) {
+    const anchors = new Map();
+    function visit(entry) {
+        const label = normalizedText(entryText(entry, text));
+        if (labels.has(label)) {
+            const previous = anchors.get(label);
+            // Wrappers and their children can expose the same text; only separate branches are ambiguous.
+            anchors.set(label, previous === undefined || (previous && containsEntry(previous, entry)) ? entry : null);
+        }
+        entry.children.forEach(visit);
+    }
+    if (root) visit(root);
+    const matches = new Map();
+    for (const [label, entry] of anchors) {
+        const evidence = entry && rowTextEvidence(entry, label, text);
+        if (evidence) matches.set(label, { entry, substantive: evidence === 'content' });
+    }
+    return matches;
 }
 
 function inputChanges(before, after) {
@@ -613,7 +868,7 @@ function inputChanges(before, after) {
         const oldText = oldDoc ? entryText(oldContent) : old.value;
         const newText = newDoc ? entryText(newContent) : next.value;
         const a = normalizedText(oldText), b = normalizedText(newText);
-        if (a !== b) changes.push({ ...textTransition(a, b), type: 'text' });
+        if (a !== b) changes.push({ ...textTransition(a, b), type: 'text', fullBefore: a, fullAfter: b });
         if (!oldDoc) {
             const hint = spacingTransition(oldText, newText);
             if (hint) changes.push(hint);
@@ -639,9 +894,10 @@ function inputChanges(before, after) {
                     }
                 }
             } else if (change.kind === 'content') {
-                if (normalizedText(entryText(change.before)) === normalizedText(entryText(change.after))) changes.push({ type: 'markup',
-                    before: normalizedText(entryText(change.before)), after: normalizedText(entryText(change.after)),
-                    oldTag: change.before.tag, newTag: change.after.tag });
+                const previous = normalizedText(entryText(change.before)), value = normalizedText(entryText(change.after));
+                if (previous === value && markupChanged(change.before, change.after, entryText)) {
+                    changes.push({ type: 'markup', before: previous, after: value, oldTag: change.before.tag, newTag: change.after.tag });
+                }
                 (change.before.media || []).forEach((value, index) => {
                     const current = change.after.media?.[index];
                     if (value && current && value !== current) changes.push({ type: 'media', before: value, after: current });
@@ -676,17 +932,62 @@ function matchesValue(text, value) {
 }
 
 function containsText(text, value) {
-    if (!value) return false;
+    return textOccurrences(text, value, 1) > 0;
+}
+
+function textOccurrences(text, value, limit = Infinity) {
+    if (!value) return 0;
     text = normalizedText(text);
     // Avoid matching a changed word merely inside a longer, unrelated word.
+    let count = 0;
     let start = text.indexOf(value);
     while (start !== -1) {
         const end = start + value.length;
-        if ((!start || !/[\p{L}\p{N}_]/u.test(text[start - 1]) || !/[\p{L}\p{N}_]/u.test(value[0]))
-            && (end === text.length || !/[\p{L}\p{N}_]/u.test(text[end]) || !/[\p{L}\p{N}_]/u.test(value.at(-1)))) return true;
+        if (wordBoundary(text, start) && wordBoundary(text, end)) {
+            if (++count === limit) break;
+        }
         start = text.indexOf(value, start + 1);
     }
+    return count;
+}
+
+function wordBoundary(text, index) {
+    // Inspect complete neighboring code points, including letters represented by a surrogate pair.
+    return !/[\p{L}\p{N}_]$/u.test(text.slice(Math.max(0, index - 2), index))
+        || !/^[\p{L}\p{N}_]/u.test(text.slice(index, index + 2));
+}
+
+function replacesSubmittedText(a, b, before, after) {
+    if (!before || !after || a.length - before.length !== b.length - after.length) return false;
+    for (let start = a.indexOf(before); start !== -1; start = a.indexOf(before, start + 1)) {
+        if (b.startsWith(after, start) && wordBoundary(a, start) && wordBoundary(b, start)
+            && wordBoundary(a, start + before.length) && wordBoundary(b, start + after.length)
+            && a.slice(0, start) === b.slice(0, start) && a.slice(start + before.length) === b.slice(start + after.length)) return true;
+    }
     return false;
+}
+
+function matchesTransition(before, after, hint, compareSpan = false) {
+    const a = normalizedText(before), b = normalizedText(after);
+    if (a === b) return false;
+    // A complete value can contain the old value or extend past the narrowed text change.
+    if ((a === hint.before && b === hint.after) || (a === hint.fullBefore && b === hint.fullAfter)) return true;
+    if (compareSpan) {
+        // The same changed words can overlap ("docs" → "docs now") within stable surrounding copy.
+        const span = textTransition(a, b);
+        if (span.before === hint.before && span.after === hint.after) return true;
+        // Punctuation or a suffix may change the narrowed span, but not the exact field substitution.
+        if (replacesSubmittedText(a, b, hint.fullBefore, hint.fullAfter)) return true;
+    }
+    // Otherwise the old value must lose an occurrence and the new value gain one.
+    return (hint.before ? textOccurrences(a, hint.before) > textOccurrences(b, hint.before) : !a)
+        && (hint.after ? textOccurrences(b, hint.after) > textOccurrences(a, hint.after) : !b);
+}
+
+function markupChanged(before, after, textOf) {
+    // Same-tag wrapping moves unchanged text into or out of descendants; a media URL or copy edit cannot confirm it.
+    return before.tag !== after.tag || ((before.children.length || after.children.length) && before.text !== after.text
+        && normalizedText(textOf(before)) === normalizedText(textOf(after)));
 }
 
 function matchingEntries(entries = [], value, textOf, hint, before) {
@@ -718,7 +1019,6 @@ function inputSupport(candidate, hints, textOf) {
         let support = 0;
         if (candidate.kind === 'attributes') {
             if (!['text', 'attribute'].includes(hint.type)) continue;
-            const transition = hint;
             const before = new Map(candidate.before.attributes), after = new Map(candidate.after.attributes);
             for (const name of new Set([...before.keys(), ...after.keys()])) {
                 if (hint.type === 'attribute' && name !== hint.name) continue;
@@ -727,7 +1027,7 @@ function inputSupport(candidate, hints, textOf) {
                 // Attribute matching uses the actual value, not its name or another element's text.
                 const oldValue = typeof a === 'string' ? a : JSON.stringify(a) || '';
                 const newValue = typeof b === 'string' ? b : JSON.stringify(b) || '';
-                if (matchesValue(oldValue, transition.before) && matchesValue(newValue, transition.after)) {
+                if (matchesTransition(oldValue, newValue, hint)) {
                     support = hint.type === 'attribute' || (hint.before && hint.after) ? 2 : 1;
                 }
             }
@@ -738,12 +1038,20 @@ function inputSupport(candidate, hints, textOf) {
         } else if (hint.type === 'media') {
             if ((candidate.before?.media || []).some((value, index) =>
                 value === hint.before && candidate.after?.media?.[index] === hint.after)) support = 2;
-        } else if (hint.type !== 'attribute'
-            && (hint.type !== 'markup' || (candidate.before?.tag === hint.oldTag && candidate.after?.tag === hint.newTag))
-            && matchesValue(textOf(candidate.before), hint.before) && matchesValue(textOf(candidate.after), hint.after)) {
-            support = hint.before && hint.after ? 2 : 1;
-            if (hint.type === 'text' && containsText(candidate.before?.text || '', hint.before)
-                && containsText(candidate.after?.text || '', hint.after)) candidate.directInput = true;
+        } else if (hint.type === 'markup') {
+            if (candidate.before?.tag === hint.oldTag && candidate.after?.tag === hint.newTag
+                && markupChanged(candidate.before, candidate.after, textOf)
+                && matchesValue(textOf(candidate.before), hint.before) && matchesValue(textOf(candidate.after), hint.after)) {
+                support = hint.before && hint.after ? 2 : 1;
+            }
+        } else if (hint.type === 'text') {
+            const paired = !!(hint.before && hint.after);
+            const direct = paired && matchesTransition(candidate.before?.text || '', candidate.after?.text || '', hint, true);
+            // A descendant can change in the opposite direction without canceling the element's own edit.
+            if (direct || matchesTransition(textOf(candidate.before), textOf(candidate.after), hint, paired)) {
+                support = paired ? 2 : 1;
+                if (direct) candidate.directInput = true;
+            }
         }
         if (support) candidate.matches.push(hint);
         strength = Math.max(strength, support);

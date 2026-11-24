@@ -144,6 +144,7 @@ test('the revision launcher uses a native text button next to the return link', 
 test('revision selection intent follows accepted frames, not canceled selections or native navigation', async () => {
     const h = fixture();
     await h.load();
+    assert.equal(h.captures[0].values.revision.type, 'selection');
     assert.equal(h.captures[0].values.revision.value, 11);
     h.select(revision(12)); await h.runTimers();
     const canceled = h.allFrames.at(-1).onload;
