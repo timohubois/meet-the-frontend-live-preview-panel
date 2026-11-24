@@ -231,6 +231,100 @@ async function browserTests(source) {
             equal(scrolling.findTarget(inserted, deleted), deleted.querySelector('#context'), 'A hidden deletion stays within the surviving local context.');
         });
     }
+    for (const captured of [false, true]) {
+        await check(`deleted item follows its visible viewport without moving hidden overflow, captured=${captured}`, async (frame, doc) => {
+            const markup = (middle) => `<div style="height:700px"></div>
+                <div id="viewport" style="width:250px;overflow:hidden"><div id="track" style="display:flex;transform:translateX(0)">
+                  ${[1, ...(middle ? [2] : []), 3].map((i) => `<figure id="item-${i}" style="flex:0 0 240px;height:130px;margin:0"><img src="/image-${i}.jpg"></figure>`).join('')}
+                </div></div><div style="height:700px"></div>`;
+            const before = await doc(markup(true), { captured }), after = await doc(markup(false), { captured });
+            frame.capture(before);
+            frame.capture(after);
+            const viewport = after.querySelector('#viewport'), next = after.querySelector('#item-3');
+            const target = frame.comparison.findChange(before, after);
+            equal(target, next, 'Comparison identifies the surviving next item, independently of clipping.');
+            equal(visibleTarget(target), viewport, 'Use the clipping viewport itself even if a sliver of the next item is visible.');
+            const track = after.querySelector('#track'), style = track.getAttribute('style');
+            await frame.scrolling.restore(after, target);
+            equal(after.defaultView.scrollY > 0, true, 'Reveal the gallery in the page.');
+            equal(viewport.scrollLeft, 0, 'Do not programmatically move the widget viewport.');
+            equal(track.getAttribute('style'), style, 'Do not change the selected item or position the track.');
+            equal(visibleTarget(after.querySelector('#item-1')), after.querySelector('#item-1'), 'An already displayable item stays precise.');
+        });
+        for (const alreadyVisible of [false, true]) {
+            await check(`an emptied container follows only if off-screen, visible=${alreadyVisible}, captured=${captured}`, async (frame, doc) => {
+                const markup = (image) => `<style>body{margin:0}</style><div style="height:${alreadyVisible ? 740 : 1200}px"></div>
+                    <section id="gallery">${image}</section><div style="height:900px"></div>`;
+                const before = await doc(markup('<img src="/last.jpg" alt="Last image">'), { captured });
+                const after = await doc(markup(''), { captured });
+                frame.capture(before);
+                frame.capture(after);
+                before.defaultView.scrollTo(0, 500);
+                frame.scrolling.remember(before);
+                const target = frame.comparison.findChange(before, after);
+                equal(target, after.querySelector('#gallery'), 'Follow the surviving location when the last image is deleted.');
+                equal(target.getBoundingClientRect().height, 0, 'The empty location is a position, not a visible box.');
+                await frame.scrolling.restore(after, target);
+                equal(after.defaultView.scrollY === 500, alreadyVisible, 'Leave a visible deletion anchor alone.');
+                const { top } = target.getBoundingClientRect();
+                equal(top >= 0 && top < after.defaultView.innerHeight, true, 'An off-screen deletion anchor is still brought into view.');
+            });
+        }
+        await check(`custom disclosure falls back to its edited item after refresh, captured=${captured}`, async (frame, doc) => {
+            const markup = (id, text) => `<style>[aria-hidden="true"]{display:none}</style><div style="height:700px"></div>
+                <ul><li><h3>First item</h3></li><li id="item"><h3><button aria-expanded="false" aria-controls="${id}">Edited item</button></h3>
+                  <div id="${id}" aria-hidden="true"><p id="edited">${text}</p></div></li></ul><div style="height:700px"></div>`;
+            const open = "document.querySelector('button').setAttribute('aria-expanded', 'true'); document.querySelector('#old-panel').setAttribute('aria-hidden', 'false');";
+            const before = await doc(markup('old-panel', 'Original'), { captured, script: open });
+            const after = await doc(markup('new-panel', 'Revised'), { captured });
+            equal(before.querySelector('#old-panel').getClientRects().length > 0, true, 'The previous preview had the widget open.');
+            equal(after.querySelector('#new-panel').getClientRects().length, 0, 'The refreshed widget starts closed.');
+            const values = (value) => ({ body: { type: 'text', value } });
+            frame.capture(before, values('Original'));
+            frame.capture(after, values('Revised'));
+            const target = frame.comparison.findChange(before, after), item = after.querySelector('#item');
+            let clicks = 0;
+            item.querySelector('button').addEventListener('click', () => clicks++);
+            equal(target, after.querySelector('#edited'), 'Identify the edited body even though its ID and open state changed across refresh.');
+            equal(visibleTarget(target), item, 'Follow the visible item, not the whole list.');
+            const original = item.outerHTML;
+            await frame.scrolling.restore(after, target);
+            equal(after.defaultView.scrollY > 0, true, 'Bring the edited item into the viewport.');
+            equal(item.outerHTML, original, 'Do not change the widget’s disclosure state.');
+            equal(clicks, 0, 'Do not simulate interactions with custom controls.');
+        });
+    }
+    for (const overflow of ['clip', 'auto']) {
+        await check(`follow respects ${overflow} without mistaking an ordinary scrollport for a widget`, async (frame, doc) => {
+            const after = await doc(`<div style="height:700px"></div><div id="viewport" style="width:200px;overflow:${overflow}">
+                <div style="display:flex"><div style="flex:0 0 200px">First</div><div id="edited" style="flex:0 0 200px">Edited</div></div>
+                </div><div style="height:700px"></div>`);
+            const target = after.querySelector('#edited'), viewport = after.querySelector('#viewport');
+            const scrollable = overflow === 'auto';
+            if (!after.defaultView.CSS.supports('overflow', overflow)) return;
+            equal(visibleTarget(target), scrollable ? target : viewport, 'Only a scrollable target stays precise.');
+            await frame.scrolling.restore(after, target);
+            equal(after.defaultView.scrollY > 0, true, 'Reveal the target or its clipping context.');
+            equal(viewport.scrollLeft, scrollable ? 200 : 0, 'Keep ordinary scrollports functional without trying to pan a hard clip.');
+        });
+    }
+    for (const property of ['scroll-padding-right', 'scroll-margin-right']) {
+        await check(`a hidden viewport with ${property} is followed without panning its contents`, async (frame, doc) => {
+            const inset = `${property}:45px`;
+            const after = await doc(`<div style="height:700px"></div>
+                <div id="viewport" style="width:250px;overflow:hidden;${property.startsWith('scroll-padding') ? inset : ''}">
+                  <div style="width:600px;height:120px;position:relative">
+                    <div id="edited" style="position:absolute;left:145px;width:100px;height:100px;${property.startsWith('scroll-margin') ? inset : ''}">Edited</div>
+                  </div>
+                </div><div style="height:700px"></div>`);
+            const target = after.querySelector('#edited'), viewport = after.querySelector('#viewport');
+            equal(target.getBoundingClientRect().right <= viewport.getBoundingClientRect().right, true, 'The box already fits; native alignment can still move it.');
+            equal(visibleTarget(target), viewport, 'Prefer the viewport rather than triggering native alignment inside it.');
+            await frame.scrolling.restore(after, target);
+            equal(after.defaultView.scrollY > 0, true, 'Follow the widget on the page.');
+            equal(viewport.scrollLeft, 0, 'Leave its internal scroll position alone.');
+        });
+    }
     await check('visible scroll targets do not query their descendants', async (frame, doc) => {
         const document = await doc(content() + '<section id="target"><h2>Heading</h2><p>Content</p></section>');
         const target = document.querySelector('#target');
@@ -451,6 +545,9 @@ async function browserTests(source) {
     });
     // All author evidence is tied to the actual before/after submissions, not the latest UI state.
     const hints = (value, type = 'text') => ({ field: { type, value } });
+    const orderHints = (...values) => ({ attachments: {
+        type: 'order', value: JSON.stringify(values), members: JSON.stringify(values.sort()),
+    } });
     for (const captured of [false, true]) {
         const mode = captured ? 'collaborative captured source' : 'collaborative DOM';
         const options = { captured };
@@ -486,6 +583,168 @@ async function browserTests(source) {
             const before = await doc(old + clock(1), options), after = await doc(next + clock(2), options);
             equal(follow(scrolling, before, after, hints(old, 'html'), hints(next, 'html')), after.querySelector('strong'), 'Markup and entity serialization must not block the transition.');
         });
+        for (const [label, beforeHtml, afterHtml, shouldFollow] of [
+            ['ordinary trailing space', '<p id="edited">Safely manage content</p>', '<p id="edited">Safely manage content </p>', false],
+            ['collapsed inline spacing', '<p id="edited"><strong>Step 3: </strong><em>Safely</em></p>',
+                '<p id="edited"><strong>Step 3: </strong> <em>Safely</em></p>', false],
+            ['space between inline elements', '<p id="edited"><strong>Step 3:</strong><em>Safely</em></p>',
+                '<p id="edited"><strong>Step 3:</strong> <em>Safely</em></p>', true],
+            ['space at an inline edge', '<p><strong id="edited">Step 3:</strong><em>Safely</em></p>',
+                '<p><strong id="edited">Step 3: </strong><em>Safely</em></p>', true],
+            ['space in preformatted text', '<pre id="edited">Step 3: Safely</pre>', '<pre id="edited">Step 3:  Safely</pre>', true],
+            ['space preserved by CSS', '<p id="edited" style="white-space: pre-wrap">Step 3: Safely</p>',
+                '<p id="edited" style="white-space: pre-wrap">Step 3:  Safely</p>', true],
+            ['non-breaking space', '<p id="edited">Safely manage content</p>', '<p id="edited">Safely manage content&nbsp;</p>', true],
+        ]) {
+            await check(`${mode}: ${label} follows only if it changes the rendered text`, async (scrolling, doc) => {
+                const spacer = '<div style="height:800px"></div>';
+                const before = await doc(spacer + beforeHtml, options), after = await doc(spacer + afterHtml, options);
+                const target = follow(scrolling, before, after, hints(beforeHtml, 'html'), hints(afterHtml, 'html'));
+                equal(target, shouldFollow ? after.querySelector('#edited') : null, 'Distinguish painted whitespace from collapsed whitespace.');
+                if (label === 'space between inline elements') {
+                    await scrolling.scrolling.restore(after, target);
+                    equal(after.defaultView.scrollY > 0, true, 'Reveal the identified off-screen change.');
+                }
+            });
+        }
+        await check(`${mode}: paired spacing evidence outranks unrelated text`, async (scrolling, doc) => {
+            const markup = (space) => `<pre id="edited">Step 3:${space}Safely</pre>`;
+            const old = markup(' '), next = markup('  ');
+            const before = await doc(old + clock(1), options), after = await doc(next + clock(2), options);
+            equal(follow(scrolling, before, after, hints(`<p>Intro</p>${old}<p>End</p>`, 'html'),
+                hints(`<p>Intro</p>${next}<p>End</p>`, 'html')), after.querySelector('#edited'), 'Match the exact space transition within the submitted HTML.');
+        });
+        await check(`${mode}: paired spacing evidence also works for plain text fields`, async (scrolling, doc) => {
+            const old = 'Step 3: Safely', next = 'Step 3:  Safely';
+            const output = (value, time) => `<pre id="edited">Read more: ${value} manage content</pre>${clock(time)}`;
+            const before = await doc(output(old, 1), options), after = await doc(output(next, 2), options);
+            equal(follow(scrolling, before, after, hints(old), hints(next)), after.querySelector('#edited'), 'Keep adjacent words as context even when the preview adds text.');
+        });
+        await check(`${mode}: unrelated spacing cannot borrow a normal text hint`, async (scrolling, doc) => {
+            const before = await doc(content('Original') + '<pre>Original and Changed</pre>', options);
+            const after = await doc(content('Changed') + '<pre>Original  and Changed</pre>', options);
+            equal(follow(scrolling, before, after, hints('Original'), hints('Changed')), after.querySelector('#edited'),
+                'Containing both submitted words does not connect a separate spacing edit to the text change.');
+        });
+        await check(`${mode}: spacing without editor evidence does not break a content tie`, async (scrolling, doc) => {
+            const before = await doc('<pre>Step 3: Safely</pre>' + clock(1), options);
+            const after = await doc('<pre>Step 3:  Safely</pre>' + clock(2), options);
+            equal(scrolling.findTarget(before, after), null, 'Both are visible changes; do not guess which one the editor made.');
+        });
+        await check(`${mode}: unchanged excluded text does not hide a rendered space edit`, async (scrolling, doc) => {
+            const markup = (space) => `<pre id="edited">Step 3:${space}Safely<span aria-live="polite">Ready</span></pre>`;
+            const before = await doc(markup(' '), options), after = await doc(markup('  '), options);
+            equal(scrolling.findTarget(before, after), after.querySelector('#edited'), 'Compare the live DOM and snapshot with the same exclusions.');
+        });
+        await check(`${mode}: excluded spacing cannot make a collapsed edit look visible`, async (scrolling, doc) => {
+            const markup = (space, end) => `<p id="edited"><span aria-live="polite" style="white-space:pre">Ready${space}now</span> — Step 3${end}</p>`;
+            const before = await doc(markup(' ', ''), options), after = await doc(markup('  ', ' '), options);
+            equal(scrolling.findTarget(before, after), null, 'The only rendered difference is in an excluded region.');
+        });
+        await check(`${mode}: a later script mutation cannot become spacing evidence for the frozen snapshot`, async (scrolling, doc) => {
+            const old = '<pre id="edited">Step 3: Safely</pre>', next = '<pre id="edited">Step 3:  Safely</pre>';
+            const before = await doc(old, options), after = await doc(next, options);
+            scrolling.capture(before, hints(old, 'html'));
+            before.querySelector('#edited').textContent = 'Step 3:   Safely';
+            equal(scrolling.findTarget(before, after, hints(next, 'html')), null, 'Do not validate the old whitespace against replacement text.');
+        });
+        const form = (changed, id, heading = 'Contact') => `<form${id ? ` id="${id}"` : ''}><h2>${heading}</h2>${changed
+            ? '<fieldset><legend>Register for events</legend><input type="date"></fieldset><button>Register</button>'
+            : '<label>Your email <input type="email"></label><label>Message <textarea></textarea></label><button>Send</button>'}</form>`;
+        await check(`${mode}: a local replacement follows its surviving container`, async (frame, doc) => {
+            const spacer = '<div style="height:700px"></div>';
+            const before = await doc(spacer + form(false, 'changed') + form(false, 'unchanged'), options);
+            const after = await doc(spacer + form(true, 'changed') + form(false, 'unchanged'), options);
+            frame.capture(before, hints('old-choice', 'value'));
+            frame.capture(after, hints('new-choice', 'value'));
+            const target = frame.comparison.findChange(before, after);
+            equal(target, after.querySelector('#changed'), 'Use the one surviving form, not an arbitrary new field or the whole page.');
+            await frame.scrolling.restore(after, target);
+            equal(after.defaultView.scrollY > 0, true, 'Reveal the offscreen form.');
+        });
+        for (const scenario of ['one replacement', 'labels only', 'two replacements']) {
+            await check(`${mode}: form field groups, ${scenario}`, async (frame, doc) => {
+                const oldGroups = [['first', 'last', 'email'], ['address', 'postal'], ['phone', 'country']];
+                const newGroups = [['first', 'last'], ['company', 'email'], ['website', 'date']];
+                const grouped = (id, groups, prefix = '') => `<form id="${id}">${groups.map((fields) => `<div>${fields.map((field) =>
+                    `<label>${prefix}${field}<input name="${field}"></label>`).join('')}</div>`).join('')}</form>`;
+                const spacer = '<div style="height:700px"></div>';
+                const unchanged = grouped('other', oldGroups);
+                const before = await doc(spacer + grouped('edited', oldGroups) + unchanged, options);
+                const after = await doc(spacer + (scenario === 'labels only' ? grouped('edited', oldGroups, 'Your ') : grouped('edited', newGroups))
+                    + (scenario === 'two replacements' ? grouped('other', newGroups) : unchanged), options);
+                const target = follow(frame, before, after, hints('old-choice', 'value'), hints('new-choice', 'value'));
+                equal(target, scenario === 'one replacement' ? after.querySelector('#edited') : null,
+                    'Named fields added and removed across groups identify one form, not separate or label-only edits.');
+                await frame.scrolling.restore(after, target);
+                equal(after.defaultView.scrollY > 0, scenario === 'one replacement', 'Reveal only a reliably identified form.');
+            });
+        }
+        for (const separated of [false, true]) {
+            await check(`${mode}: separate replacements stay ambiguous, separated=${separated}`, async (frame, doc) => {
+                const markup = (changed) => `<section><h1>Forms</h1>${form(changed, separated ? 'one' : '')}
+                    ${separated ? '<hr>' : ''}${form(changed, separated ? 'two' : '', 'Sign up')}</section>`;
+                const before = await doc(markup(false), options), after = await doc(markup(true), options);
+                equal(follow(frame, before, after, hints('old-choice', 'value'), hints('new-choice', 'value')), null,
+                    'Two changed regions are not one target even if nothing aligns between them.');
+            });
+        }
+        for (const formatted of [false, true]) for (const hinted of [false, true]) {
+            await check(`${mode}: adjacent text edits require a specific hint, formatted=${formatted}, hinted=${hinted}`, async (frame, doc) => {
+                const markup = (status, article) => `<div style="height:800px"></div>
+                    <section id="region"><p>Current status: ${status}</p><p>${article}</p></section><div style="height:900px"></div>`;
+                const before = await doc(markup('pending', 'Existing article copy'), options);
+                const after = await doc(markup('ready', formatted ? 'Updated <em>article</em> copy' : 'Updated article copy'), options);
+                frame.capture(before, hinted ? hints('Existing article copy') : undefined);
+                frame.capture(after, hinted ? hints('Updated article copy') : undefined);
+                before.defaultView.scrollTo(0, 200);
+                frame.scrolling.remember(before);
+                const target = frame.comparison.findChange(before, after);
+                equal(target, hinted ? after.querySelector('#region p:last-child') : null,
+                    'Keep adjacent changes ambiguous unless author evidence identifies a specific edit.');
+                await frame.scrolling.restore(after, target);
+                equal(after.defaultView.scrollY === 200, !hinted, 'Do not jump to a common region just because both paragraphs changed.');
+            });
+        }
+        await check(`${mode}: an unaligned replacement at the content root keeps position`, async (frame, doc) => {
+            const before = await doc('<p>One</p><p>Two</p>', options);
+            const after = await doc('<h2>Three</h2><section>Four</section>', options);
+            equal(follow(frame, before, after, hints('old-choice', 'value'), hints('new-choice', 'value')), null,
+                'The whole preview is not a local replacement target.');
+        });
+        await check(`${mode}: a gallery reorder follows its region without moving the track`, async (frame, doc) => {
+            const markup = (images) => `<div style="height:700px"></div><div id="gallery" style="width:250px;overflow:hidden">
+                <div id="track" style="display:flex;transform:translateX(0)">${images.map((i) =>
+                    `<figure style="flex:0 0 240px;height:130px;margin:0"><img src="/image-${i}.jpg"></figure>`).join('')}</div>
+                </div><div style="height:700px"></div>`;
+            const before = await doc(markup([1, 2, 3, 4]), options), after = await doc(markup([2, 3, 1, 4]), options);
+            frame.capture(before, captured ? undefined : orderHints('1', '2', '3', '4'));
+            frame.capture(after, captured ? undefined : orderHints('2', '3', '1', '4'));
+            const target = frame.comparison.findChange(before, after), gallery = after.querySelector('#gallery');
+            equal(target, after.querySelector('#track'), 'The order changed in one region; no single moved image is established.');
+            const style = target.getAttribute('style');
+            await frame.scrolling.restore(after, target);
+            equal(after.defaultView.scrollY > 0, true, 'Reveal the gallery on the page.');
+            equal(gallery.scrollLeft, 0, 'Do not change the widget’s horizontal offset.');
+            equal(target.getAttribute('style'), style, 'Do not move the track.');
+        });
+        await check(`${mode}: a reorder with repeated entries still identifies its container`, async (frame, doc) => {
+            const markup = (items) => `<ol>${items.map((item) => `<li>${item}</li>`).join('')}</ol>`;
+            const before = await doc(markup(['A', 'A', 'B', 'C']), options);
+            const after = await doc(markup(['A', 'B', 'A', 'C']), options);
+            equal(follow(frame, before, after, hints('aabc', 'value'), hints('abac', 'value')), after.querySelector('ol'),
+                'A changed sequence of the same items establishes their location, not which copy moved.');
+        });
+        for (const [separator, ids] of [['<hr>', false], ['', true], ['', false]]) {
+            await check(`${mode}: separate reorders do not collapse to one region, separator=${!!separator}, IDs=${ids}`, async (frame, doc) => {
+                const markup = (reordered) => `<section>
+                    <ol${ids ? ' id="first"' : ''}>${reordered ? '<li>B</li><li>A</li>' : '<li>A</li><li>B</li>'}</ol>${separator}
+                    <ol${ids ? ' id="second"' : ''}>${reordered ? '<li>D</li><li>C</li>' : '<li>C</li><li>D</li>'}</ol></section>`;
+                const before = await doc(markup(false), options), after = await doc(markup(true), options);
+                equal(follow(frame, before, after, hints('old-order', 'value'), hints('new-order', 'value')), null,
+                    'Do not scroll to a common ancestor of independent sequences, even without an unchanged sibling.');
+            });
+        }
         await check(`${mode}: conditional output does not require a literal checkbox match`, async (scrolling, doc) => {
             const before = await doc(section('First') + section('Last'), options);
             const after = await doc(section('First') + section('Conditional') + section('Last'), options);
@@ -575,6 +834,38 @@ async function browserTests(source) {
             equal(follow(scrolling, before, after, hints('Hello'), hints('Welcome')), after.querySelector('#edited'), 'Keep the smallest candidate explaining the same input transition.');
         });
     }
+    await check('runtime-only reorders cannot nominate a region with unchanged captured source', async (frame, doc) => {
+        const markup = '<ol><li>One</li><li>Two</li><li>Three</li></ol>';
+        const before = await doc(markup, { captured: true });
+        const after = await doc(markup, { captured: true, script: "const items = document.querySelector('ol'); items.append(items.firstElementChild);" });
+        frame.capture(before, { ...hints('old-choice', 'value'), ...orderHints('1', '2', '3') });
+        frame.capture(after, { ...hints('new-choice', 'value'), ...orderHints('2', '3', '1') });
+        equal(frame.comparison.findChange(before, after), null, 'Changed editor values cannot override unchanged source.');
+    });
+    await check('a browser-only reorder cannot veto a source-confirmed reorder in another region', async (frame, doc) => {
+        const markup = (reordered) => `<section>
+            <ol id="edited">${reordered ? '<li>B</li><li>A</li>' : '<li>A</li><li>B</li>'}</ol>
+            <ol id="runtime"><li>C</li><li>D</li></ol></section>`;
+        const before = await doc(markup(false), { captured: true });
+        const after = await doc(markup(true), { captured: true,
+            script: "const list = document.querySelector('#runtime'); list.append(list.firstElementChild);" });
+        frame.capture(before, hints('old-order', 'value'));
+        frame.capture(after, hints('new-order', 'value'));
+        equal(frame.comparison.findChange(before, after), after.querySelector('#edited'),
+            'Follow the collection that reordered in the source, not incidental frontend movement.');
+    });
+    await check('a DOM-only reorder without a changed input keeps position', async (frame, doc) => {
+        const before = await doc('<ol><li>One</li><li>Two</li></ol>');
+        const after = await doc('<ol><li>Two</li><li>One</li></ol>');
+        equal(frame.findTarget(before, after), null, 'Without clean source or known edit intent the change could be frontend movement.');
+    });
+    await check('different membership of a hidden field does not corroborate a DOM-only reorder', async (frame, doc) => {
+        const before = await doc('<ol><li>One</li><li>Two</li></ol>');
+        const after = await doc('<ol><li>Two</li><li>One</li></ol>');
+        frame.capture(before, orderHints('1', '1', '2'));
+        frame.capture(after, orderHints('2', '2', '1'));
+        equal(frame.comparison.findChange(before, after), null, 'A change in duplicate counts is not a reorder.');
+    });
     await check('live DOM evidence confirms script-rendered content even when source text is unchanged', async (scrolling, doc) => {
         const before = await doc('<p id="edited">Placeholder</p><p>Clock 1</p>', { captured: true, script: "document.querySelector('#edited').textContent = 'Hello';" });
         const after = await doc('<p id="edited">Placeholder</p><p>Clock 2</p>', { captured: true, script: "document.querySelector('#edited').textContent = 'Welcome';" });
@@ -743,7 +1034,7 @@ async function browserTests(source) {
     });
     await check('comparison exposes only capture and single-element identification; scrolling owns no snapshots', async (frame, doc) => {
         equal(Object.keys(frame.comparison).sort().join(','), 'capture,findChange', 'No snapshot/candidate API escapes.');
-        equal(Object.keys(frame.scrolling).sort().join(','), 'remember,restore', 'Scroll presentation has no comparison lifecycle.');
+        equal(Object.keys(frame.scrolling).sort().join(','), 'keepInView,remember,restore', 'Scroll presentation has no comparison lifecycle.');
         const before = await doc(content('Hello'), { captured: true });
         const after = await doc(content('Welcome'), { captured: true });
         equal(frame.comparison.findChange(before, after), null, 'Only explicit frame capture may establish a baseline.');
@@ -1005,6 +1296,66 @@ async function browserTests(source) {
         equal(after.querySelector('[hidden]').getAttribute('hidden'), 'until-found', 'Stop mutation when the owner cancels following.');
         equal(after.querySelector('details').open, false, 'Do not continue opening ancestors after cancellation.');
     });
+    for (const { name, top, height = 40, header = '', headerHeight = 0, delta = 0 } of [
+        { name: 'an edit already in view keeps the restored scroll position', top: 190 },
+        { name: 'a tall edit already filling the viewport keeps the restored position', top: -100, height: 600 },
+        { name: 'an edit clipped by the bottom edge scrolls only enough to fit', top: 290, delta: 10 },
+        { name: 'an edit clipped by the top edge scrolls only enough to fit', top: -10, delta: -10 },
+        { name: 'a sticky header covering part of an edit needs only a nudge', top: 38, header: 'sticky', headerHeight: 48, delta: -10 },
+        { name: 'an edit fully covered by a fixed header still uses the nearest edge', top: 4, header: 'fixed', delta: -44 },
+    ]) {
+        await check(name, async (frame, doc) => {
+            const headerMarkup = header ? `<div style="position:${header};inset:0 0 auto;height:48px;z-index:1">Header</div>` : '';
+            const before = await doc('<div style="height:1600px"></div>');
+            const after = await doc(`<style>body{margin:0}</style>${headerMarkup}<div style="height:${500 + top - headerHeight}px"></div>
+                <div id="edited" style="height:${height}px;line-height:20px">Changed</div><div style="height:900px"></div>`);
+            before.defaultView.scrollTo(0, 500);
+            frame.scrolling.remember(before);
+            const target = after.querySelector('#edited'), scroll = target.scrollIntoView;
+            const calls = [];
+            target.scrollIntoView = function (options) { calls.push(options.block); return scroll.call(this, options); };
+            equal(await frame.scrolling.restore(after, target), target, 'Retain the edit as the breakpoint anchor even without scrolling.');
+            equal(after.defaultView.scrollY, 500 + delta, 'Preserve the reader’s position or move by only the clipped distance.');
+            equal(calls.join(','), delta ? 'nearest' : '', 'Skip alignment when visible; otherwise request one nearest-edge scroll.');
+            equal(target.getAttribute('style'), `height:${height}px;line-height:20px`, 'Leave theme styling unchanged.');
+        });
+    }
+    await check('an edit barely clipped by a nested scrollport nudges only that scrollport', async (frame, doc) => {
+        const after = await doc(`<div style="height:60px"></div><div id="port" style="height:100px;overflow:auto">
+            <div style="height:70px"></div><div id="edited" style="height:40px">Edited</div><div style="height:300px"></div>
+            </div><div style="height:700px"></div>`);
+        await frame.scrolling.restore(after, after.querySelector('#edited'));
+        equal(after.querySelector('#port').scrollTop, 10, 'Reveal the last 10 pixels without centering inside the scrollport.');
+        equal(after.defaultView.scrollY, 0, 'Do not move the page when the scrollport is already visible.');
+    });
+    await check('a fully visible fragment inside a hard clip does not move the page', async (frame, doc) => {
+        const before = await doc('<div style="height:1600px"></div>');
+        const after = await doc(`<style>body{margin:0}</style><div style="height:590px"></div>
+            <div id="clip" style="height:80px;overflow:clip">
+                <div id="edited" style="height:140px;position:relative;top:-70px">Edited</div>
+            </div><div style="height:900px"></div>`);
+        before.defaultView.scrollTo(0, 550);
+        frame.scrolling.remember(before);
+        const target = after.querySelector('#edited'), clip = after.querySelector('#clip');
+        equal(await frame.scrolling.restore(after, target), target, 'Keep the visible edit as the breakpoint anchor.');
+        equal(clip.getBoundingClientRect().top, 40, 'The entire reachable fragment stays in view.');
+        equal(after.defaultView.scrollY, 550, 'Do not align the part of the edit that scrolling cannot show.');
+    });
+    await check('a header nudge does not shift a nested scrollport that already shows the edit', async (frame, doc) => {
+        const after = await doc(`<style>body{margin:0}</style><div style="position:fixed;inset:0 0 auto;height:48px;z-index:1"></div>
+            <div style="height:520px"></div><div id="port" style="height:100px;overflow:auto">
+            <div style="height:60px"></div><div id="edited" style="height:40px">Edited</div><div style="height:300px"></div>
+            </div><div style="height:900px"></div>`);
+        const root = after.documentElement, port = after.querySelector('#port'), target = after.querySelector('#edited');
+        root.setAttribute('style', 'scroll-padding-top: 12px');
+        after.defaultView.scrollTo(0, 500);
+        port.scrollTop = 50;
+        frame.scrolling.remember(after);
+        await frame.scrolling.restore(after, target);
+        equal(after.defaultView.scrollY, 482, 'Move the page only enough to clear the fixed header.');
+        equal(port.scrollTop, 50, 'Do not apply the page header inset to inner scrollports.');
+        equal(root.getAttribute('style'), 'scroll-padding-top: 12px', 'Restore the exact viewport styles.');
+    });
     for (const { name, height, expectedTop, header = '' } of [
         { name: 'short change lands in the upper third of the usable viewport', height: 40, expectedTop: 100 },
         { name: 'upper-third alignment respects header clearance and author offsets', height: 40, expectedTop: 123,
@@ -1032,6 +1383,160 @@ async function browserTests(source) {
         await frame.scrolling.restore(after, target);
         equal(target.getBoundingClientRect().top - scroller.getBoundingClientRect().top, 50, 'Center the target with its existing clearance inside the nested scrollport.');
     });
+    for (const scrolledAway of [false, true]) {
+        await check(`breakpoint following ${scrolledAway ? 'does not pull back a nested scrollport the user left' : 'reveals a newly clipped nested target'}`, async (frame, doc) => {
+            const after = await doc(`<style>
+                * { overflow-anchor: none; }
+                #scroller { height: 120px; overflow: auto; }
+                #inside { height: ${scrolledAway ? 150 : 0}px; }
+                @media (max-width: 400px) {
+                    ${scrolledAway ? '#outside { height: 650px; }' : '#inside { height: 150px; }'}
+                }
+            </style><div id="outside"></div><div id="scroller"><div id="inside"></div><p id="edited">Changed</p>
+            <div style="height:500px"></div></div><div style="height:800px"></div>`);
+            const scroller = after.querySelector('#scroller'), target = after.querySelector('#edited');
+            const anchor = await frame.scrolling.restore(after, target);
+            const targetVisible = () => {
+                const { left, top } = target.getBoundingClientRect();
+                return after.elementFromPoint(left + 10, top + 10) === target;
+            };
+            if (scrolledAway) scroller.scrollTop = 0;
+            equal(targetVisible(), !scrolledAway, 'Set the real visibility inside the nested scrollport.');
+            const win = after.defaultView;
+            const pending = frame.scrolling.keepInView(anchor, {
+                canvasTarget: () => ({ visible: true, reveal() {} }),
+                whenSettled: () => {},
+                canFollow: () => true,
+            });
+            win.frameElement.style.width = '390px';
+            await pending;
+            equal(targetVisible(), !scrolledAway, 'Honor nested clipping before and after reflow.');
+            if (scrolledAway) {
+                equal(win.scrollY, 0, 'Do not move the page back to a change the user left.');
+                equal(scroller.scrollTop, 0, 'Do not override the nested scroll position either.');
+            }
+        });
+    }
+    for (const mode of ['hard clip', 'inner scrollport', 'limited scroll range', 'clip margin',
+        'fixed header', 'transparent header', 'above the header', 'narrow header', 'wide target', 'wide target reflows', 'transparent ancestor']) {
+        await check(`breakpoint following accounts for ${mode}`, async (frame, doc) => {
+            const wide = mode === 'wide target' || mode === 'wide target reflows';
+            const transparentHeader = mode === 'transparent header';
+            const usesHeader = wide || transparentHeader || ['fixed header', 'above the header', 'narrow header'].includes(mode);
+            const transparent = mode === 'transparent ancestor';
+            const limited = mode === 'limited scroll range';
+            const wrapsScrollable = limited || mode === 'inner scrollport';
+            const spacerHeight = { 'clip margin': 125, 'wide target reflows': 520, 'transparent ancestor': 520 }[mode] ?? 170;
+            const after = await doc(`<style>
+                * { overflow-anchor: none; }
+                #outside, #after { height: 650px; }
+                #spacer { height: 0; }
+                #edited { position: relative; height: 30px; ${mode === 'above the header' ? 'z-index: 2;' : ''} }
+                #cover { display: none; }
+                ${wide ? '#edited { width: 1000px; }' : ''}
+                ${usesHeader || transparent ? '' : '#clip { display: flow-root; height: 120px; overflow: clip; }'}
+                ${mode === 'clip margin' ? '#clip { overflow-clip-margin: 45px; }' : ''}
+                ${wrapsScrollable ? '#inner { height: 120px; overflow: auto; }' : ''}
+                @media (max-width: 400px) {
+                    ${usesHeader ? '#cover { display: block; position: fixed; inset: 0 0 auto; height: 135px; background: white; z-index: 1; }' : ''}
+                    ${transparentHeader ? '#cover { height: 180px; opacity: 0; }' : ''}
+                    ${!usesHeader || mode === 'wide target reflows' ? `#spacer { height: ${spacerHeight}px; }` : ''}
+                    ${transparent ? '#inner { opacity: 0; pointer-events: none; }' : ''}
+                    ${mode === 'narrow header' ? '#cover { left: 80px; right: auto; width: 230px; }' : ''}
+                    ${limited ? '#inner { margin-top: 105px; } #after { height: 0; }' : ''}
+                }
+            </style><div id="cover"></div><div id="outside"></div><div id="clip"><div id="inner"><div id="spacer"></div>
+                <p id="edited">Changed</p><div id="after"></div></div></div><div style="height:800px"></div>`);
+            const win = after.defaultView, target = after.querySelector('#edited');
+            if (mode === 'clip margin' && !win.CSS.supports('overflow-clip-margin', '45px')) return;
+            const targetVisible = () => {
+                const { left, top } = target.getBoundingClientRect();
+                return after.elementFromPoint(left + 10, top + 10) === target;
+            };
+            const anchor = await frame.scrolling.restore(after, target);
+            equal(targetVisible(), true, 'The change was on screen before reflow.');
+            const offset = win.scrollY;
+            let reveals = 0;
+            const scroll = target.scrollIntoView;
+            target.scrollIntoView = function (options) { reveals++; return scroll.call(this, options); };
+            const pending = frame.scrolling.keepInView(anchor, {
+                canvasTarget: () => ({ visible: true, reveal() {} }),
+                whenSettled: () => {},
+                canFollow: () => true,
+            });
+            win.frameElement.style.width = '390px';
+            await pending;
+            if (transparentHeader) {
+                const cover = after.querySelector('#cover');
+                equal(win.getComputedStyle(cover).opacity, '0', 'The header is fully transparent.');
+                equal(targetVisible(), false, 'A transparent header can still intercept the hit test.');
+            } else {
+                equal(targetVisible(), mode !== 'hard clip' && !limited && !transparent, 'Keep the target on screen only if it can be revealed.');
+            }
+            const shouldReveal = wide || mode === 'fixed header' || mode === 'inner scrollport';
+            equal(reveals, Number(shouldReveal), 'Scroll only when needed and possible.');
+            if (!shouldReveal) equal(win.scrollY, offset, 'Do not jump the page for this layout.');
+            if (limited) equal(after.querySelector('#inner').scrollTop, 0, 'Do not try an inner scroll that cannot expose the target.');
+        });
+    }
+    for (const scenario of ['moved', 'still visible', 'scrolled away', 'hidden', 'collapsed', 'replaced', 'invalidated',
+        'moved across two quick switches', 'scrolled while the camera settled']) {
+        await check(`viewport change when the follow target is ${scenario}`, async (frame, doc) => {
+            const after = await doc(`<style>
+                html { overflow-anchor: none; scroll-behavior: smooth; }
+                #spacer { height: 700px; }
+                @media (max-width: 400px) {
+                    #spacer { height: ${scenario === 'still visible' ? 730 : 1400}px; }
+                    ${scenario === 'hidden' ? '#edited { display: none; }' : ''}
+                    ${scenario === 'collapsed' ? '#edited { height: 0; overflow: hidden; }' : ''}
+                }
+            </style><div id="spacer"></div><p id="edited">Changed</p><div style="height:900px"></div>`);
+            const target = after.querySelector('#edited');
+            const anchor = await frame.scrolling.restore(after, target);
+            equal(anchor, target, 'Remember the element actually followed.');
+            const win = after.defaultView;
+            if (scenario === 'scrolled away') win.scrollTo({ top: 0, behavior: 'instant' });
+            const offset = win.scrollY;
+            let corrections = 0;
+            const scroll = win.Element.prototype.scrollIntoView;
+            win.Element.prototype.scrollIntoView = function (options) {
+                corrections++;
+                equal(this, target, 'Only the same DOM element can be followed again.');
+                equal(options.behavior, 'instant', 'Do not start a second smooth animation on resize.');
+                return scroll.call(this, options);
+            };
+            let eligible = true;
+            const rapid = scenario === 'moved across two quick switches';
+            const interrupted = scenario === 'scrolled while the camera settled';
+            const options = {
+                canvasTarget: () => ({ visible: true, reveal() {} }),
+                whenSettled: () => interrupted ? new Promise((resolve) => win.setTimeout(() => {
+                    win.scrollTo({ top: 0, behavior: 'instant' });
+                    resolve();
+                }, 20)) : undefined,
+                canFollow: () => eligible,
+            };
+            const pending = frame.scrolling.keepInView(anchor, options);
+            if (rapid) {
+                win.frameElement.style.width = '400px';
+                equal(target.getBoundingClientRect().top >= win.innerHeight, true, 'The intermediate breakpoint has already moved the target.');
+            }
+            const next = rapid ? frame.scrolling.keepInView(anchor, options) : null;
+            win.frameElement.style.width = '390px';
+            if (scenario === 'replaced') target.replaceWith(target.cloneNode(true));
+            if (scenario === 'invalidated') eligible = false;
+            await Promise.all([pending, next]);
+            equal(win.innerWidth, 390, 'Use a real responsive breakpoint in the iframe.');
+            const shouldReveal = rapid || scenario === 'moved';
+            equal(corrections, Number(shouldReveal), 'Adjust only if the same target moved out of view without user intervention.');
+            if (shouldReveal) {
+                const { top, bottom } = target.getBoundingClientRect();
+                equal(top >= 0 && bottom <= win.innerHeight, true, 'The moved element is back on screen.');
+            } else {
+                equal(win.scrollY, interrupted ? 0 : offset, 'Respect the last page scroll offset.');
+            }
+        });
+    }
     await check('following requests smooth scrolling even when the theme does not', async (frame, doc) => {
         const after = await doc(content(), { reducedMotion: false });
         after.documentElement.style.scrollBehavior = 'auto';
@@ -1060,5 +1565,5 @@ test('preview scrolling matches changed sections conservatively in Chromium', as
     const comparison = await readFile(new URL('../src/preview/comparison.js', import.meta.url), 'utf8');
     const scrolling = await readFile(new URL('../src/preview/scroll.js', import.meta.url), 'utf8');
     const source = `${comparison.replace('export function', 'function')}\n${scrolling.replace(/^import .*;\n/, '')}`;
-    await runChromiumTests(t, { script: `(${browserTests.toString()})(${JSON.stringify(source)})`, count: 190 });
+    await runChromiumTests(t, { script: `(${browserTests.toString()})(${JSON.stringify(source)})`, count: 297, virtualTimeBudget: 18000 });
 });

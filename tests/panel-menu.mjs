@@ -382,6 +382,14 @@ async function nativeNoticeTests(strings) {
                 && feedback.scrollWidth <= feedback.clientWidth + 1, 'Very long paths wrap without horizontal overflow.');
             panel.style.width = '480px';
 
+            const address = 'https://other.example/news/page/';
+            state = { ...state, notice: {
+                heading: strings.originMismatchTitle, description: strings.originMismatch.replace('%s', address), status: 'error', dismissible: false,
+            } };
+            controls.update(state);
+            await pause();
+            check(feedback.innerText.includes(`\n${address}\n`), 'Put the preview URL on its own line in native notices.');
+
             state = { ...state, notice: { heading: 'Window operation failed', status: 'info', dismissible: true } };
             controls.update(state);
             await pause();

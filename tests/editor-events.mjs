@@ -179,7 +179,7 @@ async function browserTests(editorSource, initAcf, nativeSource, extensionSource
         }
         equal(context.stale(), 6);
         equal(context.timers.size, 1);
-        equal([...context.timers.values()][0].delay, 1000);
+        equal([...context.timers.values()][0].delay, 275);
     });
     await check('non-bubbling native core changes are captured, as emitted by Quicktags', (context) => {
         context.dispatch('[name="content"]', 'change', false);

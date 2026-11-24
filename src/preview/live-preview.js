@@ -2,6 +2,8 @@ import { createPreviewPanel } from '../panel/window.js';
 import { createPreviewFrame } from '../preview/frame.js';
 import { createPreviewScroll } from '../preview/scroll.js';
 
+const refreshDelay = 275;
+
 // Share preview writes, frames and ownership, not editor-specific fields or save controls.
 export function createLivePreview(config, nativeEditor) {
     const strings = config.strings;
@@ -15,6 +17,7 @@ export function createLivePreview(config, nativeEditor) {
         onClose: () => stopPreview(),
         onRefresh: refreshPreview,
         onRetry: (takeOver) => takeOver ? startPreview(true) : refreshPreview(),
+        beforeViewportChange: (viewport) => frames.beforeViewportChange(viewport),
         beforeMove: discardFrames,
         afterMove: () => { if (previewActive) refreshPreview(); },
     });
@@ -24,6 +27,7 @@ export function createLivePreview(config, nativeEditor) {
     let previewActive = false;
     let generation = 0;
     let refreshTimer;
+    let refreshAt;
     const frames = createPreviewFrame(view, scrolling, strings, report, config.comparisonExcludedSelectors);
     let followPending = false;
     let refreshTask;
@@ -81,7 +85,7 @@ export function createLivePreview(config, nativeEditor) {
         const reason = failureReason(error);
         if (reason) {
             previewActive = false;
-            clearTimeout(refreshTimer);
+            cancelScheduledRefresh();
             frames.cancel();
             requestStop?.();
         }
@@ -90,20 +94,34 @@ export function createLivePreview(config, nativeEditor) {
         report(text, reason === 'post-locked' ? 'paused' : 'error', { reason, canRetry: !reason });
     }
 
+    function cancelScheduledRefresh() {
+        clearTimeout(refreshTimer);
+        refreshAt = undefined;
+    }
+
+    function scheduleRefresh(delay) {
+        if (delay === undefined && refreshAt === undefined) return;
+        const now = performance.now();
+        if (delay !== undefined) refreshAt = now + delay;
+        clearTimeout(refreshTimer);
+        const remaining = Math.ceil(refreshAt - now);
+        if (remaining > 0) refreshTimer = setTimeout(update, remaining);
+        else update();
+    }
+
     function changed() {
         if (!previewActive) return;
         generation += 1;
         followPending = true;
         frames.cancel();
-        clearTimeout(refreshTimer);
-        if (nativeEditor.saving) return;
-        report(strings.stale, 'stale');
-        if (!nativeEditor.previewing) refreshTimer = setTimeout(update, 1000);
+        if (!nativeEditor.saving) report(strings.stale, 'stale');
+        if (nativeEditor.saving || nativeEditor.previewing) cancelScheduledRefresh();
+        else scheduleRefresh(refreshDelay);
     }
 
     function pause(text = strings.saving, state = 'loading') {
         generation += 1;
-        clearTimeout(refreshTimer);
+        cancelScheduledRefresh();
         frames.cancel();
         if (previewActive || (view.visible && state === 'paused')) report(text, state, { canRetry: false });
         return writeTask;
@@ -129,7 +147,7 @@ export function createLivePreview(config, nativeEditor) {
 
     function update() {
         if (!previewActive || refreshTask || nativeEditor.ready === false || nativeEditor.previewing || nativeEditor.saving) return;
-        clearTimeout(refreshTimer);
+        cancelScheduledRefresh();
         const version = generation;
         report(strings.updating);
         refreshTask = (async () => {
@@ -160,10 +178,8 @@ export function createLivePreview(config, nativeEditor) {
                 if (previewActive && !nativeEditor.saving) reportFailure(error);
             } finally {
                 refreshTask = null;
-                if (previewActive && nativeEditor.ready !== false && !nativeEditor.previewing && !nativeEditor.saving && version !== generation) {
-                    clearTimeout(refreshTimer);
-                    refreshTimer = setTimeout(update, 1000);
-                }
+                // An edit queued during this refresh has already spent time waiting.
+                scheduleRefresh();
             }
         })();
     }
@@ -176,7 +192,7 @@ export function createLivePreview(config, nativeEditor) {
     function stopPreview(keepVisible = false) {
         view.setVisible(keepVisible);
         previewActive = false;
-        clearTimeout(refreshTimer);
+        cancelScheduledRefresh();
         discardFrames();
         clearTimeout(takeoverTimer);
         takeoverTimer = null;
@@ -287,7 +303,7 @@ export function createLivePreview(config, nativeEditor) {
         }
         generation += 1;
         frames.cancel();
-        update();
+        scheduleRefresh(0);
     }
 
     return {

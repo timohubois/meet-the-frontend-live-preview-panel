@@ -13,7 +13,7 @@ const revision = (id, address = url(id)) => ({
 
 function fixture({ visible = true, selected = revision(11), isolated = false, excludedSelectors = [], deferRestore = false } = {}) {
     const timers = new Map(), listeners = new Map(), events = new Map(), reports = [], allFrames = [], scrolls = [];
-    const captures = [], comparisons = [], restorations = [];
+    const captures = [], comparisons = [], restorations = [], viewportChanges = [];
     let options, comparisonSelectors, nextTimer = 0, title = '', clears = 0, returned = 0;
     const children = [];
     const stage = {
@@ -68,7 +68,9 @@ function fixture({ visible = true, selected = revision(11), isolated = false, ex
                 const restoration = { doc, target, canFollow };
                 restorations.push(restoration);
                 if (deferRestore && target) return new Promise((resolve) => { restoration.resolve = resolve; });
+                return target;
             },
+            keepInView: (target, options) => viewportChanges.push({ target, ...options }),
         }) },
         '../preview/comparison.js': { createPreviewComparison: (selectors) => {
             comparisonSelectors = selectors;
@@ -90,6 +92,7 @@ function fixture({ visible = true, selected = revision(11), isolated = false, ex
     init({ postId: 1, currentPreviewUrl: url(1), strings, comparisonExcludedSelectors: excludedSelectors }, model);
     return {
         view, options, reports, children, allFrames, timers, scrolls, captures, comparisons, restorations, comparisonSelectors, listeners,
+        viewportChanges,
         get title() { return title; }, get clears() { return clears; }, get returned() { return returned; },
         get last() { return reports.at(-1); },
         select(next) { selected = next; listeners.get('update:revisions')?.(); },
@@ -146,6 +149,28 @@ test('frame capture precedes comparison and deletion analysis runs before the ol
     assert.equal(restored.length, 3, 'Scrolling still receives one identified element, not comparison state.');
     assert.equal(h.restorations.at(-1).canFollow(), true, 'The frame owns deferred reveal eligibility.');
     assert.equal(h.children.length, 1);
+});
+
+test('breakpoint following uses only the current iframe’s last revealed target', async () => {
+    const h = fixture();
+    const viewport = { canFollow: () => true };
+    await h.load();
+    h.options.beforeViewportChange(viewport);
+    assert.equal(h.viewportChanges.length, 0, 'The baseline has not followed a target.');
+    h.select(revision(12)); await h.runTimers(); await h.load();
+    h.options.beforeViewportChange(viewport);
+    const { target, canFollow } = h.viewportChanges[0];
+    assert.equal(target, 'target');
+    assert.equal(canFollow(), true);
+    h.view.followChanges = false;
+    assert.equal(canFollow(), false, 'Disabling following also cancels a pending check.');
+    h.view.followChanges = true;
+    const frame = h.children[0];
+    frame.contentDocument = null;
+    assert.equal(canFollow(), false, 'Native navigation invalidates the target even before load.');
+    await h.load();
+    h.options.beforeViewportChange(viewport);
+    assert.equal(h.viewportChanges.length, 1, 'Native navigation does not carry a target forward.');
 });
 
 test('verified iframe scrolling is contained after capture on initial, replacement and native loads', async () => {
@@ -371,17 +396,17 @@ test('only the actual parent entry uses the current saved-post URL', async () =>
     assert.equal(h.last.hasPreview, false);
 });
 
-for (const [address, origin] of [
-    ['http://name:secret@other.example/private-path?mtflpp_token=private-token#private-fragment', 'http://other.example'],
-    ['https://site.local/?mtflpp_token=token', 'https://site.local'],
-    ['http://site.local:8080/?mtflpp_token=token', 'http://site.local:8080'],
+for (const [address, displayUrl] of [
+    ['http://name:secret@other.example/news/page/?mtflpp_token=private-token&key=private-key#private-fragment', 'http://other.example/news/page/'],
+    ['https://site.local/?mtflpp_token=token', 'https://site.local/'],
+    ['http://site.local:8080/?mtflpp_token=token', 'http://site.local:8080/'],
 ]) {
-    test(`revision preview explains a different address (${origin}) without creating a frame`, async () => {
+    test(`revision preview explains a different address (${displayUrl}) without creating a frame`, async () => {
         const h = fixture({ selected: revision(11, address) }); await flush();
         assert.equal(h.allFrames.length, 0);
         assert.equal(h.last.state, 'error');
         assert.equal(h.last.reason, 'origin-mismatch');
-        assert.equal(h.last.text, `WordPress provided a preview URL at ${origin}. It must use the same website address as the editor.`);
+        assert.equal(h.last.text, `WordPress provided this preview URL:\n${displayUrl}\n\nIt must use the same website address as the editor.`);
         assert.equal(h.last.canRetry, false);
         assert.equal(h.last.canRefresh, false);
     });

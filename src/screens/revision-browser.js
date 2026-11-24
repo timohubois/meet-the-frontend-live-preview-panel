@@ -15,6 +15,7 @@ export function initRevisionPreview(config, model) {
         onClose: close,
         onRefresh: refresh,
         onRetry: () => refresh(),
+        beforeViewportChange: (viewport) => frames.beforeViewportChange(viewport),
         beforeMove() { generation++; frames.clear(); },
         afterMove() { if (view.visible) refresh(); },
     });

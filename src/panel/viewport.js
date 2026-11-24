@@ -65,8 +65,49 @@ export function createPreviewViewport(container, stage, dimensions, saved = {}, 
 
     function stopAnimation() {
         if (!animation) return;
-        animation.window.cancelAnimationFrame(animation.frame);
+        const current = animation;
         animation = null;
+        current.window.cancelAnimationFrame(current.frame);
+        current.resolve?.();
+    }
+
+    // Project the visible part of an iframe target into the canvas scrollport.
+    function canvasTarget(frame, bounds, { fitTarget = false } = {}) {
+        const origin = frame.getBoundingClientRect();
+        const box = canvas.getBoundingClientRect();
+        const x = origin.left - box.left - canvas.clientLeft;
+        const y = origin.top - box.top - canvas.clientTop;
+        const left = panDistance(x + bounds.left * scale, x + bounds.right * scale, canvas.clientWidth, fitTarget);
+        const top = panDistance(y + bounds.top * scale, y + bounds.bottom * scale, canvas.clientHeight, fitTarget);
+        const visibleLeft = Math.max(bounds.left, -x / scale);
+        const visibleRight = Math.min(bounds.right, (canvas.clientWidth - x) / scale);
+        return {
+            visible: !left && !top,
+            visibleCenterX: visibleLeft < visibleRight ? (visibleLeft + visibleRight) / 2 : undefined,
+            distance: Math.hypot(left, top),
+            reveal(behavior = 'instant') {
+                if (left || top) canvas.scrollBy({ left, top, behavior });
+            },
+        };
+    }
+
+    function panDistance(start, end, extent, fitTarget) {
+        if (end <= 0 || (fitTarget && start < -1 && end < extent)) return Math.max(start, end - extent);
+        if (start >= extent || (fitTarget && start > 0 && end > extent + 1)) return Math.min(start, end - extent);
+        return 0;
+    }
+
+    function canvasWasPanned() {
+        return !!animation && (canvas.scrollLeft !== animation.scrollLeft || canvas.scrollTop !== animation.scrollTop);
+    }
+
+    function whenSettled() {
+        if (!animation) return;
+        // Resolve after the final paint or if a layout supersedes it. Either way,
+        // nothing from this animation will overwrite the resulting canvas pan.
+        const current = animation;
+        current.done ??= new Promise((resolve) => { current.resolve = resolve; });
+        return current.done;
     }
 
     function render(animate = false, resetPan = false) {
@@ -118,14 +159,19 @@ export function createPreviewViewport(container, stage, dimensions, saved = {}, 
         const current = { window: container.ownerDocument.defaultView, frame: null };
         const started = current.window.performance.now();
         animation = current;
-        paint(from, pan);
+        const paintFrame = (value) => {
+            paint(value, pan);
+            current.scrollLeft = canvas.scrollLeft;
+            current.scrollTop = canvas.scrollTop;
+        };
+        paintFrame(from);
         const step = (now) => {
             if (animation !== current) return;
             const progress = Math.min(1, Math.max(0, (now - started) / 200));
             const eased = 1 - (1 - progress) ** 3;
-            paint(from + (target - from) * eased, pan);
+            paintFrame(from + (target - from) * eased);
             if (progress < 1) current.frame = current.window.requestAnimationFrame(step);
-            else animation = null;
+            else stopAnimation();
         };
         current.frame = current.window.requestAnimationFrame(step);
     }
@@ -153,17 +199,21 @@ export function createPreviewViewport(container, stage, dimensions, saved = {}, 
         get zoomPercent() { return fit === 'custom' ? customZoom : zoomPercent; },
         get dpr() { return pixelRatio(); },
         get orientation() { return orientations[device]; },
-        select(name, animate = false) {
+        canvasTarget,
+        canvasWasPanned,
+        whenSettled,
+        finishMotion() { if (animation) layout(); },
+        select(name, { animate = false, keepPan = false } = {}) {
             if (!presets.includes(name)) return;
             const changed = device !== name;
             device = name;
-            if (changed) render(animate, true);
+            if (changed) render(animate, !keepPan);
             else if (!animation) layout();
         },
-        rotate(animate = false) {
+        rotate({ animate = false, keepPan = false } = {}) {
             if (device === 'desktop') return;
             orientations[device] = orientations[device] === 'portrait' ? 'landscape' : 'portrait';
-            render(animate, true);
+            render(animate, !keepPan);
         },
         setFit(value) {
             if (!fits.includes(value) || fit === value) return;

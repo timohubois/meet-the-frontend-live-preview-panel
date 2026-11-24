@@ -197,6 +197,9 @@
     font-size: 18px;
     line-height: 1.4;
 }
+.mtflpp-placeholder-stacked .components-placeholder__label {
+    flex-direction: column;
+}
 .mtflpp-empty-title {
     margin: 0;
     color: var(--mtflpp-text);
@@ -205,6 +208,11 @@
 .mtflpp-placeholder .components-placeholder__label svg {
     flex-shrink: 0;
     margin: 0;
+}
+.mtflpp-placeholder-stacked .components-placeholder__label > svg {
+    inline-size: 32px;
+    block-size: 32px;
+    color: var(--mtflpp-accent);
 }
 /* Block Placeholder hides instructions at medium widths; recovery instructions must remain readable here. */
 .mtflpp-empty .mtflpp-placeholder .components-placeholder__instructions {
@@ -215,6 +223,7 @@
     font-size: 13px;
     line-height: 1.5;
     overflow-wrap: anywhere;
+    white-space: pre-line;
 }
 .mtflpp-empty .mtflpp-placeholder .components-placeholder__fieldset {
     flex-direction: row;
@@ -249,6 +258,7 @@
     max-block-size: 45%;
     overflow: auto;
     overflow-wrap: anywhere;
+    white-space: pre-line;
 }
 .mtflpp-feedback .components-notice {
     margin: 0;

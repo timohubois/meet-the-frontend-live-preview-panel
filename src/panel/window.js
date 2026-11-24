@@ -6,7 +6,7 @@ import { createPanelGeometry } from './geometry.js';
 
 // Bind the PHP-rendered panel. Never capture fields, fetch previews, acquire locks or control native saves.
 export function createPreviewPanel(strings, {
-    postTitle = '', publicRedirect, onOpen, onClose, onRefresh, onRetry, beforeMove, afterMove,
+    postTitle = '', publicRedirect, onOpen, onClose, onRefresh, onRetry, beforeMove, afterMove, beforeViewportChange,
 }) {
     const mainWindow = window;
     const mainDocument = document;
@@ -352,6 +352,7 @@ export function createPreviewPanel(strings, {
             busy: current.hasPreview && ['stale', 'loading', 'handover'].includes(current.state) && current.text !== strings.saving,
             empty: current.hasPreview ? null : {
                 ...presentation(), busy: ['loading', 'stale', 'ready', 'handover'].includes(current.state),
+                stackIcon: current.reason === 'origin-mismatch',
                 icon: ['paused', 'conflict'].includes(current.state) || ['unavailable', 'browser', 'origin-mismatch'].includes(current.reason) ? 'info' : 'warning',
                 retry, disabled: current.state === 'handover', close: current.state === 'error' && !retry,
                 action: retryLabel(),
@@ -617,13 +618,23 @@ export function createPreviewPanel(strings, {
         dock: (side) => dockWindow(side), reset: () => dockWindow('right', true),
         follow: toggleFollow, rememberVisibility: toggleRememberVisibility, rememberPosition: toggleRememberPosition,
         device(name) {
-            if (name === responsiveViewport.device) {
-                if (name === 'desktop') return;
-                responsiveViewport.rotate(visible);
+            const previous = responsiveViewport.device;
+            if (name === previous && name === 'desktop') return;
+            let keepPan = false;
+            if (visible && followChanges && beforeViewportChange) {
+                const { fit, customZoom, canvasTarget, whenSettled, finishMotion, canvasWasPanned } = responsiveViewport;
+                keepPan = !!beforeViewportChange({
+                    canvas, canvasTarget, whenSettled, finishMotion, canvasWasPanned,
+                    canFollow: () => responsiveViewport.fit === fit && responsiveViewport.customZoom === customZoom,
+                });
+            }
+            // A tracked switch needs only the reflow, not a separate zoom animation before following.
+            const options = { animate: visible && !keepPan, keepPan };
+            if (name === previous) {
+                responsiveViewport.rotate(options);
                 preferenceActions.set(scope, `${name}Orientation`, responsiveViewport.orientation);
             } else {
-                const previous = responsiveViewport.device;
-                responsiveViewport.select(name, visible);
+                responsiveViewport.select(name, options);
                 if (responsiveViewport.device !== previous) preferenceActions.set(scope, 'viewport', responsiveViewport.device);
             }
             syncControls();
@@ -653,6 +664,7 @@ export function createPreviewPanel(strings, {
     return {
         // The coordinator owns frame contents; the panel owns their document and viewport geometry.
         stage,
+        canvasTarget: responsiveViewport.canvasTarget,
         get visible() { return visible; },
         get followChanges() { return followChanges; },
         setVisible(value) {

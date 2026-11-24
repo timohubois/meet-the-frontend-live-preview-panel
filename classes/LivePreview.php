@@ -611,7 +611,7 @@ final class LivePreview
                     return;
                 }
                 $context['source'] = ['id' => $revisionId];
-                $this->seedPreviewMeta($postId, $revisionId);
+                $this->seedPreviewMeta($postId, $revisionId, $fields);
                 if (!$this->ownsRevision($postId, $revisionId)) {
                     return;
                 }
@@ -739,13 +739,22 @@ final class LivePreview
     }
 
     /** Start from saved metadata before save hooks overlay submitted fields, including on reused previews. */
-    private function seedPreviewMeta(int $postId, int $revisionId): void
+    private function seedPreviewMeta(int $postId, int $revisionId, array $fields): void
     {
         $source = get_post_meta($postId);
         unset($source['_edit_lock'], $source['_edit_last']);
         $preview = get_post_meta($revisionId);
+        // These preview-only values are always written and verified separately.
+        $retain = [
+            self::AUTHOR_META => (string) $fields['author'],
+            self::DATE_META => maybe_serialize($fields['dates']),
+            self::TERMS_META => maybe_serialize($fields['terms']),
+        ];
         foreach (array_unique(array_merge(array_keys($source), array_keys($preview))) as $key) {
-            if (($source[$key] ?? []) === ($preview[$key] ?? [])) {
+            if (
+                ($source[$key] ?? []) === ($preview[$key] ?? [])
+                || (isset($retain[$key]) && !array_key_exists($key, $source) && $preview[$key] === [$retain[$key]])
+            ) {
                 continue;
             }
             // Use metadata APIs directly: post-meta write helpers redirect revisions to their parent.

@@ -27,19 +27,19 @@ function fixture(t) {
             },
             cancel() { this.cancels++; }, clear() { this.clears++; },
         };
-        let callbacks, channel, exit, comparisonSelectors, frameReport, writes = 0;
+        let callbacks, channel, exit, comparisonSelectors, frameReport, writes = 0, now = 0;
         const view = { visible: true, followChanges, setTitle() {}, returnToEditor() {},
             setVisible(value) { this.visible = value; },
             report(text, state, details) { reports.push({ text, state, ...details }); },
         };
         const session = vm.runInNewContext(`"use strict";\n${source}\ncreateLivePreview`, {
-            AbortController, navigator: { locks },
+            AbortController, navigator: { locks }, performance: { now: () => now },
             window: { isSecureContext: secureContext, addEventListener: (name, callback) => { exit = callback; },
                 BroadcastChannel: broadcast ? class extends BroadcastChannel {
                     constructor(name) { super(name); channel = this; }
                 } : undefined,
             },
-            setTimeout(callback, delay) { timers.set(callback, delay); return callback; },
+            setTimeout(callback, delay) { timers.set(callback, now + delay); return callback; },
             clearTimeout: (callback) => timers.delete(callback),
             imports: {
                 '../panel/window.js': { createPreviewPanel: (strings, options) => { callbacks = options; return view; } },
@@ -68,6 +68,10 @@ function fixture(t) {
             await settle();
         });
         return { session, callbacks, channel, view, reports, timers, frames, comparisonSelectors, started: started.promise,
+            advance(ms) {
+                now += ms;
+                for (const [callback, deadline] of [...timers]) if (deadline <= now && timers.delete(callback)) callback();
+            },
             frameReady: () => frameReport('', 'ready'),
             release: () => write.resolve({ url: '/preview' }), get writes() { return writes; },
         };
@@ -84,17 +88,73 @@ test('only accepted preview generations pass their own input hints to frame load
     h.session.start();
     await h.started;
     h.session.changed();
+    h.advance(100);
     old.resolve({ url: '/stale', comparisonValues: oldValues });
     await h.session.pending;
     assert.equal(h.frames.loads, 0, 'A completed but stale write cannot establish the displayed baseline.');
-    for (const [callback, delay] of [...h.timers]) if (delay === 1000) {
-        h.timers.delete(callback);
-        callback();
-    }
+    h.advance(174);
+    assert.equal(h.session.pending, null, 'An early write completion must still respect the latest edit deadline.');
+    h.advance(1);
     await h.session.pending;
     assert.equal(h.frames.loads, 1);
     assert.equal(h.frames.lastLoad[0], '/latest');
     assert.equal(h.frames.lastLoad[3], newValues);
+});
+
+test('an expired edit deadline starts the newest write as soon as the current write drains', async (t) => {
+    const h = fixture(t)({ pending: true });
+    h.session.start(); await h.started;
+    h.session.changed();
+    h.advance(300); await settle();
+    assert.equal(h.writes, 1, 'An expired timer cannot start a concurrent write.');
+    const first = h.session.pending;
+    h.release(); await first; await h.session.pending;
+    assert.equal(h.writes, 2, 'No second debounce is needed after the first write drains.');
+    assert.equal(h.frames.loads, 1);
+    assert.equal(h.timers.size, 0);
+});
+
+test('each edit restarts the debounce, but manual refresh does not wait for it', async (t) => {
+    const h = fixture(t)();
+    h.session.start(); await h.started; await h.session.pending;
+    h.session.changed();
+    h.advance(200);
+    h.session.changed();
+    h.advance(274);
+    assert.equal(h.session.pending, null);
+    h.advance(1);
+    await h.session.pending;
+    assert.equal(h.writes, 2, 'Only the last edit starts a write.');
+
+    h.session.changed();
+    h.callbacks.onRefresh(); await h.session.pending;
+    assert.equal(h.writes, 3, 'An explicit refresh runs without advancing the clock.');
+    h.advance(275);
+    assert.equal(h.session.pending, null, 'Manual refresh consumes the pending edit.');
+});
+
+test('manual refresh requested during a write runs as soon as that write drains', async (t) => {
+    const h = fixture(t)({ pending: true });
+    h.session.start(); await h.started;
+    const first = h.session.pending;
+    h.callbacks.onRefresh();
+    assert.equal(h.session.pending, first, 'The current write must be allowed to finish.');
+    h.release(); await first; await h.session.pending;
+    assert.equal(h.writes, 2, 'Explicit refresh runs next without advancing the clock.');
+    assert.equal(h.frames.loads, 1);
+});
+
+test('pausing cancels an expired edit deadline even if a write is still draining', async (t) => {
+    const h = fixture(t)({ pending: true });
+    h.session.start(); await h.started;
+    h.session.changed();
+    h.advance(300);
+    const drain = h.session.pause();
+    assert.ok(drain, 'Pause still exposes the ongoing write.');
+    h.release(); await drain; await h.session.pending;
+    h.advance(275);
+    assert.equal(h.writes, 1);
+    assert.equal(h.frames.loads, 0);
 });
 
 for (const failedEdit of [false, true]) {
@@ -105,10 +165,7 @@ for (const failedEdit of [false, true]) {
             return Promise.resolve({ url: '/preview', comparisonValues: { content: { type: 'text', value: text } } });
         } });
         const update = async () => {
-            for (const [callback, delay] of [...h.timers]) if (delay === 1000) {
-                h.timers.delete(callback);
-                callback();
-            }
+            h.advance(275);
             await h.session.pending;
         };
         h.session.start(); await h.started; await h.session.pending;
@@ -175,7 +232,7 @@ for (const hasPreview of [false, true]) {
 }
 
 for (const [code, reason, detail] of [
-    ['mtflpp_preview_origin_mismatch', 'origin-mismatch', panelStrings.originMismatch.replace('%s', 'https://other.example')],
+    ['mtflpp_preview_origin_mismatch', 'origin-mismatch', panelStrings.originMismatch.replace('%s', 'https://other.example/news/page/')],
     ['mtflpp_preview_unsupported_url', 'unsupported-url', panelStrings.failed],
 ]) {
     test(`a blocked preview URL stops live updates without clearing the last preview (${reason})`, { timeout: 5000 }, async (t) => {

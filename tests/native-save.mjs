@@ -21,7 +21,7 @@ async function fixture({ visible = true, pending = true } = {}) {
     };
     const nativeEditor = { idle: Promise.resolve(), saving: false, deferredSaves: new WeakSet() };
     const context = {
-        console, URLSearchParams,
+        console, performance, URLSearchParams,
         document: { getElementById: (id) => id === 'post' ? form : null },
         window: { isSecureContext: true, jQuery: () => ({ on() {} }), addEventListener() {} },
         navigator: { locks: { request: (name, options, callback) => callback({}) } },

@@ -26,16 +26,16 @@ export function createPreviewComparison(excludedSelectors = []) {
                 const transition = !!before.source !== !!after.source;
                 const candidates = [
                     ...(captured ? changedCandidates(before.source, after.source).map((item) => ({ ...item, source: true })) : []),
-                    ...changedCandidates(before.dom, after.dom).map((item) => ({ ...item, source: false })),
+                    ...changedCandidates(before.dom, after.dom),
                 ];
-                const ranked = rankCandidates(candidates, hints);
+                const rendered = new Map();
                 // With clean source, runtime-only mutations need author evidence. A known input
                 // change can support transformed/conditional DOM content without a literal match;
-                // unrelated DOM-only styling is not enough. Correlated source/DOM signals aren't votes.
-                const eligible = ranked.filter((item) => (item.source || (!captured && !transition)
-                    || item.input || (edited && item.priority === 2))
-                    && (item.priority > 0 || item.input));
-                return selectChange(eligible);
+                // unrelated DOM-only styling isn't enough. Correlated source/DOM signals aren't votes.
+                const eligible = rankCandidates(candidates, hints).filter((item) => (item.source || (!captured && !transition)
+                    || item.input || (edited && item.priority === 2)) && (item.priority > 0 || item.input)
+                    && (!item.spacing || renderedSpacingChanged(item, rendered, after.dom?.excluded)));
+                return selectChange(eligible, !captured && (edited || inputOrderChanged(before.values, after.values)));
             } catch { return null; } // Optional comparison must never prevent displaying native output.
         },
     };
@@ -73,7 +73,7 @@ function rankCandidates(candidates, hints) {
 function resolveRegion(candidate, hints, textOf) {
     const resolved = [];
     for (const hint of hints) {
-        if (!hint.after) continue;
+        if (!hint.after || hint.type === 'spacing') continue;
         const oldMatches = matchingEntries(candidate.oldRange, hint.before, textOf, hint, true);
         const newMatches = matchingEntries(candidate.newRange, hint.after, textOf, hint, false);
         if (!oldMatches.length) continue;
@@ -94,7 +94,7 @@ function resolveRegion(candidate, hints, textOf) {
     return resolved;
 }
 
-function selectChange(eligible) {
+function selectChange(eligible, canFollowLiveReorder) {
     if (!eligible.length) return null;
     // Ordered evidence, not percentages or added votes: paired input > one-sided input
     // > rendered-only; content/structure > presentation > unconfirmed reference churn.
@@ -102,7 +102,7 @@ function selectChange(eligible) {
     const supported = eligible.filter((item) => item.input === bestInput);
     const priority = supported.reduce((best, item) => Math.max(best, item.priority), 0);
     const best = supported.filter((item) => item.priority === priority);
-    if (best.some((item) => item.unresolved)) return null;
+    if (best.some((item) => item.unresolved)) return identifyRegion(best, canFollowLiveReorder);
     // A wrapper can contain the same transition as its edited child without changing
     // that text itself. Prefer the precise child, but keep independently edited parent text.
     const precise = best.filter((item) => !item.input || item.directInput || !best.some((other) =>
@@ -125,6 +125,27 @@ function selectChange(eligible) {
     // Visibility must not turn equally corroborated, different elements into a winner.
     if (bestInput && seen.size > 1) return null;
     return identifyElement(unique);
+}
+
+// A local replacement or reorder can identify its container without identifying one edited child.
+// Do not combine unrelated changes or follow browser-only movement in a captured page.
+function identifyRegion(changes, canFollowLiveReorder) {
+    const region = changes.find((item) => item.unresolved && (item.regionChange === 'replacement'
+        || (item.regionChange === 'reorder' && (item.source || canFollowLiveReorder))));
+    const node = region?.after.node;
+    if (!node?.isConnected) return null;
+    for (const change of changes) {
+        if (change.unresolved) {
+            // A live-only reorder cannot establish a region or veto one confirmed by clean source.
+            if (region.source && !change.source && change.regionChange === 'reorder') continue;
+            if (!change.regionChange || change.after.node !== node) return null;
+        } else {
+            const entries = change.kind === 'insert' ? change.added : [change.after];
+            if (!entries.every((entry) => node.contains(entry.node))) return null;
+        }
+    }
+    // A boxless container has no position of its own. Do not select an arbitrary child of it.
+    return node.ownerDocument.defaultView.getComputedStyle(node).display !== 'contents' ? node : null;
 }
 
 // Candidate kinds and snapshot entries never cross the comparison boundary.
@@ -206,8 +227,8 @@ function contentSnapshot(doc, live, excludedSelectors, root = doc.querySelector(
     }
     for (const node of [root, ...root.querySelectorAll('*')]) {
         if (excluded && node.closest(excluded)) continue;
-        const text = [...node.childNodes].filter((child) => child.nodeType === 3)
-            .map((child) => child.textContent).join(' ').replace(/\s+/g, ' ').trim();
+        const ownText = [...node.childNodes].filter((child) => child.nodeType === 3).map((child) => child.textContent);
+        const text = normalizedText(ownText.join(' '));
         const media = ['img', 'source', 'video', 'audio', 'iframe'].includes(node.localName)
             ? ['src', 'srcset', 'poster'].map((name) => node.getAttribute(`data-${name}`) || node.getAttribute(name) || '')
             : [];
@@ -216,9 +237,11 @@ function contentSnapshot(doc, live, excludedSelectors, root = doc.querySelector(
         const target = doc === live ? node : targets.get(node.getAttribute('data-mtflpp-node')) || null;
         const entry = snapshotEntry(node, target, JSON.stringify([node.localName, text, media, background]));
         entry.text = text;
+        entry.rawText = ownText.join('');
         entry.media = [...media, background];
+        entry.parent = entries.get(node.parentElement);
         entries.set(node, entry);
-        entries.get(node.parentElement)?.children.push(entry);
+        entry.parent?.children.push(entry);
     }
     // Preserve text-node order without duplicating every ancestor's complete text.
     for (const [node, entry] of entries) {
@@ -235,6 +258,7 @@ function contentSnapshot(doc, live, excludedSelectors, root = doc.querySelector(
         parent.parts = [snapshot];
         snapshot = parent;
     }
+    snapshot.excluded = excluded;
     return snapshot;
 }
 
@@ -275,6 +299,50 @@ function referenceAttribute(name) {
         'aria-flowto', 'aria-activedescendant', 'aria-details', 'aria-errormessage'].includes(name);
 }
 
+function replacesFormFields(before, after) {
+    function fieldNames(groups) {
+        const names = new Set();
+        function collect(entry) {
+            if (['input', 'select', 'textarea'].includes(entry.tag)) {
+                const name = entry.attributes.find(([key]) => key === 'name')?.[1];
+                const type = entry.attributes.find(([key]) => key === 'type')?.[1]?.toLowerCase();
+                if (!name || (entry.tag === 'input' && type === 'hidden')) return false;
+                names.add(name);
+                return true;
+            }
+            let found = false;
+            for (const child of entry.children) if (collect(child)) found = true;
+            return found;
+        }
+        // Standalone copy in the range can be independent of the field replacement.
+        return groups.every(collect) ? names : null;
+    }
+    const oldNames = fieldNames(before), newNames = fieldNames(after);
+    // A native form provides a boundary for a change in both directions, not for label edits
+    // or changes to generated IDs, actions and hidden metadata alone.
+    return oldNames && newNames && [...oldNames].some((name) => !newNames.has(name))
+        && [...newNames].some((name) => !oldNames.has(name));
+}
+
+function couldBeSeparateReplacements(before, after) {
+    if (before.length < 2 || after.length < 2) return false;
+    const oldSubtrees = before.filter((entry) => entry.children.length).length;
+    const newSubtrees = after.filter((entry) => entry.children.length).length;
+    // Neither a run of leaves nor several separate subtrees establishes a single replacement.
+    if ((!oldSubtrees && !newSubtrees) || (oldSubtrees > 1 && newSubtrees > 1)) return true;
+    // Even a mixed range can contain independent edits to siblings with the same element types.
+    const counts = new Map();
+    for (const { tag } of after) counts.set(tag, (counts.get(tag) || 0) + 1);
+    let matches = 0;
+    for (const { tag } of before) {
+        const available = counts.get(tag);
+        if (!available) continue;
+        if (++matches === 2) return true;
+        counts.set(tag, available - 1);
+    }
+    return false;
+}
+
 function changedCandidates(previous, next) {
     const identities = new Map(), keys = new Map(), presentationKeys = new Map(), exactKeys = new Map(), candidates = [];
     function intern(value) {
@@ -294,25 +362,38 @@ function changedCandidates(previous, next) {
     }
     identify(previous);
     identify(next);
-    function positions(entries) {
+    const contentKey = (entry) => keys.get(entry);
+    function childIdentity(entry) {
+        const id = entry.attributes.find(([name]) => name === 'id')?.[1];
+        return id ? `${entry.tag} ${id}` : undefined;
+    }
+    function collectionKey(entry) {
+        if (entry.children.length < 2) return;
+        // The same members can identify an anonymous sibling collection across a reorder.
+        return intern(['collection', entry.signature, entry.children.map(contentKey).sort((a, b) => a - b)]);
+    }
+    function positions(entries, keyOf) {
         const result = new Map();
         entries.forEach((entry, index) => {
-            const key = keys.get(entry);
-            result.set(key, result.has(key) ? -1 : index);
+            const key = keyOf(entry);
+            if (key !== undefined) result.set(key, result.has(key) ? -1 : index);
         });
         return result;
     }
     function compare(before, after) {
         if (!before || !after) return;
         if (before.signature !== after.signature) candidates.push({ kind: 'content', before, after, priority: 2 });
+        else if (before.rawText !== after.rawText) candidates.push({ kind: 'content', before, after, priority: 2, spacing: true });
         if (before.presentation !== after.presentation || before.references !== after.references) {
             candidates.push({ kind: 'attributes', before, after,
                 priority: before.presentation !== after.presentation ? 1 : 0 });
         }
-        align(before.children, after.children, after);
+        align(before.children, after.children, before, after);
     }
-    function align(before, after, parent) {
-        const oldPositions = positions(before), newPositions = positions(after);
+    function align(before, after, oldParent, parent) {
+        const local = parent.parent && oldParent.parent && parent.tag === oldParent.tag;
+        const oldPositions = positions(before, contentKey), newPositions = positions(after, contentKey);
+        let oldIds, newIds, oldCollections, newCollections;
         const oldAttributes = new Set(before.flatMap((entry) => [presentationKeys.get(entry), exactKeys.get(entry)]));
         const newAttributes = new Set(after.flatMap((entry) => [presentationKeys.get(entry), exactKeys.get(entry)]));
         function corresponds(old, next, index) {
@@ -327,9 +408,38 @@ function changedCandidates(previous, next) {
             return keys.get(old) === keys.get(next) && corresponds(old, next, presentationKeys)
                 && corresponds(old, next, exactKeys);
         }
-        function unresolved(oldStart, oldEnd, newStart, newEnd) {
-            candidates.push({ kind: 'region', after: parent, priority: 2, unresolved: true,
-                oldRange: before.slice(oldStart, oldEnd), newRange: after.slice(newStart, newEnd) });
+        function unresolved(oldStart, oldEnd, newStart, newEnd, reason) {
+            const oldRange = before.slice(oldStart, oldEnd), newRange = after.slice(newStart, newEnd);
+            const replaced = reason === 'replacement' && local
+                && oldRange.some((entry) => !newPositions.has(keys.get(entry)))
+                && newRange.some((entry) => !oldPositions.has(keys.get(entry)))
+                && (!couldBeSeparateReplacements(oldRange, newRange)
+                    || (parent.tag === 'form' && replacesFormFields(oldRange, newRange)));
+            const regionChange = local && (reason === 'reorder' || replaced) ? reason : undefined;
+            candidates.push({ kind: 'region', after: parent, priority: 2, unresolved: true, regionChange, oldRange, newRange });
+        }
+        function reordered(oldStart, oldEnd, newStart, newEnd) {
+            const length = oldEnd - oldStart;
+            if (length < 2 || length !== newEnd - newStart) return false;
+            const counts = new Map();
+            let moved = false;
+            for (let index = 0; index < length; index++) {
+                const old = keys.get(before[oldStart + index]), next = keys.get(after[newStart + index]);
+                moved ||= old !== next;
+                counts.set(old, (counts.get(old) || 0) + 1);
+                counts.set(next, (counts.get(next) || 0) - 1);
+            }
+            return moved && [...counts.values()].every((count) => count === 0);
+        }
+        function findAnchors(oldStart, oldEnd, newStart, newEnd, oldIndex, newIndex, keyOf) {
+            const anchors = [];
+            for (let index = oldStart; index < oldEnd; index++) {
+                const key = keyOf(before[index]), match = newIndex.get(key);
+                if (oldIndex.get(key) !== index || match === undefined || match < newStart || match >= newEnd) continue;
+                if (anchors.length && match <= anchors[anchors.length - 1][1]) return null;
+                anchors.push([index, match]);
+            }
+            return anchors;
         }
         function range(oldStart, oldEnd, newStart, newEnd) {
             while (oldStart < oldEnd && newStart < newEnd
@@ -359,17 +469,27 @@ function changedCandidates(previous, next) {
                 compare(before[oldStart], after[newStart]);
                 return;
             }
-            const anchors = [];
-            for (let index = oldStart; index < oldEnd; index++) {
-                const key = keys.get(before[index]), match = newPositions.get(key);
-                if (oldPositions.get(key) !== index || match === undefined || match < newStart || match >= newEnd) continue;
-                if (anchors.length && match <= anchors[anchors.length - 1][1]) {
-                    unresolved(oldStart, oldEnd, newStart, newEnd);
-                    return;
-                }
-                anchors.push([index, match]);
+            // Compare order before choosing anchors so a move is not split into an insertion and a deletion.
+            if (local && reordered(oldStart, oldEnd, newStart, newEnd)) {
+                unresolved(oldStart, oldEnd, newStart, newEnd, 'reorder');
+                return;
             }
-            if (!anchors.length) { unresolved(oldStart, oldEnd, newStart, newEnd); return; }
+            let anchors = findAnchors(oldStart, oldEnd, newStart, newEnd, oldPositions, newPositions, contentKey);
+            if (anchors?.length === 0) {
+                // Stable sibling IDs can separate changed containers with no unchanged content between them.
+                oldIds ??= positions(before, childIdentity);
+                newIds ??= positions(after, childIdentity);
+                anchors = findAnchors(oldStart, oldEnd, newStart, newEnd, oldIds, newIds, childIdentity);
+            }
+            if (anchors?.length === 0) {
+                oldCollections ??= positions(before, collectionKey);
+                newCollections ??= positions(after, collectionKey);
+                anchors = findAnchors(oldStart, oldEnd, newStart, newEnd, oldCollections, newCollections, collectionKey);
+            }
+            if (!anchors?.length) {
+                unresolved(oldStart, oldEnd, newStart, newEnd, anchors ? 'replacement' : undefined);
+                return;
+            }
             for (const [oldIndex, newIndex] of [...anchors, [oldEnd, newEnd]]) {
                 range(oldStart, oldIndex, newStart, newIndex);
                 if (oldIndex < oldEnd) compare(before[oldIndex], after[newIndex]);
@@ -387,6 +507,66 @@ function normalizedText(value) {
     return value.replace(/\s+/g, ' ').trim();
 }
 
+function spacingOnly(before, after) {
+    return before !== after && before.replace(/\s/g, '') === after.replace(/\s/g, '');
+}
+
+function renderedSpacingChanged({ before, after }, cache, excluded) {
+    const oldFlow = renderedFlowText(before, cache, excluded), newFlow = renderedFlowText(after, cache, excluded);
+    return oldFlow && newFlow && oldFlow.omitted === newFlow.omitted && spacingOnly(oldFlow.text, newFlow.text);
+}
+
+function renderedFlowText(entry, cache, excluded) {
+    // Let native text collection resolve HTML/CSS whitespace across inline boundaries.
+    // Only do that work for a raw-text difference the normal comparison could not see.
+    while (entry.node?.isConnected && entry.parent?.node) {
+        const { display } = entry.node.ownerDocument.defaultView.getComputedStyle(entry.node);
+        if (display !== 'inline' && display !== 'contents') break;
+        entry = entry.parent;
+    }
+    if (!cache.has(entry)) {
+        const { node } = entry;
+        const omitted = [];
+        // Validate the same included text as the snapshot. If excluded text changed too,
+        // native innerText cannot tell us which part supplied the rendered difference.
+        const text = node?.isConnected && liveEntryText(node, excluded, omitted) === rawEntryText(entry) && renderedElement(entry)
+            ? node.innerText : undefined;
+        cache.set(entry, typeof text === 'string' ? { text, omitted: JSON.stringify(omitted) } : undefined);
+    }
+    return cache.get(entry);
+}
+
+function liveEntryText(node, excluded, omitted) {
+    if (!excluded || !node.querySelector(excluded)) return node.textContent;
+    return [...node.childNodes].map((child) => {
+        if (child.nodeType === 3) return child.textContent;
+        if (child.nodeType !== 1) return '';
+        if (!child.matches(excluded)) return liveEntryText(child, excluded, omitted);
+        omitted.push(child.textContent);
+        return '';
+    }).join('');
+}
+
+function rawEntryText(entry) {
+    return entry.parts.map((part) => typeof part === 'string' ? part : rawEntryText(part)).join('');
+}
+
+function entrySpacingTransition({ before, after }) {
+    return spacingTransition(before.rawText, after.rawText) || spacingTransition(rawEntryText(before), rawEntryText(after));
+}
+
+function spacingTransition(before, after) {
+    if (!/\S/.test(before) || !spacingOnly(before, after)) return;
+    const old = before.match(/\s+|\S+/g), next = after.match(/\s+|\S+/g);
+    let start = 0, end = 0;
+    while (start < Math.min(old.length, next.length) && old[start] === next[start]) start++;
+    while (end < Math.min(old.length, next.length) - start && old.at(-1 - end) === next.at(-1 - end)) end++;
+    // Keep the exact changed whitespace and an adjacent word on either side as context.
+    const from = Math.max(0, start - 1), keepSuffix = Math.max(0, end - 1);
+    return { type: 'spacing', before: old.slice(from, old.length - keepSuffix).join(''),
+        after: next.slice(from, next.length - keepSuffix).join('') };
+}
+
 function entryText(entry, cache = new Map()) {
     if (!entry) return '';
     if (!cache.has(entry)) cache.set(entry, (entry.parts || []).map((part) => {
@@ -401,9 +581,18 @@ function entryText(entry, cache = new Map()) {
 }
 
 function valuesChanged(before, after) {
-    return !!before && !!after && [...new Set([...Object.keys(before), ...Object.keys(after)])]
-        .some((key) => !Object.hasOwn(before, key) || !Object.hasOwn(after, key)
-            || before[key]?.type !== after[key]?.type || before[key]?.value !== after[key]?.value);
+    if (!before || !after) return false;
+    const differs = (from, to) => Object.entries(from).some(([key, hint]) => hint?.type !== 'order'
+        && (!Object.hasOwn(to, key) || hint?.type !== to[key]?.type || hint?.value !== to[key]?.value));
+    return differs(before, after) || differs(after, before);
+}
+
+function inputOrderChanged(before, after) {
+    return !!before && !!after && Object.entries(after).some(([key, next]) => {
+        if (next?.type !== 'order' || !Object.hasOwn(before, key)) return false;
+        const old = before[key];
+        return old?.type === 'order' && old.members === next.members && old.value !== next.value;
+    });
 }
 
 function inputChanges(before, after) {
@@ -421,31 +610,42 @@ function inputChanges(before, after) {
         } catch { continue; } // Restrictive Trusted Types must not veto otherwise usable rendered evidence.
         const oldContent = oldDoc ? contentSnapshot(oldDoc, oldDoc, [], oldDoc.body) : null;
         const newContent = newDoc ? contentSnapshot(newDoc, newDoc, [], newDoc.body) : null;
-        const a = normalizedText(oldDoc ? entryText(oldContent) : old.value);
-        const b = normalizedText(newDoc ? entryText(newContent) : next.value);
+        const oldText = oldDoc ? entryText(oldContent) : old.value;
+        const newText = newDoc ? entryText(newContent) : next.value;
+        const a = normalizedText(oldText), b = normalizedText(newText);
         if (a !== b) changes.push({ ...textTransition(a, b), type: 'text' });
-        // Reuse structural comparison for markup-only intent rather than searching raw HTML.
-        else if (oldDoc && newDoc) {
-            for (const change of changedCandidates(oldContent, newContent)) {
-                if (change.kind === 'attributes') {
-                    const oldAttributes = new Map(change.before.attributes), newAttributes = new Map(change.after.attributes);
-                    for (const name of new Set([...oldAttributes.keys(), ...newAttributes.keys()])) {
-                        const previous = oldAttributes.get(name) ?? '', value = newAttributes.get(name) ?? '';
-                        if (JSON.stringify(previous) !== JSON.stringify(value)) {
-                            changes.push({ type: 'attribute', name,
-                                before: typeof previous === 'string' ? previous : JSON.stringify(previous),
-                                after: typeof value === 'string' ? value : JSON.stringify(value) });
-                        }
+        if (!oldDoc) {
+            const hint = spacingTransition(oldText, newText);
+            if (hint) changes.push(hint);
+            continue;
+        }
+        if (!oldContent || !newContent || (a !== b && !spacingOnly(oldText, newText))) continue;
+        // Reuse structural comparison for spacing and markup intent rather than searching raw HTML.
+        for (const change of changedCandidates(oldContent, newContent)) {
+            if (change.spacing) {
+                const hint = entrySpacingTransition(change);
+                if (hint) changes.push(hint);
+                continue;
+            }
+            if (a !== b) continue;
+            if (change.kind === 'attributes') {
+                const oldAttributes = new Map(change.before.attributes), newAttributes = new Map(change.after.attributes);
+                for (const name of new Set([...oldAttributes.keys(), ...newAttributes.keys()])) {
+                    const previous = oldAttributes.get(name) ?? '', value = newAttributes.get(name) ?? '';
+                    if (JSON.stringify(previous) !== JSON.stringify(value)) {
+                        changes.push({ type: 'attribute', name,
+                            before: typeof previous === 'string' ? previous : JSON.stringify(previous),
+                            after: typeof value === 'string' ? value : JSON.stringify(value) });
                     }
-                } else if (change.kind === 'content') {
-                    if (normalizedText(entryText(change.before)) === normalizedText(entryText(change.after))) changes.push({ type: 'markup',
-                        before: normalizedText(entryText(change.before)), after: normalizedText(entryText(change.after)),
-                        oldTag: change.before.tag, newTag: change.after.tag });
-                    (change.before.media || []).forEach((value, index) => {
-                        const current = change.after.media?.[index];
-                        if (value && current && value !== current) changes.push({ type: 'media', before: value, after: current });
-                    });
                 }
+            } else if (change.kind === 'content') {
+                if (normalizedText(entryText(change.before)) === normalizedText(entryText(change.after))) changes.push({ type: 'markup',
+                    before: normalizedText(entryText(change.before)), after: normalizedText(entryText(change.after)),
+                    oldTag: change.before.tag, newTag: change.after.tag });
+                (change.before.media || []).forEach((value, index) => {
+                    const current = change.after.media?.[index];
+                    if (value && current && value !== current) changes.push({ type: 'media', before: value, after: current });
+                });
             }
         }
     }
@@ -505,9 +705,16 @@ function matchingEntries(entries = [], value, textOf, hint, before) {
 
 function inputSupport(candidate, hints, textOf) {
     if (candidate.unresolved) return 0;
-    let strength = 0;
     candidate.matches = [];
+    if (candidate.spacing) {
+        const authored = hints.filter((hint) => hint.type === 'spacing');
+        const transition = authored.length && entrySpacingTransition(candidate);
+        candidate.matches = authored.filter((hint) => transition?.before === hint.before && transition?.after === hint.after);
+        return candidate.matches.length ? 2 : 0;
+    }
+    let strength = 0;
     for (const hint of hints) {
+        if (hint.type === 'spacing') continue;
         let support = 0;
         if (candidate.kind === 'attributes') {
             if (!['text', 'attribute'].includes(hint.type)) continue;

@@ -14,7 +14,8 @@ const source = await sourceForVm(new URL('../src/panel/window.js', import.meta.u
 function fixture(open = false, {
     layout, position, rememberPosition, preferences: savedPreferences, legacyPreferences: oldPreferences, labels = {},
     width = 1440, height = 1000, direction = 'ltr', lang = 'en-US', gutter = 20, scrollbar = 0, toolbarHeight = 32,
-    nativeSaving = false, pip = false, pipApi, videoPip = false, stylesheets = [], publicRedirect, fetch,
+    nativeSaving = false, pip = false, pipApi, videoPip = false, stylesheets = [], publicRedirect, fetch, beforeViewportChange,
+    viewportMotion = false,
 } = {}) {
     const nodes = new Map();
     const preferences = new Map(savedPreferences ?? [
@@ -97,7 +98,8 @@ function fixture(open = false, {
         location: { origin: 'https://site.test' }, fetch,
         innerWidth: width, innerHeight: height, scrollX: 0, requestAnimationFrame: () => 1, cancelAnimationFrame() {},
         getComputedStyle: () => ({ direction, cursor: 'ew-resize', getPropertyValue: () => '' }),
-        matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
+        matchMedia: (query) => ({ matches: viewportMotion && query === '(prefers-reduced-motion: no-preference)', addEventListener() {}, removeEventListener() {} }),
+        performance: { now: () => 0 },
         ResizeObserver: class { observe() {} disconnect() {} },
         wp: { data: {
             select: () => ({ get: (name, key) => {
@@ -143,7 +145,7 @@ function fixture(open = false, {
     delete window.wp;
     const createPreviewPanel = vm.runInNewContext(`${source}\ncreatePreviewPanel`, { window, document, imports, URL });
     const view = createPreviewPanel(strings, {
-        nativeSaving, publicRedirect, beforeMove() {}, afterMove() {},
+        nativeSaving, publicRedirect, beforeViewportChange, beforeMove() {}, afterMove() {},
         onOpen() { view.setVisible(true); }, onClose() { view.setVisible(false); }, onRetry(takeOver) { retryCalls.push(takeOver); },
         onRefresh(follow = true) { refreshCalls.push({ follow, enabled: preferences.get('scrollToChanges') }); },
     });
@@ -554,6 +556,48 @@ test('reselecting a device rotates it; fitting and independent orientations pers
     reopened.actions.reset();
     assert.equal(reopened.state.fit, 'width', 'Reset size and position does not reset fitting.');
     assert.equal(reopened.state.orientation, 'portrait');
+});
+
+for (const fit of ['automatic', 'window', 'width', 'custom']) {
+    test(`device changes and rotations preserve the follow target in ${fit}`, () => {
+        const calls = [];
+        const h = fixture(true, {
+            preferences: [['fitMode', fit]],
+            beforeViewportChange({ canFollow }) {
+                calls.push({ device: h.state.device, orientation: h.state.orientation, canFollow });
+            },
+        });
+        h.actions.device('desktop');
+        h.actions.device('mobile');
+        h.actions.device('mobile');
+        assert.deepEqual(calls.map(({ device, orientation }) => [device, orientation]), [
+            ['desktop', 'landscape'], ['mobile', 'portrait'],
+        ], 'Check the old viewport before resizing or rotating.');
+        assert.equal(calls.at(-1).canFollow(), true);
+        h.actions.zoom(125);
+        assert.equal(calls.at(-1).canFollow(), false, 'Changing the zoom invalidates a deferred check.');
+        h.actions.follow();
+        h.actions.device('desktop');
+        assert.equal(calls.length, 2, 'Skip disabled following.');
+    });
+}
+
+test('use the final camera scale immediately only when following a visible edit', () => {
+    for (const tracked of [false, true]) {
+        let whenSettled;
+        const h = fixture(true, {
+            viewportMotion: true,
+            beforeViewportChange(viewport) {
+                whenSettled = viewport.whenSettled;
+                return tracked;
+            },
+        });
+        h.view.report('Loaded', 'current', { hasPreview: true });
+        h.actions.device('mobile');
+        assert.equal(!!whenSettled(), !tracked, 'Untracked device switches still animate when motion is enabled.');
+        h.actions.device('mobile');
+        assert.equal(!!whenSettled(), !tracked, 'Rotation uses the same rule.');
+    }
 });
 
 for (const legacy of [undefined, 'window', 'width', 'unknown']) {
@@ -1071,7 +1115,7 @@ for (const hasPreview of [false, true]) {
 for (const hasPreview of [false, true]) {
     test(`a different preview address is explained in ${hasPreview ? 'the inline error' : 'the placeholder'}`, () => {
         const h = fixture(true, { labels: panelStrings });
-        const text = panelStrings.originMismatch.replace('%s', 'https://other.example:8443');
+        const text = panelStrings.originMismatch.replace('%s', 'https://other.example:8443/news/page/');
         h.view.report(text, 'error', { hasPreview, reason: 'origin-mismatch', canRetry: false });
         const content = hasPreview ? h.state.notice : h.state.empty;
         assert.equal(content.heading, 'Preview uses a different website address');
@@ -1087,6 +1131,7 @@ for (const hasPreview of [false, true]) {
             assert.equal(h.state.notice, null);
             assert.equal(content.busy, false);
             assert.equal(content.icon, 'info');
+            assert.equal(content.stackIcon, true);
         }
     });
 }

@@ -143,15 +143,27 @@ function browserTests({ core, panel, strings }) {
     const name = 'shared recovery text balances without changing captions or preview content';
     try {
         shell.innerHTML = `<h2 id="mtflpp-title" class="mtflpp-caption">Preview title</h2>
-            <div class="mtflpp-placeholder"><h3 class="mtflpp-empty-title">${strings.failed}</h3>
-                <div class="components-placeholder__instructions">${strings.reviewBeforeReload}</div>
-                <p class="mtflpp-empty-note">${strings.tabEdits}</p></div>
+            <div class="mtflpp-empty"><div class="mtflpp-placeholder mtflpp-placeholder-stacked">
+                <div class="components-placeholder__label"><svg width="24" height="24" aria-hidden="true"></svg><h3 class="mtflpp-empty-title">${strings.originMismatchTitle}</h3></div>
+                <div class="components-placeholder__instructions">${strings.originMismatch.replace('%s', 'https://other.example/news/page/')}</div>
+                <p class="mtflpp-empty-note">${strings.tabEdits}</p></div></div>
             <div class="mtflpp-feedback"><div class="components-notice__content"><p>${strings.refreshFailed}</p></div></div>
             <div class="mtflpp-viewport"><p>Preview content is not panel status text.</p></div>`;
         for (const selector of ['.mtflpp-empty-title', '.components-placeholder__instructions', '.mtflpp-empty-note']) {
             if (getComputedStyle(shell.querySelector(selector)).textWrap !== 'balance') {
                 throw new Error(`${selector} must use balanced wrapping.`);
             }
+        }
+        if (getComputedStyle(shell.querySelector('.components-placeholder__label')).flexDirection !== 'column') {
+            throw new Error('Put the icon above the heading in a stacked placeholder.');
+        }
+        shell.style.setProperty('--wp-admin-theme-color', 'rgb(38, 96, 143)');
+        const icon = getComputedStyle(shell.querySelector('.components-placeholder__label svg'));
+        if (icon.inlineSize !== '32px' || icon.blockSize !== '32px' || icon.color !== 'rgb(38, 96, 143)') {
+            throw new Error('Enlarge the stacked icon and use the admin accent color.');
+        }
+        if (!shell.querySelector('.components-placeholder__instructions').innerText.includes('\nhttps://other.example/news/page/\n')) {
+            throw new Error('Put the preview URL on its own line in the placeholder.');
         }
         const captionStyle = getComputedStyle(shell.querySelector('.mtflpp-caption'));
         const panelStyle = getComputedStyle(shell);
