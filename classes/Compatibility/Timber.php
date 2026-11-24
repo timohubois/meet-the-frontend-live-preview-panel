@@ -87,6 +87,9 @@ final class Timber
         // Timber 1 eagerly imports metadata as properties and does not call timber/post/import_data.
         if (!$saved) {
             add_filter('timber_post_get_meta_pre', [$this, 'readLegacyPostMeta'], PHP_INT_MAX, 2);
+            if (method_exists(\Timber\Post::class, 'import_custom')) {
+                add_filter('timber_post_get_meta_field_pre', [$this, 'readLegacyPostMetaField'], PHP_INT_MAX, 3);
+            }
         }
         add_action('shutdown', [$this, 'unbindPreview'], PHP_INT_MAX);
     }
@@ -96,6 +99,7 @@ final class Timber
     {
         remove_filter('timber/post/import_data', [$this, 'readPost'], PHP_INT_MAX);
         remove_filter('timber_post_get_meta_pre', [$this, 'readLegacyPostMeta'], PHP_INT_MAX);
+        remove_filter('timber_post_get_meta_field_pre', [$this, 'readLegacyPostMetaField'], PHP_INT_MAX);
         remove_filter('timber/post/class', [$this, 'postClass'], PHP_INT_MAX);
         remove_action('pre_get_terms', [$this, 'readLegacyTermQuery'], PHP_INT_MIN);
         remove_filter('terms_pre_query', [$this, 'emptyLegacyTermQuery'], PHP_INT_MIN);
@@ -109,20 +113,36 @@ final class Timber
 
     public function readLegacyPostMeta(mixed $meta, mixed $postId): mixed
     {
-        if (
-            $meta === false || !empty($meta) || !$this->source || !is_numeric($postId)
-            || (int) $postId !== $this->previewPostId || $this->previewPostId === $this->source->ID
-        ) {
+        $sourceId = $this->legacyMetaSourceId($postId);
+        if ($meta === false || !empty($meta) || !$sourceId) {
             return $meta;
         }
         // Give Timber the same raw shape as get_post_meta($id), without preview bookkeeping.
         $meta = array_filter(
-            get_post_meta($this->source->ID),
+            get_post_meta($sourceId),
             static fn ($key): bool => !str_starts_with((string) $key, '_mtflpp_'),
             ARRAY_FILTER_USE_KEY
         );
         // Timber treats an empty array as a request to load the saved post's metadata.
         return $meta ?: false;
+    }
+
+    public function readLegacyPostMetaField(mixed $value, mixed $postId, mixed $key): mixed
+    {
+        $sourceId = $this->legacyMetaSourceId($postId);
+        if ($value !== null || !is_string($key) || $key === '' || !$sourceId) {
+            return $value;
+        }
+        // A missing imported property can fall through to Timber's single-field read on the parent.
+        // Compare the bulk snapshots so virtual per-key metadata and later formatting filters stay native.
+        return !array_key_exists($key, get_post_meta($sourceId))
+            && array_key_exists($key, get_post_meta($this->previewPostId)) ? false : $value;
+    }
+
+    private function legacyMetaSourceId(mixed $postId): int
+    {
+        return $this->source && is_numeric($postId) && (int) $postId === $this->previewPostId
+            && $this->source->ID !== $this->previewPostId ? $this->source->ID : 0;
     }
 
     /** Use Timber's public class hook without replacing theme-specific Post subclasses. */

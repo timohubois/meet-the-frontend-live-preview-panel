@@ -69,6 +69,7 @@ try {
         && !has_filter('acf/pre_delete_metadata', [$acf, 'preventSourceWrite'])
         && !has_filter('timber/post/import_data', [$timber, 'readPost'])
         && !has_filter('timber_post_get_meta_pre', [$timber, 'readLegacyPostMeta'])
+        && !has_filter('timber_post_get_meta_field_pre', [$timber, 'readLegacyPostMetaField'])
         && !has_filter('timber/post/class', [$timber, 'postClass'])
         && !has_action('shutdown', [$acf, 'unbindPreview'])
         && !has_action('shutdown', [$timber, 'unbindPreview'])
@@ -83,6 +84,7 @@ try {
         && $acf->preventSourceWrite(null, 123) === null
         && $timber->readPost(['post_title' => 'Saved'], (object) ['ID' => 123]) === ['post_title' => 'Saved']
         && $timber->readLegacyPostMeta([], 123) === []
+        && $timber->readLegacyPostMetaField(null, 123, 'field') === null
         && $timber->readTerms((object) ['ID' => 123], static fn (): array => ['Saved']) === ['Saved']
         && $yoast->readPrimaryMeta(null, 123, '_yoast_wpseo_primary_category', true) === null
         && $yoast->readBreadcrumbs([['id' => 123]]) === [['id' => 123]]

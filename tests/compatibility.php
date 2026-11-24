@@ -557,7 +557,9 @@ try {
         (has_filter('timber/post/import_data', [$timber, 'readPost']) === PHP_INT_MAX)
             === class_exists(\Timber\Timber::class)
         && (has_filter('timber_post_get_meta_pre', [$timber, 'readLegacyPostMeta']) === PHP_INT_MAX)
-            === class_exists(\Timber\Timber::class),
+            === class_exists(\Timber\Timber::class)
+        && (has_filter('timber_post_get_meta_field_pre', [$timber, 'readLegacyPostMetaField']) === PHP_INT_MAX)
+            === method_exists(\Timber\Post::class, 'import_custom'),
         'Timber read hooks must be installed only when Timber is available.'
     );
     $timber->bindPreview($postId, 0);
@@ -565,6 +567,7 @@ try {
     $check(
         !has_filter('timber/post/import_data', [$timber, 'readPost'])
         && !has_filter('timber_post_get_meta_pre', [$timber, 'readLegacyPostMeta'])
+        && !has_filter('timber_post_get_meta_field_pre', [$timber, 'readLegacyPostMetaField'])
         && !has_action('shutdown', [$timber, 'unbindPreview'])
         && $timber->readPost(['post_title' => 'Unchanged'], get_post($postId)) === ['post_title' => 'Unchanged'],
         'Timber cleanup must remove its own read hooks and discard the previous source.'
