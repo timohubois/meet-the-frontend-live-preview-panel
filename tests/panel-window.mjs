@@ -15,7 +15,7 @@ function fixture(open = false, {
     layout, position, rememberPosition, preferences: savedPreferences, legacyPreferences: oldPreferences, labels = {},
     width = 1440, height = 1000, direction = 'ltr', lang = 'en-US', gutter = 20, scrollbar = 0, toolbarHeight = 32,
     nativeSaving = false, pip = false, pipApi, videoPip = false, stylesheets = [], publicRedirect, fetch, beforeViewportChange,
-    viewportMotion = false,
+    viewportMotion = false, inlineLauncher = false, nativeLauncher, canRememberVisibility,
 } = {}) {
     const nodes = new Map();
     const preferences = new Map(savedPreferences ?? [
@@ -91,6 +91,8 @@ function fixture(open = false, {
     const requests = [];
     const launcherContainer = node('mtflpp-toggle');
     const launcher = node('launcher-button');
+    launcher.parentElement = launcherContainer;
+    launcher.disabled = inlineLauncher;
     launcher.title = 'Live preview'; // Native Button's action label.
     launcherContainer.offsetWidth = 160;
     launcherContainer.offsetHeight = 40;
@@ -144,15 +146,19 @@ function fixture(open = false, {
     };
     delete window.wp;
     const createPreviewPanel = vm.runInNewContext(`${source}\ncreatePreviewPanel`, { window, document, imports, URL });
+    const lifecycle = [];
     const view = createPreviewPanel(strings, {
-        nativeSaving, publicRedirect, beforeViewportChange, beforeMove() {}, afterMove() {},
-        onOpen() { view.setVisible(true); }, onClose() { view.setVisible(false); }, onRetry(takeOver) { retryCalls.push(takeOver); },
+        nativeSaving, publicRedirect, beforeViewportChange, nativeLauncher, canRememberVisibility,
+        inlineLauncher: inlineLauncher ? launcher : undefined,
+        beforeMove() { lifecycle.push('before move'); }, afterMove() { lifecycle.push('after move'); },
+        onOpen() { lifecycle.push('open'); view.setVisible(true); },
+        onClose() { lifecycle.push('close'); view.setVisible(false); }, onRetry(takeOver) { retryCalls.push(takeOver); },
         onRefresh(follow = true) { refreshCalls.push({ follow, enabled: preferences.get('scrollToChanges') }); },
     });
     const panel = node('mtflpp-panel');
     return {
         view, launcher, launcherContainer, panel, node, actions, window, document, preferences, writes, detached, copiedStyles,
-        requests, focusCalls, retryCalls, refreshCalls,
+        requests, focusCalls, retryCalls, refreshCalls, lifecycle,
         get state() { return state; },
         rect: () => Object.fromEntries(['left', 'top', 'width', 'height'].map((key) => [key, parseFloat(panel.style[key])])),
         resizeTo(width, height) {
@@ -166,6 +172,85 @@ function fixture(open = false, {
         },
     };
 }
+
+test('Classic restores and updates remembered visibility without hiding its Publish-box button', () => {
+    const classic = (preferences) => fixture(false, { inlineLauncher: true, preferences });
+    const h = classic([['panelOpen', false]]);
+    assert.equal(h.view.visible, false);
+    assert.equal(h.launcher.disabled, false);
+    h.launcher.fire('click', { detail: 1 });
+    const reopened = classic(h.preferences);
+    assert.equal(reopened.view.visible, true);
+    assert.equal(reopened.launcherContainer.hidden, false);
+    reopened.actions.close();
+    assert.equal(reopened.document.activeElement, reopened.launcher);
+    assert.equal(classic(reopened.preferences).view.visible, false);
+    assert.equal(classic([['panelOpen', false], ['rememberVisibility', false]]).view.visible, true);
+});
+
+test('Revisions starts closed regardless of remembered visibility and retains saved floating geometry', () => {
+    const saved = layout();
+    const h = fixture(true, { inlineLauncher: true, canRememberVisibility: false, layout: saved });
+    assert.equal(h.view.visible, false);
+    assert.equal(h.state.canRememberVisibility, false);
+    h.launcher.fire('click', { detail: 1 });
+    assert.deepEqual(h.rect(), fixture(true, { layout: saved }).rect());
+    assert.equal(h.launcherContainer.hidden, false);
+    h.launcher.fire('click', { detail: 1 });
+    assert.equal(h.focusCalls.at(-1), 'actions');
+    h.actions.close();
+    assert.deepEqual(h.lifecycle, ['open', 'close']);
+    assert.equal(h.document.activeElement, h.launcher);
+    assert.deepEqual(h.writes, []);
+});
+
+test('a native menu opens and focuses the same floating panel without exposing a separate launcher', () => {
+    let launcherFocuses = 0;
+    const fallbackMedia = Object.assign(new EventTarget(), { matches: false });
+    const h = fixture(false, { nativeLauncher: { fallbackMedia, focus: () => { launcherFocuses++; } } });
+    assert.equal(h.launcherContainer.hidden, true);
+    assert.equal(h.state.canRememberVisibility, true);
+    h.view.openFromLauncher();
+    assert.deepEqual(h.rect(), fixture(true).rect());
+    assert.equal(h.focusCalls.at(-1), 'actions');
+    assert.equal(h.launcherContainer.hidden, true);
+    h.view.openFromLauncher();
+    assert.deepEqual(h.lifecycle, ['open'], 'A second menu action focuses the running preview rather than restarting it.');
+    h.actions.close();
+    assert.equal(h.launcherContainer.hidden, true);
+    assert.equal(launcherFocuses, 1);
+    assert.deepEqual(h.lifecycle, ['open', 'close']);
+    assert.deepEqual(h.writes, [{ key: 'panelOpen', value: true }, { key: 'panelOpen', value: false }]);
+});
+
+test('the floating launcher takes over when Gutenberg hides the native View menu', () => {
+    const fallbackMedia = Object.assign(new EventTarget(), { matches: true });
+    const h = fixture(false, { nativeLauncher: { fallbackMedia, focus: () => h.node('view-button').focus() } });
+    assert.equal(h.launcherContainer.hidden, false);
+    h.launcher.fire('click', { detail: 0 });
+    assert.equal(h.launcherContainer.hidden, true);
+    assert.equal(h.view.visible, true);
+    assert.equal(h.focusCalls.at(-1), 'actions');
+    h.actions.close();
+    assert.equal(h.document.activeElement, h.launcher);
+    assert.equal(h.launcherContainer.hidden, false);
+    const setNarrow = (matches) => {
+        fallbackMedia.matches = matches;
+        fallbackMedia.dispatchEvent(new Event('change'));
+    };
+    const writes = h.writes.length;
+    setNarrow(false);
+    assert.equal(h.launcherContainer.hidden, true);
+    setNarrow(true);
+    assert.equal(h.launcherContainer.hidden, false);
+    assert.equal(h.view.visible, false);
+    assert.equal(h.writes.length, writes, 'Resizing does not change the remembered open/closed state.');
+    h.launcher.fire('click', { detail: 1 });
+    setNarrow(false);
+    assert.equal(h.view.visible, true);
+    h.actions.close();
+    assert.equal(h.document.activeElement, h.node('view-button'));
+});
 
 test('old panel preferences are ignored, and changes persist under the new scope', () => {
     const legacyPreferences = [['panelOpen', false], ['viewport', 'tablet']];

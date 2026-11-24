@@ -5,7 +5,7 @@ import { createPreviewScroll } from '../preview/scroll.js';
 const refreshDelay = 275;
 
 // Share preview writes, frames and ownership, not editor-specific fields or save controls.
-export function createLivePreview(config, nativeEditor) {
+export function createLivePreview(config, nativeEditor, { inlineLauncher, nativeLauncher } = {}) {
     const strings = config.strings;
     const subjectId = config.termId ?? config.postId;
     const mainWindow = window;
@@ -13,6 +13,8 @@ export function createLivePreview(config, nativeEditor) {
     const view = createPreviewPanel(strings, {
         postTitle: nativeEditor.title ?? config.postTitle,
         publicRedirect: config.publicRedirect,
+        inlineLauncher,
+        nativeLauncher,
         onOpen: () => startPreview(),
         onClose: () => stopPreview(),
         onRefresh: refreshPreview,
@@ -309,6 +311,7 @@ export function createLivePreview(config, nativeEditor) {
     return {
         changed, pause, resume,
         setTitle: view.setTitle,
+        openFromLauncher: view.openFromLauncher,
         start: () => { if (view.visible) startPreview(); },
         // Classic Preview/save coordination retains its original whole-refresh drain.
         get pending() { return refreshTask; },
