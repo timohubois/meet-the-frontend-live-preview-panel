@@ -45,8 +45,7 @@ defined('ABSPATH') || exit;
                 title="<?php esc_attr_e(
                     'Viewport size in CSS pixels and current zoom.',
                     'meet-the-frontend-live-preview-panel'
-                ); ?>">
-            </span>
+                ); ?>"><span class="mtflpp-dimensions-text"></span></span>
             <div class="mtflpp-fit-control"></div>
         </div>
     </footer>

@@ -402,6 +402,8 @@ async function nativeNoticeTests(strings) {
 }
 
 async function nativeViewportControlTests(strings) {
+    // Use a translated label wider than the footer’s original fixed space reservation.
+    strings = { ...strings, mobile: 'Téléphone portable' };
     const results = [];
     const pause = () => new Promise((resolve) => setTimeout(resolve, 30));
     const check = (condition, message) => { if (!condition) throw new Error(message); };
@@ -412,7 +414,7 @@ async function nativeViewportControlTests(strings) {
         panel.dir = width === 480 ? 'rtl' : 'ltr';
         panel.dataset.hasPreview = 'true';
         panel.style.cssText = `position:relative;width:${width}px;height:340px`;
-        panel.innerHTML = '<header class="mtflpp-header"><div class="mtflpp-move-control"></div><div class="mtflpp-refresh-control"></div><div class="mtflpp-titlebar">Preview</div><div class="mtflpp-controls"></div></header><div class="mtflpp-feedback" hidden></div><div class="mtflpp-viewport"><div class="mtflpp-canvas" role="region" aria-label="Preview canvas" tabindex="-1"><div class="mtflpp-canvas-space"><div class="mtflpp-stage"></div></div></div><div class="mtflpp-empty" hidden></div><div class="mtflpp-pip-control"></div></div><footer class="mtflpp-devicebar"><div class="mtflpp-device-controls"></div><div class="mtflpp-viewport-controls"><span class="mtflpp-dimensions"></span><div class="mtflpp-fit-control"></div></div></footer>';
+        panel.innerHTML = '<header class="mtflpp-header"><div class="mtflpp-move-control"></div><div class="mtflpp-refresh-control"></div><div class="mtflpp-titlebar">Preview</div><div class="mtflpp-controls"></div></header><div class="mtflpp-feedback" hidden></div><div class="mtflpp-viewport"><div class="mtflpp-canvas" role="region" aria-label="Preview canvas" tabindex="-1"><div class="mtflpp-canvas-space"><div class="mtflpp-stage"></div></div></div><div class="mtflpp-empty" hidden></div><div class="mtflpp-pip-control"></div></div><footer class="mtflpp-devicebar"><div class="mtflpp-device-controls"></div><div class="mtflpp-viewport-controls"><span class="mtflpp-dimensions"><span class="mtflpp-dimensions-text"></span></span><div class="mtflpp-fit-control"></div></div></footer>';
         document.body.append(panel);
         let controls, viewport, state, frame;
         const sync = () => {

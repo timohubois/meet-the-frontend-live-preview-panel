@@ -56,7 +56,8 @@ function fixture(saved = {}, width = 480, height = 248, motion = false, scrollba
         querySelector: (selector) => selector === '.mtflpp-canvas' ? canvas : space,
     };
     const stage = { style: {} }, dimensions = { textContent: '' };
-    const viewport = createPreviewViewport(container, stage, dimensions, saved, onChange);
+    const readout = { dataset: {}, querySelector: () => dimensions };
+    const viewport = createPreviewViewport(container, stage, readout, saved, onChange);
     viewport.layout();
     return {
         viewport, container, canvas, space, stage, dimensions, observers, mainWindow, pipWindow, frames,
@@ -600,7 +601,7 @@ async function browserTests({ source, css }) {
         panel.dir = pw === 480 ? 'rtl' : 'ltr';
         panel.dataset.hasPreview = 'false';
         panel.style.cssText = `position:relative;width:${pw}px;height:${ph}px`;
-        panel.innerHTML = '<header class="mtflpp-header"></header><div class="mtflpp-viewport"><div class="mtflpp-canvas" role="region" aria-label="Preview canvas" tabindex="-1"><div class="mtflpp-canvas-space"><div class="mtflpp-stage"><iframe class="mtflpp-frame" title="Test preview"></iframe></div></div></div></div><footer class="mtflpp-devicebar" style="height:48px"><span class="mtflpp-dimensions"></span></footer>';
+        panel.innerHTML = '<header class="mtflpp-header"></header><div class="mtflpp-viewport"><div class="mtflpp-canvas" role="region" aria-label="Preview canvas" tabindex="-1"><div class="mtflpp-canvas-space"><div class="mtflpp-stage"><iframe class="mtflpp-frame" title="Test preview"></iframe></div></div></div></div><footer class="mtflpp-devicebar" style="height:48px"><span class="mtflpp-dimensions"><span class="mtflpp-dimensions-text"></span></span></footer>';
         document.body.append(panel);
         const container = panel.querySelector('.mtflpp-viewport'), stage = panel.querySelector('.mtflpp-stage');
         const canvas = panel.querySelector('.mtflpp-canvas');
@@ -704,7 +705,7 @@ test('trusted Chromium verifies independent scrolling and DPR-corrected physical
                 <div class="mtflpp-canvas" role="region" aria-label="Preview canvas" tabindex="-1">
                     <div class="mtflpp-canvas-space"><div class="mtflpp-stage"></div></div>
                 </div>
-            </div><footer class="mtflpp-devicebar" style="height:48px"><span class="mtflpp-dimensions"></span></footer>
+            </div><footer class="mtflpp-devicebar" style="height:48px"><span class="mtflpp-dimensions"><span class="mtflpp-dimensions-text"></span></span></footer>
         </section><script type="module">
         import { createPreviewViewport } from '/src/panel/viewport.js';
         import { createPreviewFrame } from '/src/preview/frame.js';

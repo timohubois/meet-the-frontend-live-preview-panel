@@ -5,12 +5,14 @@ export function createPreviewViewport(container, stage, dimensions, saved = {}, 
     const mainWindow = container.ownerDocument.defaultView;
     const canvas = container.querySelector('.mtflpp-canvas');
     const space = container.querySelector('.mtflpp-canvas-space');
+    const dimensionText = dimensions.querySelector('.mtflpp-dimensions-text');
     const sizes = { desktop: [1280, 800], tablet: [768, 1024], mobile: [390, 844] };
     const presets = Object.keys(sizes);
     let device = presets.includes(saved.device) ? saved.device : 'desktop';
     const fits = ['automatic', 'window', 'width', 'custom'];
     let fit = fits.includes(saved.fit) ? saved.fit : 'automatic';
-    const validZoom = (value) => Number.isInteger(value) && value >= 10 && value <= 400;
+    const maxCustomZoom = 400;
+    const validZoom = (value) => Number.isInteger(value) && value >= 10 && value <= maxCustomZoom;
     let customZoom = validZoom(saved.customZoom) ? saved.customZoom : 100;
     let zoomPercent = 100;
     let lastDpr;
@@ -74,6 +76,12 @@ export function createPreviewViewport(container, stage, dimensions, saved = {}, 
         // never bootstraps its responsive scripts in an unsized iframe.
         Object.assign(stage.style, { width: `${width}px`, height: `${height}px` });
         if (!container.clientWidth || !container.clientHeight) return;
+        const dpr = pixelRatio();
+        const label = `${deviceLabels[device]} (${width} × ${height}) · `;
+        // Fitting cannot exceed the width scale before scrollbars. This bound doesn’t depend on footer height.
+        const maxZoom = Math.max(maxCustomZoom, Math.ceil(container.clientWidth / width * dpr * 100));
+        const reserve = `${label}${'0'.repeat(String(maxZoom).length)}%`;
+        if (dimensions.dataset.reserve !== reserve) dimensions.dataset.reserve = reserve;
         const pan = resetPan ? { x: 0, y: 0 } : {
             x: (canvas.scrollLeft || 0) / (scale || 1), y: (canvas.scrollTop || 0) / (scale || 1),
         };
@@ -94,13 +102,12 @@ export function createPreviewViewport(container, stage, dimensions, saved = {}, 
         }
         if (!canvas.clientWidth || !canvas.clientHeight) return;
         const target = scaleFor(width, height);
-        const dpr = pixelRatio();
         const nextZoom = Math.round(target * dpr * 100);
         const changed = nextZoom !== zoomPercent || dpr !== lastDpr;
         zoomPercent = nextZoom;
         lastDpr = dpr;
-        const text = `${deviceLabels[device]} (${width} × ${height}) · ${fit === 'custom' ? customZoom : zoomPercent}%`;
-        if (dimensions.textContent !== text) dimensions.textContent = text;
+        const text = `${label}${fit === 'custom' ? customZoom : zoomPercent}%`;
+        if (dimensionText.textContent !== text) dimensionText.textContent = text;
         if (changed) onChange();
         const from = scale ?? target;
         if (!animate || !motion.matches || from === target) {
