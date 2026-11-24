@@ -81,10 +81,10 @@ async function browserTests(editorSource, initAcf, nativeSource, extensionSource
                     }
                     return this;
                 },
-                trigger(type) {
+                trigger(type, args = []) {
                     for (let node = target; node; node = node.parentNode) {
                         for (const handler of handlers.get(node) || []) {
-                            if (handler.type === type) handler.callback({ type, target });
+                            if (handler.type === type) handler.callback({ type, target }, ...args);
                         }
                     }
                     return this;
@@ -97,7 +97,7 @@ async function browserTests(editorSource, initAcf, nativeSource, extensionSource
                 off(...args) { jqueryCalls.push({ method: 'off', target, args }); return this; },
             }));
         }
-        const trigger = (type, target) => window.jQuery(target).trigger(type);
+        const trigger = (type, target, args) => window.jQuery(target).trigger(type, args);
         let nativeEditor = { idle: new Promise((resolve) => { finishNative = resolve; }) };
         const view = {
             visible: true,
@@ -348,6 +348,49 @@ async function browserTests(editorSource, initAcf, nativeSource, extensionSource
         context.trigger('sortupdate', context.form.querySelector('.acf-field'));
         equal(context.stale(), 2);
     }, { withAcf: true });
+    await check('a Flexible Content drop contributes the moved row, order and text hints without changing the request', async (context) => {
+        const name = (row, field = 'acf_fc_layout') => `acf[field_layouts][${row}][${field}]`;
+        const group = context.form.querySelector('.acf-field');
+        group.insertAdjacentHTML('beforeend', `<div class="values">${['row-0', 'row-disabled', 'row-1', 'acfcloneindex'].map((row) =>
+            `<div class="layout"><input type="hidden" name="${name(row)}" value="same_layout">
+                <input type="hidden" name="${name(row, 'acf_fc_layout_disabled')}" value="${row === 'row-disabled' ? '1' : '0'}">
+                <input type="text" name="${name(row, 'field_heading')}" value="Heading ${row}">
+                <input type="text" name="${name(row, 'field_disabled')}" value="Not submitted" disabled>
+                <textarea class="wp-editor-area" name="${name(row, 'field_body')}">Body ${row}</textarea>
+                <input type="hidden" name="${name(row, 'field_image')}" value="123">
+            </div>`).join('')}</div>`);
+        const container = group.querySelector('.values');
+        const row = container.firstElementChild;
+        const posted = [];
+        window.fetch = async (_url, { body }) => {
+            posted.push(body);
+            return new Response(JSON.stringify({ url: '/preview-frame' }));
+        };
+        const key = 'acf-layout-order:acf[field_layouts]';
+        const order = async () => (await context.nativeEditor.preparePreview()).comparisonValues[key];
+        const before = await order();
+        equal(before.type, 'row-order');
+        equal(before.value, JSON.stringify([name('row-0'), name('row-1')]));
+        equal(before.moved, undefined);
+        container.insertBefore(row, container.lastElementChild);
+        context.trigger('sortupdate', container, [{ item: [row] }]);
+        const after = await order();
+        equal(after.moved, name('row-0'));
+        equal(after.value, JSON.stringify([name('row-1'), name('row-0')]));
+        equal(after.members, before.members);
+        for (const hint of [before, after]) {
+            equal(JSON.stringify(Object.keys(hint.fieldsByRow).sort()), JSON.stringify([name('row-0'), name('row-1')]));
+            for (const row of ['row-0', 'row-1']) equal(JSON.stringify(hint.fieldsByRow[name(row)]),
+                JSON.stringify([name(row, 'field_heading'), name(row, 'field_body')]));
+        }
+        equal(posted[1].get(name('row-0', 'field_heading')), 'Heading row-0');
+        equal(posted[1].has(name('row-0', 'field_disabled')), false);
+        equal(posted[1].get(name('row-disabled')), 'same_layout');
+        equal(posted[1].get(name('row-disabled', 'acf_fc_layout_disabled')), '1');
+        equal(posted[1].has(key), false);
+        equal(posted[1].has(name('acfcloneindex')), false);
+        equal(context.stale(), 1);
+    }, { withAcf: true });
     await check('ACF row lifecycle and WYSIWYG hooks remain in the adapter', (context) => {
         for (const action of ['append', 'remove', 'sortstop', 'change_field']) context.actions.get(action)();
         equal(context.stale(), 4);
@@ -404,6 +447,6 @@ test('native editor events and ACF compatibility boundaries in Chromium', async 
     await runChromiumTests(t, {
         head: `<script>window.quicktagsL10n = new Proxy({}, { get: (target, key) => key });</script>${wordpressScripts.join('')}`,
         script: `(${browserTests.toString()})(${JSON.stringify(editorSource)}, (await import(${JSON.stringify(acfUrl)})).initAcf, ${JSON.stringify(nativeSource)}, ${JSON.stringify(browserEditorExtensionsSource)})`,
-        count: process.env.WORDPRESS_ROOT ? 23 : 20,
+        count: process.env.WORDPRESS_ROOT ? 24 : 21,
     });
 });

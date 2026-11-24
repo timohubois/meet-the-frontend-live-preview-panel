@@ -67,7 +67,7 @@ export function initRevisionPreview(config, model, backLink) {
         }
         try {
             await frames.load(url, () => view.visible && version === generation, () => view.followChanges && follow,
-                { revision: { type: 'value', value: selected.id } });
+                { revision: { type: 'selection', value: selected.id } });
         } catch (error) {
             if (view.visible && version === generation) {
                 const reason = {

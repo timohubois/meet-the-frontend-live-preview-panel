@@ -548,14 +548,14 @@ async function browserTests(source) {
     const orderHints = (...values) => ({ attachments: {
         type: 'order', value: JSON.stringify(values), members: JSON.stringify(values.sort()),
     } });
+    const follow = (scrolling, before, after, oldValues, newValues) => {
+        scrolling.capture(before, oldValues);
+        return scrolling.findTarget(before, after, newValues);
+    };
     for (const captured of [false, true]) {
         const mode = captured ? 'collaborative captured source' : 'collaborative DOM';
         const options = { captured };
         const clock = (value) => `<aside><p>Request time ${value}</p></aside>`;
-        const follow = (scrolling, before, after, oldValues, newValues) => {
-            scrolling.capture(before, oldValues);
-            return scrolling.findTarget(before, after, newValues);
-        };
         await check(`${mode}: a paired input transition outranks changing diagnostics without their exclusion`, async (scrolling, doc) => {
             const table = (value) => `<table class="xdebug-error"><tr><td>${value}</td></tr></table>`;
             const before = await doc(content('Hello') + table('0.123'), options);
@@ -712,6 +712,216 @@ async function browserTests(source) {
             equal(follow(frame, before, after, hints('old-choice', 'value'), hints('new-choice', 'value')), null,
                 'The whole preview is not a local replacement target.');
         });
+        const rowOrder = (items, moved, title = (item) => `Section ${item}`) => ({
+            ...Object.fromEntries(items.map((item) => [`title:${item}`, { type: 'text', value: title(item) }])),
+            rows: { ...orderHints(...items).attachments, type: 'row-order', moved,
+                fieldsByRow: Object.fromEntries(items.map((item) => [item, [`title:${item}`]])) },
+        });
+        for (const [order, moved] of [[['B', 'A', 'C', 'D'], 'A'], [['B', 'A', 'C', 'D'], 'B'], [['D', 'A', 'B', 'C'], 'D']]) {
+            await check(`${mode}: an authored move follows section ${moved} in ${order.join('')}`, async (frame, doc) => {
+                const markup = (items) => `<div style="height:800px"></div>${items.map((item) =>
+                    `<section id="section-${item}" style="height:500px">Section ${item}</section>`).join('')}`;
+                const before = await doc(markup(['A', 'B', 'C', 'D']), options);
+                const after = await doc(markup(order), options);
+                const target = follow(frame, before, after, rowOrder(['A', 'B', 'C', 'D']), rowOrder(order, moved));
+                equal(target, after.querySelector(`#section-${moved}`), 'Follow the row the editor moved, not the displaced neighbor.');
+                frame.scrolling.remember(before);
+                await frame.scrolling.restore(after, target);
+                equal(after.defaultView.scrollY > 0, true, 'Reveal an off-screen destination.');
+            });
+        }
+        await check(`${mode}: a boxless moved row follows its eligible off-screen heading, not its fixed navigation`, async (frame, doc) => {
+            const spacer = '<div style="height:900px"></div>';
+            const row = '<section style="display:contents"><nav style="position:fixed;top:0;right:0">Navigation</nav><h2 id="heading">Section A</h2></section>';
+            const before = await doc(spacer + row + section('Section B') + spacer, options);
+            const after = await doc(spacer + section('Section B') + row + spacer, options);
+            frame.capture(before, rowOrder(['A', 'B']));
+            frame.capture(after, rowOrder(['B', 'A'], 'A'));
+            const heading = after.querySelector('#heading'), target = frame.comparison.findChange(before, after);
+            equal(target, heading, 'Comparison, not generic presentation, must select the eligible child.');
+            equal(heading.getBoundingClientRect().top > after.defaultView.innerHeight, true, 'The heading starts off-screen.');
+            equal(await frame.scrolling.restore(after, target), heading, 'Keep the heading as the scroll anchor.');
+            const { top, bottom } = heading.getBoundingClientRect();
+            equal(top >= 0 && bottom <= after.defaultView.innerHeight, true, 'Reveal the heading in the page.');
+        });
+        if (captured) for (const [scenario, initialize, policy, expected] of [
+            ['live navigation role', "toolbar.setAttribute('role', 'navigation')", defaults, 'heading'],
+            ['relocated inside navigation', 'menu.append(toolbar)', defaults, 'heading'],
+            ['all children inside navigation', 'menu.append(toolbar, heading)', defaults, null],
+            ['custom live exclusion', "toolbar.setAttribute('data-runtime', '')", ['[data-runtime]'], 'heading'],
+            ['explicit empty policy', "toolbar.setAttribute('role', 'navigation')", [], 'toolbar'],
+        ]) {
+            await check(`${mode}: boxless row with ${scenario}`, async (frame, doc) => {
+                const row = '<section style="display:contents"><span id="toolbar" style="position:fixed;top:0">Jump links</span><h2 id="heading">Section A</h2><nav id="menu">Menu</nav></section>';
+                const initialized = { ...options, script: `const [toolbar, heading, menu] = document.querySelectorAll('#toolbar, #heading, #menu'); ${initialize};` };
+                const before = await doc(row + section('Section B'), initialized), after = await doc(section('Section B') + row, initialized);
+                frame.capture(before, rowOrder(['A', 'B']));
+                frame.capture(after, rowOrder(['B', 'A'], 'A'));
+                equal(frame.comparison.findChange(before, after), expected && after.getElementById(expected),
+                    'Only a rendered child still in the row and eligible under the configured live policy can identify its position.');
+            }, policy);
+        }
+        if (captured) await check(`${mode}: a boxless row cannot follow a mapped child outside the moved section`, async (frame, doc) => {
+            const row = '<section style="display:contents"><nav>Navigation</nav><h2 id="heading">Section A</h2></section>';
+            const relocated = { ...options, script: "document.body.append(document.querySelector('#heading'));" };
+            const before = await doc(row + section('Section B'), relocated);
+            const after = await doc(section('Section B') + row, relocated);
+            equal(follow(frame, before, after, rowOrder(['A', 'B']), rowOrder(['B', 'A'], 'A')), null,
+                'Neither a relocated heading nor an excluded child identifies the position of this row.');
+        });
+        for (const wrapped of [true, false]) {
+            await check(`${mode}: unchanged formatted row text can anchor the move (wrapped=${wrapped})`, async (frame, doc) => {
+                const text = '<h2>Unique <span>heading</span></h2><p>Body paragraph.</p>';
+                const moved = `<section id="formatted">${wrapped ? `<div>${text}</div>` : text}<a href="#cta">Learn more</a></section>`;
+                const before = await doc(moved + section('Section B'), options);
+                const after = await doc(section('Section B') + moved, options);
+                const oldValues = rowOrder(['A', 'B']), values = rowOrder(['B', 'A'], 'A');
+                oldValues['title:A'] = values['title:A'] = { type: 'html', value: '<h2>Unique <em>heading</em></h2>\n<p>Body paragraph.</p>' };
+                equal(follow(frame, before, after, oldValues, values), after.querySelector('#formatted'),
+                    'Use the submitted blocks together, even when the template adds other content.');
+            });
+        }
+        await check(`${mode}: a link-only rich-text paragraph is not required evidence for the move`, async (frame, doc) => {
+            const text = '<h2>Unique heading</h2><p>Body paragraph.</p><p><a href="#details">Read the case study</a></p>';
+            const moved = `<section id="formatted">${text}<span>Template label</span></section>`;
+            const before = await doc(moved + section('Section B'), options);
+            const after = await doc(section('Section B') + moved, options);
+            const oldValues = rowOrder(['A', 'B']), values = rowOrder(['B', 'A'], 'A');
+            oldValues['title:A'] = values['title:A'] = { type: 'html', value: text };
+            equal(follow(frame, before, after, oldValues, values), after.querySelector('#formatted'),
+                'Use the heading and body together without requiring the standalone action text.');
+        });
+        for (const hint of [{ type: 'text', value: 'Unique heading' }, { type: 'html', value: '<h2>Unique heading</h2><p>Body paragraph.</p>' }]) {
+            await check(`${mode}: ${hint.type} from a linked card can anchor the move`, async (frame, doc) => {
+                const moved = '<section id="card"><a href="#details"><h2>Unique heading</h2><p>Body paragraph.</p><span>Learn more</span></a></section>';
+                const before = await doc(moved + section('Section B'), options);
+                const after = await doc(section('Section B') + moved, options);
+                const oldValues = rowOrder(['A', 'B']), values = rowOrder(['B', 'A'], 'A');
+                oldValues['title:A'] = values['title:A'] = hint;
+                equal(follow(frame, before, after, oldValues, values), after.querySelector('#card'),
+                    'The heading and body inside a linked card are content, not an action label.');
+            });
+        }
+        await check(`${mode}: a single block from a longer field cannot anchor a row move`, async (frame, doc) => {
+            const moved = '<section><h2>Unique heading</h2><p>Unrelated content.</p></section>';
+            const before = await doc(moved + section('Section B'), options);
+            const after = await doc(section('Section B') + moved, options);
+            const oldValues = rowOrder(['A', 'B']), values = rowOrder(['B', 'A'], 'A');
+            oldValues['title:A'] = values['title:A'] = { type: 'html', value: '<h2>Unique heading</h2><p>Body paragraph.</p>' };
+            equal(follow(frame, before, after, oldValues, values), null, 'One matching fragment does not tie both text blocks to the row.');
+        });
+        await check(`${mode}: a move hint must explain the rendered reorder`, async (frame, doc) => {
+            const before = await doc(section('Section A') + section('Section B') + section('Section C'), options);
+            const after = await doc(section('Section B') + section('Section C') + section('Section A'), options);
+            equal(follow(frame, before, after, rowOrder(['A', 'B', 'C']), rowOrder(['B', 'A', 'C'], 'A')), null,
+                'Do not follow a rendered move of a different distance.');
+        });
+        await check(`${mode}: a stale move hint cannot follow another reorder`, async (frame, doc) => {
+            const before = await doc(section('Section A') + section('Section B'), options);
+            const after = await doc(section('Section B') + section('Section A'), options);
+            const values = rowOrder(['A', 'B'], 'A');
+            equal(follow(frame, before, after, values, values), null, 'The submitted order must actually change.');
+        });
+        await check(`${mode}: a move hint cannot distinguish identical rendered rows`, async (frame, doc) => {
+            const before = await doc(section('Repeat') + section('Other') + section('Repeat'), options);
+            const after = await doc(section('Other') + section('Repeat') + section('Repeat'), options);
+            const title = (row) => row === 'B' ? 'Other' : 'Repeat';
+            equal(follow(frame, before, after, rowOrder(['A', 'B', 'C'], undefined, title), rowOrder(['B', 'A', 'C'], 'A', title)), null,
+                'Do not infer the identity of identical sections from their positions.');
+        });
+        await check(`${mode}: reversed rendered order must not follow the displaced row`, async (frame, doc) => {
+            const before = await doc(section('Section C') + section('Section B') + section('Section A'), options);
+            const after = await doc(section('Section C') + section('Section A') + section('Section B'), options);
+            equal(follow(frame, before, after, rowOrder(['A', 'B', 'C']), rowOrder(['B', 'A', 'C'], 'A')), null,
+                'The section displaced in the matching direction does not contain the moved row’s title.');
+        });
+        for (const shared of ['both', 'before', 'after']) {
+            await check(`${mode}: a reversed row cannot borrow a sibling’s submitted heading (${shared})`, async (frame, doc) => {
+                const a = section('Description only'), b = section('Overview');
+                const before = await doc(b + a, options), after = await doc(a + b, options);
+                const old = rowOrder(['A', 'B'], undefined, () => 'Overview'), next = rowOrder(['B', 'A'], 'A', () => 'Overview');
+                for (const [side, document, values] of [['before', before, old], ['after', after, next]]) {
+                    if (shared !== 'both' && side !== shared) {
+                        delete values['title:B'];
+                        values.rows.fieldsByRow.B = [];
+                    }
+                    frame.capture(document, values);
+                    // The snapshot owns its row membership even if a contributor reuses the array.
+                    values.rows.fieldsByRow.B.length = 0;
+                }
+                equal(frame.comparison.findChange(before, after), null, 'Only B renders the heading; its text is not an identity for A.');
+            });
+        }
+        for (const [sameRow, complete] of [[false, false], [true, false], [true, true]]) {
+            await check(`${mode}: grouped move witnesses, one other row supplies both=${sameRow}, rendered whole=${complete}`, async (frame, doc) => {
+                const blocks = '<h2>Overview</h2><p>What to expect.</p>';
+                const card = `<section id="card"><a href="#details">${blocks}${complete ? '' : '<span>Learn more</span>'}</a></section>`;
+                const before = await doc(card + section('Other') + section('Last'), options);
+                const after = await doc(section('Other') + card + section('Last'), options);
+                const old = rowOrder(['A', 'B', 'C']), next = rowOrder(['B', 'A', 'C'], 'A');
+                for (const values of [old, next]) {
+                    values['title:A'] = { type: 'html', value: blocks };
+                    values['title:B'].value = 'Overview';
+                    const peer = sameRow ? 'B' : 'C';
+                    values.rows.fieldsByRow[peer].unshift(`body:${peer}`);
+                    values[`body:${peer}`] = { type: 'html', value: complete
+                        ? '<div><em>What to expect.</em><p>Other copy.</p></div>'
+                        : '<p>Other copy.</p><p>What to <em>expect.</em></p>' };
+                }
+                equal(follow(frame, before, after, old, next), sameRow ? null : after.querySelector('#card'),
+                    'Check the entire witness against each submitted sibling, even when its text comes from separate fields.');
+            });
+        }
+        const actions = '<p><a href="#details">Learn more</a></p><p><a href="#contact">Contact us</a></p>', captions = 'Learn more Contact us';
+        for (const [submitted, rendered] of [[actions, actions], [actions, captions], [captions, actions]]) {
+            await check(`${mode}: grouped action captions, submitted links=${submitted === actions}, rendered links=${rendered === actions}`, async (frame, doc) => {
+                const a = section('Description only'), b = `<section><h2>Section B</h2><div>${rendered}</div></section>`;
+                const before = await doc(b + a, options), after = await doc(a + b, options);
+                const old = rowOrder(['A', 'B']), next = rowOrder(['B', 'A'], 'A');
+                old['title:A'] = next['title:A'] = { type: submitted === actions ? 'html' : 'text', value: submitted };
+                equal(follow(frame, before, after, old, next), null, 'Wrapping two action labels does not make them substantive row text.');
+            });
+        }
+        for (const action of ['<a href="#details"><span>Learn more</span></a>', '<button>Learn more</button>', '<div role="button">Learn more</div>',
+            '<a href="#details"><h2>Card heading</h2><p>Card description.</p><span>Learn more</span></a>',
+            '<a href="#details"><h2>Card heading</h2><p>Card description.</p><p>Learn more</p></a>']) {
+            await check(`${mode}: action text alone cannot confirm which row moved (${action})`, async (frame, doc) => {
+                const a = '<section aria-label="Learn more"><span>Section A content</span></section>';
+                const b = `<section><h2>Unrelated section</h2>${action}</section>`;
+                const before = await doc(b + a, options);
+                const after = await doc(a + b, options);
+                const title = (row) => row === 'A' ? 'Learn more' : 'Unrelated section';
+                equal(follow(frame, before, after, rowOrder(['A', 'B'], undefined, title), rowOrder(['B', 'A'], 'A', title)), null,
+                    'Do not use an incidental action label to follow the displaced section in reverse order.');
+            });
+        }
+        await check(`${mode}: a row move must not follow an unrelated list with the same rotation`, async (frame, doc) => {
+            const markup = (items) => `<div id="other">${items.map((item) => section(item)).join('')}</div>`;
+            const before = await doc(markup(['List X', 'List Y']), options);
+            const after = await doc(markup(['List Y', 'List X']), options);
+            equal(follow(frame, before, after, rowOrder(['A', 'B']), rowOrder(['B', 'A'], 'A')), null,
+                'A local region is not a fallback when the dropped row has no rendered match.');
+        });
+        await check(`${mode}: a row move must not follow an unrelated text update`, async (frame, doc) => {
+            const before = await doc(section('Section A') + section('Unrelated update', 'Before'), options);
+            const after = await doc(section('Section A') + section('Unrelated update', 'After'), options);
+            equal(follow(frame, before, after, rowOrder(['A', 'B']), rowOrder(['B', 'A'], 'A')), null,
+                'An unrelated update is not evidence of a rendered move.');
+        });
+        await check(`${mode}: a title repeated outside the reordered rows is not a unique anchor`, async (frame, doc) => {
+            const other = section('Section A', 'Unrelated paragraph');
+            const before = await doc(section('Section A') + section('Section B') + other, options);
+            const after = await doc(section('Section B') + section('Section A') + other, options);
+            equal(follow(frame, before, after, rowOrder(['A', 'B']), rowOrder(['B', 'A'], 'A')), null,
+                'The heading alone cannot link the moved row to one section across the page.');
+        });
+        if (captured) await check(`${mode}: a row move hint cannot confirm a runtime-only reorder`, async (frame, doc) => {
+            const markup = section('Section A') + section('Section B');
+            const before = await doc(markup, options);
+            const after = await doc(markup, { ...options, script: 'const main = document.querySelector("main"); main.append(main.firstElementChild);' });
+            equal(follow(frame, before, after, rowOrder(['A', 'B']), rowOrder(['B', 'A'], 'A')), null,
+                'A captured source that did not reorder must take precedence over a frontend script.');
+        });
         await check(`${mode}: a gallery reorder follows its region without moving the track`, async (frame, doc) => {
             const markup = (images) => `<div style="height:700px"></div><div id="gallery" style="width:250px;overflow:hidden">
                 <div id="track" style="display:flex;transform:translateX(0)">${images.map((i) =>
@@ -790,10 +1000,12 @@ async function browserTests(source) {
             const before = await doc(old + clock(1), options), after = await doc(next + clock(2), options);
             equal(follow(scrolling, before, after, hints(old, 'html'), hints(next, 'html')), after.querySelector('img'), 'Do not search attachment IDs as visible text.');
         });
-        await check(`${mode}: unrelated substrings are not exact word transitions`, async (scrolling, doc) => {
-            const before = await doc(content('catapult') + clock(1), options), after = await doc(content('dogmatic') + clock(2), options);
-            equal(follow(scrolling, before, after, hints('cat'), hints('dog')), null, 'A substring inside another word is weak evidence, not confirmation.');
-        });
+        for (const [old, next] of [['catapult', 'dogmatic'], ['bobcat.', 'bobdog.']]) {
+            await check(`${mode}: ${old} → ${next} is not an exact word transition`, async (scrolling, doc) => {
+                const before = await doc(content(old) + clock(1), options), after = await doc(content(next) + clock(2), options);
+                equal(follow(scrolling, before, after, hints('cat'), hints('dog')), null, 'A substring inside another word is weak evidence, not confirmation.');
+            });
+        }
         await check(`${mode}: newly submitted textual fields can support an insertion`, async (scrolling, doc) => {
             const before = await doc(section('First') + section('Last') + clock(1), options);
             const after = await doc(section('First') + section('Added text') + section('Last') + clock(2), options);
@@ -866,12 +1078,51 @@ async function browserTests(source) {
         frame.capture(after, orderHints('2', '2', '1'));
         equal(frame.comparison.findChange(before, after), null, 'A change in duplicate counts is not a reorder.');
     });
+    await check('an unrelated browser clock cannot outrank a source-confirmed choice change', async (scrolling, doc) => {
+        const markup = (align) => `<section id="edited" data-align="${align}">Article</section><p id="clock">Time 1</p>`;
+        const before = await doc(markup('left'), { captured: true });
+        const after = await doc(markup('right'), { captured: true, script: "document.querySelector('#clock').textContent = 'Time 2';" });
+        equal(follow(scrolling, before, after, hints('left', 'value'), hints('right', 'value')), after.querySelector('#edited'),
+            'A choice does not supply evidence for a separate browser-rendered text change.');
+    });
+    for (const captured of [true, false]) {
+        for (const type of ['value', 'selection']) {
+            await check(`unrelated live text does not follow changes in ${type}, clean source on both sides=${captured}`, async (scrolling, doc) => {
+                const markup = '<section>Article</section><p id="clock">Time 1</p>';
+                const before = await doc(markup, { captured: true });
+                const after = await doc(markup, { captured, script: "document.querySelector('#clock').textContent = 'Time 2';" });
+                equal(follow(scrolling, before, after, hints(1, type), hints(2, type)), null,
+                    'A changed choice or selection is not evidence that a browser clock represents authored output.');
+            });
+        }
+    }
+    await check('a revision selection does not confirm a browser-only structural change', async (scrolling, doc) => {
+        const before = await doc('<section>Article</section>', { captured: true });
+        const after = await doc('<section>Article</section>', { captured: true,
+            script: "document.querySelector('section').append(document.createElement('aside'));" });
+        equal(follow(scrolling, before, after, hints(1, 'selection'), hints(2, 'selection')), null,
+            'Selecting a revision with identical clean HTML does not confirm browser-only insertions.');
+    });
     await check('live DOM evidence confirms script-rendered content even when source text is unchanged', async (scrolling, doc) => {
         const before = await doc('<p id="edited">Placeholder</p><p>Clock 1</p>', { captured: true, script: "document.querySelector('#edited').textContent = 'Hello';" });
         const after = await doc('<p id="edited">Placeholder</p><p>Clock 2</p>', { captured: true, script: "document.querySelector('#edited').textContent = 'Welcome';" });
         scrolling.capture(before, hints('Hello'));
         equal(scrolling.findTarget(before, after, hints('Welcome')), after.querySelector('#edited'), 'Capture is not a gate excluding browser-rendered author output.');
     });
+    for (const [prefix, suffix] of [['', ''], ['Guide: ', ''], ['Guide: ', '.'], ['Guide: ', ' | Archive']]) {
+        await check(`a submitted title extension identifies the browser-rendered heading, surrounding copy=${prefix}…${suffix}`, async (scrolling, doc) => {
+            const markup = '<h2 id="edited">Placeholder</h2>';
+            const before = await doc(markup, { captured: true,
+                script: `document.querySelector('#edited').textContent = '${prefix}Read the docs${suffix}';` });
+            const after = await doc(markup, { captured: true, script: `
+                const heading = document.querySelector('#edited');
+                heading.textContent = '${prefix}Read the docs now${suffix}';
+                heading.insertAdjacentHTML('afterend', '<aside id="ad">Advertisement</aside>');
+            ` });
+            equal(follow(scrolling, before, after, hints('Read the docs'), hints('Read the docs now')), after.querySelector('#edited'),
+                'The actual overlapping text change outranks a separate DOM-only insertion, even with surrounding copy.');
+        });
+    }
     await check('unchanged input hints do not legitimize runtime-only DOM mutations', async (scrolling, doc) => {
         const before = await doc(content(), { captured: true, script: "document.querySelector('#edited').textContent = 'Hello';" });
         const after = await doc(content(), { captured: true, script: "document.querySelector('#edited').textContent = 'Welcome';" });
@@ -947,6 +1198,12 @@ async function browserTests(source) {
             oldValues.field.value = 'Welcome';
             equal(scrolling.findTarget(before, after, hints('Welcome')), after.querySelector('#edited'), 'Later mutations cannot rewrite the displayed baseline.');
         });
+        await check(`${mode}: descendant text cannot cancel a corroborated edit to the parent’s own text`, async (scrolling, doc) => {
+            const before = await doc('<section>cats <span>dogs</span></section><p id="echo">cats</p>', { captured });
+            const after = await doc('<section>dogs <span>cats</span></section><p id="echo">dogs</p>', { captured });
+            equal(follow(scrolling, before, after, hints('cats'), hints('dogs')), null,
+                'Both the section’s own text and the echo independently match the edit, so neither should win.');
+        });
         await check(`${mode}: changed parent and child text remain genuinely competing evidence`, async (scrolling, doc) => {
             const before = await doc('<div>Hello<p>Hello</p></div>', { captured });
             const after = await doc('<div>Welcome<p>Welcome</p></div>', { captured });
@@ -1006,6 +1263,61 @@ async function browserTests(source) {
         scrolling.capture(before, hints('<p>Hello</p>', 'html'));
         equal(scrolling.findTarget(before, after, hints('<p><strong>Hello</strong></p>', 'html')), null, 'Input intent must correspond to an actual output transition.');
     });
+    await check('an unapplied wrapping hint cannot confirm an unrelated live text change', async (scrolling, doc) => {
+        const markup = '<p>For cats, price 10</p>';
+        const before = await doc(markup, { captured: true });
+        const after = await doc(markup, { captured: true, script: "document.querySelector('p').textContent = 'For cats, price 11';" });
+        equal(follow(scrolling, before, after, hints('<p>cats</p>', 'html'), hints('<p><strong>cats</strong></p>', 'html')), null,
+            'Finding the same word in a paragraph whose formatting did not change cannot confirm a wrapping edit.');
+    });
+    await check('a real browser-rendered wrapping edit can still be corroborated', async (scrolling, doc) => {
+        const markup = '<p id="edited">cats</p><p id="price">For cats, price 10</p>';
+        const before = await doc(markup, { captured: true });
+        const after = await doc(markup, { captured: true, script: `
+            document.querySelector('#edited').innerHTML = '<strong>cats</strong>';
+            document.querySelector('#price').textContent = 'For cats, price 11';
+        ` });
+        equal(follow(scrolling, before, after, hints('<p>cats</p>', 'html'), hints('<p><strong>cats</strong></p>', 'html')),
+            after.querySelector('#edited'), 'An observed formatting change can follow the author even when it was rendered by a script.');
+    });
+    await check('an unapplied image edit cannot confirm an unrelated live media rotation', async (scrolling, doc) => {
+        const markup = '<img id="banner" src="/banner-one.jpg" width="100" height="100">';
+        const before = await doc(markup, { captured: true });
+        const after = await doc(markup, { captured: true, script: "document.querySelector('#banner').src = '/banner-two.jpg';" });
+        equal(follow(scrolling, before, after, hints('<img src="/old.jpg">', 'html'), hints('<img src="/new.jpg">', 'html')), null,
+            'An image URL change requires matching media evidence, not merely the same empty tag.');
+    });
+    for (const captured of [false, true]) {
+        await check(`unchanged words cannot confirm an unrelated text edit, captured=${captured}`, async (scrolling, doc) => {
+            const output = (title, price) => `<h2 id="edited">${title}</h2><p id="price">For cats and dogs, price ${price}</p>`;
+            const before = await doc(output('CATS', 10), { captured });
+            const after = await doc(output('DOGS', 11), { captured });
+            equal(follow(scrolling, before, after, hints('cats'), hints('dogs')), null,
+                'The price changed, but neither of the hinted words changed in the price text.');
+        });
+        await check(`unchanged words cannot confirm an unrelated attribute edit, captured=${captured}`, async (scrolling, doc) => {
+            const output = (title, price) => `<h2 id="edited">${title}</h2><p title="For cats and dogs, price ${price}">Price information</p>`;
+            const before = await doc(output('CATS', 10), { captured });
+            const after = await doc(output('DOGS', 11), { captured });
+            equal(follow(scrolling, before, after, hints('cats'), hints('dogs')), after.querySelector('#edited'),
+                'Unchanged words in an attribute cannot outrank a real content change.');
+        });
+        await check(`a complete link destination can extend its old value, captured=${captured}`, async (scrolling, doc) => {
+            const link = (href) => `<a id="edited" href="${href}">Documentation</a>`;
+            const old = link('/docs'), next = link('/docs/start');
+            const before = await doc(old + '<p>Time 1</p>', { captured });
+            const after = await doc(next + '<p>Time 2</p>', { captured });
+            equal(follow(scrolling, before, after, hints(old, 'html'), hints(next, 'html')), after.querySelector('#edited'),
+                'An exact before/after value change still corroborates an edit when the new value contains the old one.');
+        });
+        await check(`a real transition can have additional unchanged copies, captured=${captured}`, async (scrolling, doc) => {
+            const output = (animal, time) => `<h2 id="edited">${animal} live here; cats and dogs are welcome.</h2><p>Time ${time}</p>`;
+            const before = await doc(output('cats', 1), { captured });
+            const after = await doc(output('dogs', 2), { captured });
+            equal(follow(scrolling, before, after, hints('cats'), hints('dogs')), after.querySelector('#edited'),
+                'An old occurrence is lost and a new one gained, even though both words remain.');
+        });
+    }
     await check('visibility cannot resolve repeated, equally corroborated author transitions', async (scrolling, doc) => {
         const before = await doc('<section><div hidden>Hello</div></section><p>Hello</p>', { captured: true });
         const after = await doc('<section><div hidden>Welcome</div></section><p>Welcome</p>', { captured: true });
@@ -1565,5 +1877,5 @@ test('preview scrolling matches changed sections conservatively in Chromium', as
     const comparison = await readFile(new URL('../src/preview/comparison.js', import.meta.url), 'utf8');
     const scrolling = await readFile(new URL('../src/preview/scroll.js', import.meta.url), 'utf8');
     const source = `${comparison.replace('export function', 'function')}\n${scrolling.replace(/^import .*;\n/, '')}`;
-    await runChromiumTests(t, { script: `(${browserTests.toString()})(${JSON.stringify(source)})`, count: 297, virtualTimeBudget: 18000 });
+    await runChromiumTests(t, { script: `(${browserTests.toString()})(${JSON.stringify(source)})`, count: 391, virtualTimeBudget: 24000 });
 });

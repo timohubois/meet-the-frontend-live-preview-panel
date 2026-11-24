@@ -42,6 +42,7 @@ addAction('mtflpp.classicEditor.previewSetup', namespace, ({
         form.removeEventListener('change', onInput, true);
     });
     hooks.addFilter('nativeSaveValidationPending', namespace, (validating) => validating || fields.isValidating());
+    hooks.addFilter('previewComparisonValues', namespace, (values, body) => fields.layoutOrders(values, body));
     hooks.addFilter('previewFormBody', namespace, (body, values) => {
         for (const [name, value] of values) {
             // ACF may not have disabled template rows when the eager preview starts.
