@@ -3,14 +3,27 @@ import { createPreviewFrame } from '../preview/frame.js';
 import { createPreviewScroll } from '../preview/scroll.js';
 
 // Read the native To selection. Never capture editor fields, write revisions, or acquire editor locks.
-export function initRevisionPreview(config, model) {
+export function initRevisionPreview(config, model, backLink) {
     const { strings } = config;
     let selected = model.get('to');
     let generation = 0;
     let timer;
+    const doc = backLink.ownerDocument;
+    const container = doc.getElementById('mtflpp-toggle');
+    container.classList.replace('mtflpp-launcher', 'mtflpp-inline-launcher');
+    const button = doc.createElement('button');
+    button.type = 'button';
+    button.className = 'button-link';
+    button.textContent = strings.previewRevision;
+    button.setAttribute('aria-controls', 'mtflpp-panel');
+    container.append(button);
+    backLink.after(container);
+
     const view = createPreviewPanel(strings, {
         postTitle: label(selected),
         publicRedirect: config.publicRedirect,
+        inlineLauncher: button,
+        canRememberVisibility: false,
         onOpen() { view.setVisible(true); refresh(); },
         onClose: close,
         onRefresh: refresh,

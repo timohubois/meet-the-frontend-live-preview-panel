@@ -8,10 +8,10 @@ const termSource = await sourceForVm(new URL('../src/term-editor.js', import.met
 const revisionsSource = await sourceForVm(new URL('../src/revision-browser.js', import.meta.url));
 const failureSource = await sourceForVm(new URL('../src/panel/startup-error.js', import.meta.url));
 
-function fixture(screen, { configured = true, formAvailable = true, modelAvailable = true, fail = false } = {}) {
+function fixture(screen, { configured = true, formAvailable = true, modelAvailable = true, headerAvailable = true, fail = false } = {}) {
     const calls = [], removed = [], notices = [], errors = [];
     const model = { get() {}, on() {}, off() {} };
-    const launcher = {}, setupAcfTermEditor = () => {};
+    const launcher = {}, backLink = {}, setupAcfTermEditor = () => {};
     const launcherId = { editor: 'mtflpp-publish-preview', term: 'mtflpp-term-preview' }[screen];
     const form = { querySelector: (selector) => selector === `#${launcherId} button` ? launcher : null };
     const native = { destroy: () => calls.push('destroy') };
@@ -27,6 +27,7 @@ function fixture(screen, { configured = true, formAvailable = true, modelAvailab
             wp: modelAvailable ? { revisions: { view: { frame: { model } } } } : {},
         },
         document: {
+            querySelector: (selector) => selector === '#wpbody-content > .wrap > h1.long-header + a' && headerAvailable ? backLink : null,
             getElementById: (id) => id === formId ? (formAvailable ? form : null)
                 : id === 'wpbody-content' ? { prepend: (node) => notices.push(node) } : nodes.get(id),
             createElement: () => ({ children: [], setAttribute() {}, append(node) { this.children.push(node); } }),
@@ -57,9 +58,10 @@ function fixture(screen, { configured = true, formAvailable = true, modelAvailab
             calls.push('term');
             if (fail) throw new Error('Fixture startup failure');
         } },
-        './screens/revision-browser.js': { initRevisionPreview(received, selection) {
+        './screens/revision-browser.js': { initRevisionPreview(received, selection, adjacentLink) {
             assert.equal(received, config);
             assert.equal(selection, model);
+            assert.equal(adjacentLink, backLink);
             calls.push('revisions');
             if (fail) throw new Error('Fixture startup failure');
         } },
@@ -110,7 +112,7 @@ test('the revision entry uses the existing native selection without editor obser
     assert.equal(h.errors.length, 0);
 });
 
-for (const options of [{ modelAvailable: false }, { fail: true }]) {
+for (const options of [{ modelAvailable: false }, { headerAvailable: false }, { fail: true }]) {
     test(`revision startup failure preserves native comparison and restore with ${JSON.stringify(options)}`, () => {
         const h = fixture('revisions', options);
         assert.deepEqual(h.removed, ['mtflpp-panel', 'mtflpp-toggle']);

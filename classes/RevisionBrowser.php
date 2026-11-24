@@ -51,6 +51,7 @@ final class RevisionBrowser
             'strings' => [
                 'title' => __('Revision preview', 'meet-the-frontend-live-preview-panel'),
                 'preview' => __('Revision preview', 'meet-the-frontend-live-preview-panel'),
+                'previewRevision' => __('Preview revision', 'meet-the-frontend-live-preview-panel'),
                 'closeLivePreview' => __('Close revision preview', 'meet-the-frontend-live-preview-panel'),
                 'preparing' => __(
                     'Showing this saved version won’t change your post.',

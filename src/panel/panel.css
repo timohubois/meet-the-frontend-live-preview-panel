@@ -37,6 +37,7 @@
 .mtflpp-panel[hidden],
 .mtflpp-panel [hidden],
 .mtflpp-launcher[hidden],
+.mtflpp-inline-launcher[hidden],
 .mtflpp-publish-launcher[hidden] {
     display: none !important;
 }
@@ -611,6 +612,12 @@
 .mtflpp-launcher .components-button {
     max-inline-size: 100%;
     cursor: inherit;
+}
+.mtflpp-inline-launcher {
+    display: inline;
+    margin-inline-start: 0.75em;
+    padding-inline-start: 0.75em;
+    border-inline-start: 1px solid #c3c4c7;
 }
 .mtflpp-publish-launcher {
     clear: both; /* Float-based Publish box. */
