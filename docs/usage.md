@@ -55,6 +55,15 @@ custom breadcrumb titles stay saved. ACF fields preview through ACF’s normal r
 third-party ACF field types and behavior that runs on save aren’t previewed. Term
 previews don’t require post revisions and their temporary data expires after 15 minutes.
 
+### Posts page
+
+If you assign a page as the **Posts page** in **Settings → Reading**, the panel
+shows the normal posts index in both live and revision previews. The posts list
+stays unchanged, while page fields used by the theme, such as the archive
+heading, can show the preview values. The panel does not add the page body or
+other fields that the theme does not display. WordPress’s own Preview button is
+unchanged.
+
 ### Revision browser
 
 Open WordPress's native revision browser (`wp-admin/revision.php`) and click

@@ -13,6 +13,7 @@ final class FrontendPreview
     private bool $isolated = false;
     private bool $saved = false;
     private bool $sourceRequested = false;
+    private bool $postsPage = false;
 
     public function __construct(
         private readonly string $file,
@@ -53,12 +54,27 @@ final class FrontendPreview
         if (!$this->savedSource($post->ID, $sourceId)) {
             return null;
         }
-        return get_preview_post_link($post, [
+        return self::previewUrl($post, [
             'mtflpp_post' => $post->ID,
             'mtflpp_revision' => $sourceId,
             'mtflpp_saved' => '1',
             'mtflpp_token' => wp_create_nonce($this->savedAction($post->ID, $sourceId)),
         ]);
+    }
+
+    private static function isConfiguredPostsPage(?WP_Post $post): bool
+    {
+        return $post?->post_type === 'page' && get_option('show_on_front') === 'page'
+            && $post->ID === (int) get_option('page_for_posts');
+    }
+
+    public static function previewUrl(WP_Post $post, array $args): ?string
+    {
+        if (self::isConfiguredPostsPage($post)) {
+            // Core's preview=true can turn the posts index into a query for the static front page.
+            return add_query_arg($args, set_url_scheme(get_permalink($post)));
+        }
+        return get_preview_post_link($post, $args);
     }
 
     public function authorizePreview(): void
@@ -100,12 +116,20 @@ final class FrontendPreview
         $this->source = sanitize_post($source);
         $this->saved = $saved;
         $this->sourceRequested = isset($_GET['mtflpp_source']) && $_GET['mtflpp_source'] === '1';
-        // Bind core and compatibility reads to the authorized source, not the latest revision.
-        remove_filter('the_preview', '_set_preview');
-        add_filter('the_preview', [$this, 'readPost']);
+        $this->postsPage = self::isConfiguredPostsPage(get_post($postId));
+        add_action('template_redirect', [$this, 'checkPreviewTarget'], -1);
+        if (!$this->postsPage) {
+            // Ordinary previews use core's singular-query overlay, not the latest autosave.
+            remove_filter('the_preview', '_set_preview');
+            add_filter('the_preview', [$this, 'readPost']);
+            $this->bindSource();
+        }
+    }
+
+    private function bindSource(): void
+    {
         add_filter('get_post_metadata', [$this, 'readRevisionMeta'], 10, 4);
         add_filter('get_the_terms', [$this, 'readTerms'], 10, 3);
-        add_action('template_redirect', [$this, 'checkPreviewTarget'], -1);
 
         /**
          * Bind optional reads only after core has authorized and selected the preview source.
@@ -115,10 +139,10 @@ final class FrontendPreview
          * @param array $context Original post and authorized source identities; unrelated posts stay untouched.
          */
         // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.DynamicHooknameFound -- Both names are prefixed.
-        do_action($saved
+        do_action($this->saved
             ? 'mtflpp_frontend_saved_preview_source_selected'
             : 'mtflpp_frontend_live_preview_source_selected', [
-                'post' => ['id' => $postId],
+                'post' => ['id' => $this->previewPostId],
                 'source' => ['id' => $this->source->ID],
             ]);
     }
@@ -181,11 +205,45 @@ final class FrontendPreview
         return $post;
     }
 
+    private function bindPostsPage(): bool
+    {
+        global $wp_query;
+
+        if (
+            !$wp_query->is_posts_page || !is_home()
+            || is_feed() || is_embed() || is_search() || is_trackback() || is_404()
+        ) {
+            return false;
+        }
+        $page = get_queried_object();
+        if (!$page instanceof WP_Post || $page->ID !== $this->previewPostId) {
+            return false;
+        }
+
+        // The queried page is separate from the posts loop. Don't swap the global post or change saved reads.
+        $preview = $this->readPost(clone $page);
+        $wp_query->queried_object = $preview;
+        if ($page->post_title !== $preview->post_title) {
+            // Support get_the_title($id) without replacing titles already formatted by core or other code.
+            add_filter('the_title', static function ($title, $id) use ($page, $preview) {
+                return $id === $page->ID && $title === $page->post_title ? $preview->post_title : $title;
+            }, PHP_INT_MIN, 2);
+        }
+        $this->bindSource();
+        return true;
+    }
+
     public function checkPreviewTarget(): void
     {
-        if (!is_preview() || !is_singular() || get_queried_object_id() !== $this->previewPostId) {
+        if ($this->postsPage) {
+            if (!$this->bindPostsPage()) {
+                return;
+            }
+        } elseif (is_preview() && is_singular() && get_queried_object_id() === $this->previewPostId) {
+            // Core drops preview=true without native autosave parameters, losing the singular overlay.
+            remove_action('template_redirect', 'redirect_canonical');
+        } else {
             // Native routing owns other destinations, including archives, redirects and error pages.
-            // The authorized source remains bound only to its original post; do not label other output verified.
             return;
         }
         // Editors have already authorized this preview. Leave other posts and later site policies alone.
@@ -197,8 +255,6 @@ final class FrontendPreview
             return $required;
         }, 0, 2);
 
-        // Core canonical redirects drop preview=true without native autosave parameters, losing our core-field overlay.
-        remove_action('template_redirect', 'redirect_canonical');
         (new PreviewDocument($this->file, $this->previewToken))->enhance($this->isolated, $this->sourceRequested);
     }
 }

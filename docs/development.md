@@ -103,6 +103,7 @@ wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/revisions.php
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/block-editor.php
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/author.php
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/date-terms.php
+wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/posts-page.php
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/term-preview.php
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/term-acf.php
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/acf-choices.php
@@ -117,6 +118,10 @@ wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/preview-isolati
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/preview-source.php
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/public-redirect.php
 ```
+
+The Posts page fixture checks live and saved revision sources on plain and pretty
+permalinks, including the native posts loop, queried page, title helpers, and
+rejection of invalid tokens or unrelated routes.
 
 The term-preview fixture checks category, tag and public custom taxonomy archives,
 including contextual Term Name and Term Description blocks. With Timber it also
