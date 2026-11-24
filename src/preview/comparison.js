@@ -26,15 +26,15 @@ export function createPreviewComparison(excludedSelectors = []) {
                 const transition = !!before.source !== !!after.source;
                 const candidates = [
                     ...(captured ? changedCandidates(before.source, after.source).map((item) => ({ ...item, source: true })) : []),
-                    ...changedCandidates(before.dom, after.dom).map((item) => ({ ...item, source: false })),
+                    ...changedCandidates(before.dom, after.dom),
                 ];
-                const ranked = rankCandidates(candidates, hints);
+                const rendered = new Map();
                 // With clean source, runtime-only mutations need author evidence. A known input
                 // change can support transformed/conditional DOM content without a literal match;
-                // unrelated DOM-only styling is not enough. Correlated source/DOM signals aren't votes.
-                const eligible = ranked.filter((item) => (item.source || (!captured && !transition)
-                    || item.input || (edited && item.priority === 2))
-                    && (item.priority > 0 || item.input));
+                // unrelated DOM-only styling isn't enough. Correlated source/DOM signals aren't votes.
+                const eligible = rankCandidates(candidates, hints).filter((item) => (item.source || (!captured && !transition)
+                    || item.input || (edited && item.priority === 2)) && (item.priority > 0 || item.input)
+                    && (!item.spacing || renderedSpacingChanged(item, rendered, after.dom?.excluded)));
                 return selectChange(eligible);
             } catch { return null; } // Optional comparison must never prevent displaying native output.
         },
@@ -73,7 +73,7 @@ function rankCandidates(candidates, hints) {
 function resolveRegion(candidate, hints, textOf) {
     const resolved = [];
     for (const hint of hints) {
-        if (!hint.after) continue;
+        if (!hint.after || hint.type === 'spacing') continue;
         const oldMatches = matchingEntries(candidate.oldRange, hint.before, textOf, hint, true);
         const newMatches = matchingEntries(candidate.newRange, hint.after, textOf, hint, false);
         if (!oldMatches.length) continue;
@@ -206,8 +206,8 @@ function contentSnapshot(doc, live, excludedSelectors, root = doc.querySelector(
     }
     for (const node of [root, ...root.querySelectorAll('*')]) {
         if (excluded && node.closest(excluded)) continue;
-        const text = [...node.childNodes].filter((child) => child.nodeType === 3)
-            .map((child) => child.textContent).join(' ').replace(/\s+/g, ' ').trim();
+        const ownText = [...node.childNodes].filter((child) => child.nodeType === 3).map((child) => child.textContent);
+        const text = normalizedText(ownText.join(' '));
         const media = ['img', 'source', 'video', 'audio', 'iframe'].includes(node.localName)
             ? ['src', 'srcset', 'poster'].map((name) => node.getAttribute(`data-${name}`) || node.getAttribute(name) || '')
             : [];
@@ -216,9 +216,11 @@ function contentSnapshot(doc, live, excludedSelectors, root = doc.querySelector(
         const target = doc === live ? node : targets.get(node.getAttribute('data-mtflpp-node')) || null;
         const entry = snapshotEntry(node, target, JSON.stringify([node.localName, text, media, background]));
         entry.text = text;
+        entry.rawText = ownText.join('');
         entry.media = [...media, background];
+        entry.parent = entries.get(node.parentElement);
         entries.set(node, entry);
-        entries.get(node.parentElement)?.children.push(entry);
+        entry.parent?.children.push(entry);
     }
     // Preserve text-node order without duplicating every ancestor's complete text.
     for (const [node, entry] of entries) {
@@ -235,6 +237,7 @@ function contentSnapshot(doc, live, excludedSelectors, root = doc.querySelector(
         parent.parts = [snapshot];
         snapshot = parent;
     }
+    snapshot.excluded = excluded;
     return snapshot;
 }
 
@@ -305,6 +308,7 @@ function changedCandidates(previous, next) {
     function compare(before, after) {
         if (!before || !after) return;
         if (before.signature !== after.signature) candidates.push({ kind: 'content', before, after, priority: 2 });
+        else if (before.rawText !== after.rawText) candidates.push({ kind: 'content', before, after, priority: 2, spacing: true });
         if (before.presentation !== after.presentation || before.references !== after.references) {
             candidates.push({ kind: 'attributes', before, after,
                 priority: before.presentation !== after.presentation ? 1 : 0 });
@@ -387,6 +391,66 @@ function normalizedText(value) {
     return value.replace(/\s+/g, ' ').trim();
 }
 
+function spacingOnly(before, after) {
+    return before !== after && before.replace(/\s/g, '') === after.replace(/\s/g, '');
+}
+
+function renderedSpacingChanged({ before, after }, cache, excluded) {
+    const oldFlow = renderedFlowText(before, cache, excluded), newFlow = renderedFlowText(after, cache, excluded);
+    return oldFlow && newFlow && oldFlow.omitted === newFlow.omitted && spacingOnly(oldFlow.text, newFlow.text);
+}
+
+function renderedFlowText(entry, cache, excluded) {
+    // Let native text collection resolve HTML/CSS whitespace across inline boundaries.
+    // Only do that work for a raw-text difference the normal comparison could not see.
+    while (entry.node?.isConnected && entry.parent?.node) {
+        const { display } = entry.node.ownerDocument.defaultView.getComputedStyle(entry.node);
+        if (display !== 'inline' && display !== 'contents') break;
+        entry = entry.parent;
+    }
+    if (!cache.has(entry)) {
+        const { node } = entry;
+        const omitted = [];
+        // Validate the same included text as the snapshot. If excluded text changed too,
+        // native innerText cannot tell us which part supplied the rendered difference.
+        const text = node?.isConnected && liveEntryText(node, excluded, omitted) === rawEntryText(entry) && renderedElement(entry)
+            ? node.innerText : undefined;
+        cache.set(entry, typeof text === 'string' ? { text, omitted: JSON.stringify(omitted) } : undefined);
+    }
+    return cache.get(entry);
+}
+
+function liveEntryText(node, excluded, omitted) {
+    if (!excluded || !node.querySelector(excluded)) return node.textContent;
+    return [...node.childNodes].map((child) => {
+        if (child.nodeType === 3) return child.textContent;
+        if (child.nodeType !== 1) return '';
+        if (!child.matches(excluded)) return liveEntryText(child, excluded, omitted);
+        omitted.push(child.textContent);
+        return '';
+    }).join('');
+}
+
+function rawEntryText(entry) {
+    return entry.parts.map((part) => typeof part === 'string' ? part : rawEntryText(part)).join('');
+}
+
+function entrySpacingTransition({ before, after }) {
+    return spacingTransition(before.rawText, after.rawText) || spacingTransition(rawEntryText(before), rawEntryText(after));
+}
+
+function spacingTransition(before, after) {
+    if (!/\S/.test(before) || !spacingOnly(before, after)) return;
+    const old = before.match(/\s+|\S+/g), next = after.match(/\s+|\S+/g);
+    let start = 0, end = 0;
+    while (start < Math.min(old.length, next.length) && old[start] === next[start]) start++;
+    while (end < Math.min(old.length, next.length) - start && old.at(-1 - end) === next.at(-1 - end)) end++;
+    // Keep the exact changed whitespace and an adjacent word on either side as context.
+    const from = Math.max(0, start - 1), keepSuffix = Math.max(0, end - 1);
+    return { type: 'spacing', before: old.slice(from, old.length - keepSuffix).join(''),
+        after: next.slice(from, next.length - keepSuffix).join('') };
+}
+
 function entryText(entry, cache = new Map()) {
     if (!entry) return '';
     if (!cache.has(entry)) cache.set(entry, (entry.parts || []).map((part) => {
@@ -421,31 +485,42 @@ function inputChanges(before, after) {
         } catch { continue; } // Restrictive Trusted Types must not veto otherwise usable rendered evidence.
         const oldContent = oldDoc ? contentSnapshot(oldDoc, oldDoc, [], oldDoc.body) : null;
         const newContent = newDoc ? contentSnapshot(newDoc, newDoc, [], newDoc.body) : null;
-        const a = normalizedText(oldDoc ? entryText(oldContent) : old.value);
-        const b = normalizedText(newDoc ? entryText(newContent) : next.value);
+        const oldText = oldDoc ? entryText(oldContent) : old.value;
+        const newText = newDoc ? entryText(newContent) : next.value;
+        const a = normalizedText(oldText), b = normalizedText(newText);
         if (a !== b) changes.push({ ...textTransition(a, b), type: 'text' });
-        // Reuse structural comparison for markup-only intent rather than searching raw HTML.
-        else if (oldDoc && newDoc) {
-            for (const change of changedCandidates(oldContent, newContent)) {
-                if (change.kind === 'attributes') {
-                    const oldAttributes = new Map(change.before.attributes), newAttributes = new Map(change.after.attributes);
-                    for (const name of new Set([...oldAttributes.keys(), ...newAttributes.keys()])) {
-                        const previous = oldAttributes.get(name) ?? '', value = newAttributes.get(name) ?? '';
-                        if (JSON.stringify(previous) !== JSON.stringify(value)) {
-                            changes.push({ type: 'attribute', name,
-                                before: typeof previous === 'string' ? previous : JSON.stringify(previous),
-                                after: typeof value === 'string' ? value : JSON.stringify(value) });
-                        }
+        if (!oldDoc) {
+            const hint = spacingTransition(oldText, newText);
+            if (hint) changes.push(hint);
+            continue;
+        }
+        if (!oldContent || !newContent || (a !== b && !spacingOnly(oldText, newText))) continue;
+        // Reuse structural comparison for spacing and markup intent rather than searching raw HTML.
+        for (const change of changedCandidates(oldContent, newContent)) {
+            if (change.spacing) {
+                const hint = entrySpacingTransition(change);
+                if (hint) changes.push(hint);
+                continue;
+            }
+            if (a !== b) continue;
+            if (change.kind === 'attributes') {
+                const oldAttributes = new Map(change.before.attributes), newAttributes = new Map(change.after.attributes);
+                for (const name of new Set([...oldAttributes.keys(), ...newAttributes.keys()])) {
+                    const previous = oldAttributes.get(name) ?? '', value = newAttributes.get(name) ?? '';
+                    if (JSON.stringify(previous) !== JSON.stringify(value)) {
+                        changes.push({ type: 'attribute', name,
+                            before: typeof previous === 'string' ? previous : JSON.stringify(previous),
+                            after: typeof value === 'string' ? value : JSON.stringify(value) });
                     }
-                } else if (change.kind === 'content') {
-                    if (normalizedText(entryText(change.before)) === normalizedText(entryText(change.after))) changes.push({ type: 'markup',
-                        before: normalizedText(entryText(change.before)), after: normalizedText(entryText(change.after)),
-                        oldTag: change.before.tag, newTag: change.after.tag });
-                    (change.before.media || []).forEach((value, index) => {
-                        const current = change.after.media?.[index];
-                        if (value && current && value !== current) changes.push({ type: 'media', before: value, after: current });
-                    });
                 }
+            } else if (change.kind === 'content') {
+                if (normalizedText(entryText(change.before)) === normalizedText(entryText(change.after))) changes.push({ type: 'markup',
+                    before: normalizedText(entryText(change.before)), after: normalizedText(entryText(change.after)),
+                    oldTag: change.before.tag, newTag: change.after.tag });
+                (change.before.media || []).forEach((value, index) => {
+                    const current = change.after.media?.[index];
+                    if (value && current && value !== current) changes.push({ type: 'media', before: value, after: current });
+                });
             }
         }
     }
@@ -505,9 +580,16 @@ function matchingEntries(entries = [], value, textOf, hint, before) {
 
 function inputSupport(candidate, hints, textOf) {
     if (candidate.unresolved) return 0;
-    let strength = 0;
     candidate.matches = [];
+    if (candidate.spacing) {
+        const authored = hints.filter((hint) => hint.type === 'spacing');
+        const transition = authored.length && entrySpacingTransition(candidate);
+        candidate.matches = authored.filter((hint) => transition?.before === hint.before && transition?.after === hint.after);
+        return candidate.matches.length ? 2 : 0;
+    }
+    let strength = 0;
     for (const hint of hints) {
+        if (hint.type === 'spacing') continue;
         let support = 0;
         if (candidate.kind === 'attributes') {
             if (!['text', 'attribute'].includes(hint.type)) continue;

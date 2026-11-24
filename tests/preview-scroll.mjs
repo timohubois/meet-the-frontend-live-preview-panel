@@ -486,6 +486,71 @@ async function browserTests(source) {
             const before = await doc(old + clock(1), options), after = await doc(next + clock(2), options);
             equal(follow(scrolling, before, after, hints(old, 'html'), hints(next, 'html')), after.querySelector('strong'), 'Markup and entity serialization must not block the transition.');
         });
+        for (const [label, beforeHtml, afterHtml, shouldFollow] of [
+            ['ordinary trailing space', '<p id="edited">Safely manage content</p>', '<p id="edited">Safely manage content </p>', false],
+            ['collapsed inline spacing', '<p id="edited"><strong>Step 3: </strong><em>Safely</em></p>',
+                '<p id="edited"><strong>Step 3: </strong> <em>Safely</em></p>', false],
+            ['space between inline elements', '<p id="edited"><strong>Step 3:</strong><em>Safely</em></p>',
+                '<p id="edited"><strong>Step 3:</strong> <em>Safely</em></p>', true],
+            ['space at an inline edge', '<p><strong id="edited">Step 3:</strong><em>Safely</em></p>',
+                '<p><strong id="edited">Step 3: </strong><em>Safely</em></p>', true],
+            ['space in preformatted text', '<pre id="edited">Step 3: Safely</pre>', '<pre id="edited">Step 3:  Safely</pre>', true],
+            ['space preserved by CSS', '<p id="edited" style="white-space: pre-wrap">Step 3: Safely</p>',
+                '<p id="edited" style="white-space: pre-wrap">Step 3:  Safely</p>', true],
+            ['non-breaking space', '<p id="edited">Safely manage content</p>', '<p id="edited">Safely manage content&nbsp;</p>', true],
+        ]) {
+            await check(`${mode}: ${label} follows only if it changes the rendered text`, async (scrolling, doc) => {
+                const spacer = '<div style="height:800px"></div>';
+                const before = await doc(spacer + beforeHtml, options), after = await doc(spacer + afterHtml, options);
+                const target = follow(scrolling, before, after, hints(beforeHtml, 'html'), hints(afterHtml, 'html'));
+                equal(target, shouldFollow ? after.querySelector('#edited') : null, 'Distinguish painted whitespace from collapsed whitespace.');
+                if (label === 'space between inline elements') {
+                    await scrolling.scrolling.restore(after, target);
+                    equal(after.defaultView.scrollY > 0, true, 'Reveal the identified off-screen change.');
+                }
+            });
+        }
+        await check(`${mode}: paired spacing evidence outranks unrelated text`, async (scrolling, doc) => {
+            const markup = (space) => `<pre id="edited">Step 3:${space}Safely</pre>`;
+            const old = markup(' '), next = markup('  ');
+            const before = await doc(old + clock(1), options), after = await doc(next + clock(2), options);
+            equal(follow(scrolling, before, after, hints(`<p>Intro</p>${old}<p>End</p>`, 'html'),
+                hints(`<p>Intro</p>${next}<p>End</p>`, 'html')), after.querySelector('#edited'), 'Match the exact space transition within the submitted HTML.');
+        });
+        await check(`${mode}: paired spacing evidence also works for plain text fields`, async (scrolling, doc) => {
+            const old = 'Step 3: Safely', next = 'Step 3:  Safely';
+            const output = (value, time) => `<pre id="edited">Read more: ${value} manage content</pre>${clock(time)}`;
+            const before = await doc(output(old, 1), options), after = await doc(output(next, 2), options);
+            equal(follow(scrolling, before, after, hints(old), hints(next)), after.querySelector('#edited'), 'Keep adjacent words as context even when the preview adds text.');
+        });
+        await check(`${mode}: unrelated spacing cannot borrow a normal text hint`, async (scrolling, doc) => {
+            const before = await doc(content('Original') + '<pre>Original and Changed</pre>', options);
+            const after = await doc(content('Changed') + '<pre>Original  and Changed</pre>', options);
+            equal(follow(scrolling, before, after, hints('Original'), hints('Changed')), after.querySelector('#edited'),
+                'Containing both submitted words does not connect a separate spacing edit to the text change.');
+        });
+        await check(`${mode}: spacing without editor evidence does not break a content tie`, async (scrolling, doc) => {
+            const before = await doc('<pre>Step 3: Safely</pre>' + clock(1), options);
+            const after = await doc('<pre>Step 3:  Safely</pre>' + clock(2), options);
+            equal(scrolling.findTarget(before, after), null, 'Both are visible changes; do not guess which one the editor made.');
+        });
+        await check(`${mode}: unchanged excluded text does not hide a rendered space edit`, async (scrolling, doc) => {
+            const markup = (space) => `<pre id="edited">Step 3:${space}Safely<span aria-live="polite">Ready</span></pre>`;
+            const before = await doc(markup(' '), options), after = await doc(markup('  '), options);
+            equal(scrolling.findTarget(before, after), after.querySelector('#edited'), 'Compare the live DOM and snapshot with the same exclusions.');
+        });
+        await check(`${mode}: excluded spacing cannot make a collapsed edit look visible`, async (scrolling, doc) => {
+            const markup = (space, end) => `<p id="edited"><span aria-live="polite" style="white-space:pre">Ready${space}now</span> — Step 3${end}</p>`;
+            const before = await doc(markup(' ', ''), options), after = await doc(markup('  ', ' '), options);
+            equal(scrolling.findTarget(before, after), null, 'The only rendered difference is in an excluded region.');
+        });
+        await check(`${mode}: a later script mutation cannot become spacing evidence for the frozen snapshot`, async (scrolling, doc) => {
+            const old = '<pre id="edited">Step 3: Safely</pre>', next = '<pre id="edited">Step 3:  Safely</pre>';
+            const before = await doc(old, options), after = await doc(next, options);
+            scrolling.capture(before, hints(old, 'html'));
+            before.querySelector('#edited').textContent = 'Step 3:   Safely';
+            equal(scrolling.findTarget(before, after, hints(next, 'html')), null, 'Do not validate the old whitespace against replacement text.');
+        });
         await check(`${mode}: conditional output does not require a literal checkbox match`, async (scrolling, doc) => {
             const before = await doc(section('First') + section('Last'), options);
             const after = await doc(section('First') + section('Conditional') + section('Last'), options);
@@ -1214,5 +1279,5 @@ test('preview scrolling matches changed sections conservatively in Chromium', as
     const comparison = await readFile(new URL('../src/preview/comparison.js', import.meta.url), 'utf8');
     const scrolling = await readFile(new URL('../src/preview/scroll.js', import.meta.url), 'utf8');
     const source = `${comparison.replace('export function', 'function')}\n${scrolling.replace(/^import .*;\n/, '')}`;
-    await runChromiumTests(t, { script: `(${browserTests.toString()})(${JSON.stringify(source)})`, count: 212, virtualTimeBudget: 15000 });
+    await runChromiumTests(t, { script: `(${browserTests.toString()})(${JSON.stringify(source)})`, count: 240, virtualTimeBudget: 15000 });
 });
