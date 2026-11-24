@@ -28,13 +28,13 @@ final class Timber
             $context['source']['id'],
             true
         ));
-        add_action('mtflpp_frontend_term_preview_source_selected', fn (array $context) => $this->bindTermPreview(
+        add_action('mtflpp_frontend_term_preview_source_selected', fn (array $context) => $this->bindTimber2TermPreview(
             $context['term'],
             $context['saved']
         ));
     }
 
-    private function bindTermPreview(WP_Term $term, WP_Term $saved): void
+    private function bindTimber2TermPreview(WP_Term $term, WP_Term $saved): void
     {
         // Timber 1 lacks the class hook and its Term::init() has a different signature.
         // Leave its archive on the native WordPress preview path.
@@ -73,23 +73,12 @@ final class Timber
         $this->fields = $saved ? [] : LivePreview::livePostFields($sourceId);
         $terms = $saved ? [] : get_post_meta($sourceId, LivePreview::TERMS_META, true);
         $this->terms = is_array($terms) ? $terms : [];
-        if ($this->terms) {
-            if (method_exists(\Timber\Post::class, 'import_custom')) {
-                $this->legacyEmptyQueries = new WeakMap();
-                add_action('pre_get_terms', [$this, 'readLegacyTermQuery'], PHP_INT_MIN);
-                add_filter('terms_pre_query', [$this, 'emptyLegacyTermQuery'], PHP_INT_MIN, 2);
-            } else {
-                add_filter('timber/post/class', [$this, 'postClass'], PHP_INT_MAX, 2);
-            }
-        }
-        // Timber can reload the parent by ID instead of using WordPress's filtered preview object.
-        add_filter('timber/post/import_data', [$this, 'readPost'], PHP_INT_MAX, 2);
-        // Timber 1 eagerly imports metadata as properties and does not call timber/post/import_data.
-        if (!$saved) {
-            add_filter('timber_post_get_meta_pre', [$this, 'readLegacyPostMeta'], PHP_INT_MAX, 2);
-            if (method_exists(\Timber\Post::class, 'import_custom')) {
-                add_filter('timber_post_get_meta_field_pre', [$this, 'readLegacyPostMetaField'], PHP_INT_MAX, 3);
-            }
+        // Timber 1 has the eager import_custom() API; Timber 2 uses import and class hooks instead.
+        $isTimber1 = method_exists(\Timber\Post::class, 'import_custom');
+        if (!$isTimber1) {
+            $this->bindTimber2PostReads();
+        } elseif (!$saved) {
+            $this->bindTimber1PostReads();
         }
         add_action('shutdown', [$this, 'unbindPreview'], PHP_INT_MAX);
     }
@@ -109,6 +98,17 @@ final class Timber
         $this->source = null;
         $this->fields = [];
         $this->terms = [];
+    }
+
+    private function bindTimber1PostReads(): void
+    {
+        add_filter('timber_post_get_meta_pre', [$this, 'readLegacyPostMeta'], PHP_INT_MAX, 2);
+        add_filter('timber_post_get_meta_field_pre', [$this, 'readLegacyPostMetaField'], PHP_INT_MAX, 3);
+        if ($this->terms) {
+            $this->legacyEmptyQueries = new WeakMap();
+            add_action('pre_get_terms', [$this, 'readLegacyTermQuery'], PHP_INT_MIN);
+            add_filter('terms_pre_query', [$this, 'emptyLegacyTermQuery'], PHP_INT_MIN, 2);
+        }
     }
 
     public function readLegacyPostMeta(mixed $meta, mixed $postId): mixed
@@ -145,6 +145,64 @@ final class Timber
             && $this->source->ID !== $this->previewPostId ? $this->source->ID : 0;
     }
 
+    public function readLegacyTermQuery(WP_Term_Query $query): void
+    {
+        if (!$this->legacyEmptyQueries || !$this->isPreviewTermQuery($query)) {
+            return;
+        }
+        // Timber 1 has no post class hook. Match only its direct relationship query, not a
+        // native query nested inside it. Otherwise core could cache unsaved terms on the parent.
+        // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_debug_backtrace -- Identify the legacy caller without reading its arguments.
+        $stack = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 14);
+        foreach ($stack as $index => $frame) {
+            if (isset($frame['class']) || $frame['function'] !== 'get_terms') {
+                continue;
+            }
+            $index++;
+            while (($stack[$index]['function'] ?? '') === 'wp_get_object_terms' && !isset($stack[$index]['class'])) {
+                $index++;
+            }
+            if (
+                ($stack[$index]['function'] ?? '') === 'wp_get_post_terms' && !isset($stack[$index]['class'])
+                && ($stack[$index + 1]['class'] ?? '') === \Timber\Post::class
+                && $stack[$index + 1]['function'] === 'terms'
+            ) {
+                $this->adaptTermQuery($query, $this->legacyEmptyQueries);
+            }
+            return;
+        }
+    }
+
+    public function emptyLegacyTermQuery($terms, WP_Term_Query $query)
+    {
+        return $this->legacyEmptyQueries ? $this->emptyTermQuery($terms, $query, $this->legacyEmptyQueries) : $terms;
+    }
+
+    private function bindTimber2PostReads(): void
+    {
+        // Timber can reload the parent by ID instead of using WordPress's filtered preview object.
+        add_filter('timber/post/import_data', [$this, 'readPost'], PHP_INT_MAX, 2);
+        if ($this->terms) {
+            add_filter('timber/post/class', [$this, 'postClass'], PHP_INT_MAX, 2);
+        }
+    }
+
+    public function readPost(array $data, object $post): array
+    {
+        if ($this->source && (int) $post->ID === $this->previewPostId) {
+            foreach (['post_title', 'post_content', 'post_excerpt'] as $field) {
+                $data[$field] = $this->source->$field;
+            }
+            foreach ($this->fields as $field => $value) {
+                $data[$field] = $value;
+            }
+            if ($post instanceof TimberPost) {
+                $post->setPreviewTerms($this->readTerms(...));
+            }
+        }
+        return $data;
+    }
+
     /** Use Timber's public class hook without replacing theme-specific Post subclasses. */
     public function postClass(string $class, WP_Post $post): string
     {
@@ -179,39 +237,6 @@ final class Timber
             remove_action('pre_get_terms', $adapt, PHP_INT_MIN);
             remove_filter('terms_pre_query', $empty, PHP_INT_MIN);
         }
-    }
-
-    public function readLegacyTermQuery(WP_Term_Query $query): void
-    {
-        if (!$this->legacyEmptyQueries || !$this->isPreviewTermQuery($query)) {
-            return;
-        }
-        // Timber 1 has no post class hook. Match only its direct relationship query, not a
-        // native query nested inside it. Otherwise core could cache unsaved terms on the parent.
-        // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_debug_backtrace -- Identify the legacy caller without reading its arguments.
-        $stack = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 14);
-        foreach ($stack as $index => $frame) {
-            if (isset($frame['class']) || $frame['function'] !== 'get_terms') {
-                continue;
-            }
-            $index++;
-            while (($stack[$index]['function'] ?? '') === 'wp_get_object_terms' && !isset($stack[$index]['class'])) {
-                $index++;
-            }
-            if (
-                ($stack[$index]['function'] ?? '') === 'wp_get_post_terms' && !isset($stack[$index]['class'])
-                && ($stack[$index + 1]['class'] ?? '') === \Timber\Post::class
-                && $stack[$index + 1]['function'] === 'terms'
-            ) {
-                $this->adaptTermQuery($query, $this->legacyEmptyQueries);
-            }
-            return;
-        }
-    }
-
-    public function emptyLegacyTermQuery($terms, WP_Term_Query $query)
-    {
-        return $this->legacyEmptyQueries ? $this->emptyTermQuery($terms, $query, $this->legacyEmptyQueries) : $terms;
     }
 
     private function isPreviewTermQuery(WP_Term_Query $query): bool
@@ -256,21 +281,5 @@ final class Timber
     {
         // Empty include lists (and even [0] on older core) otherwise query every term.
         return isset($emptyQueries[$query]) ? ($query->query_vars['fields'] === 'count' ? '0' : []) : $terms;
-    }
-
-    public function readPost(array $data, object $post): array
-    {
-        if ($this->source && (int) $post->ID === $this->previewPostId) {
-            foreach (['post_title', 'post_content', 'post_excerpt'] as $field) {
-                $data[$field] = $this->source->$field;
-            }
-            foreach ($this->fields as $field => $value) {
-                $data[$field] = $value;
-            }
-            if ($post instanceof TimberPost) {
-                $post->setPreviewTerms($this->readTerms(...));
-            }
-        }
-        return $data;
     }
 }

@@ -114,11 +114,11 @@ try {
             (int) $frontend->readPost(clone get_post($otherId))->post_author === $author,
             'Other posts must retain their own author.'
         );
-        $hasTimber = class_exists(\Timber\Timber::class);
+        $hasTimber2 = class_exists(\Timber\Timber::class) && !method_exists(\Timber\Post::class, 'import_custom');
         $import = apply_filters('timber/post/import_data', ['post_author' => $admin], get_post($postId));
         $check(
-            (int) $import['post_author'] === ($hasTimber ? $expected : $admin),
-            'Timber imports must use the same live author when available.'
+            (int) $import['post_author'] === ($hasTimber2 ? $expected : $admin),
+            'The Timber 2 import must use the same live author.'
         );
         foreach (['core/post-author', 'core/post-author-name', 'core/post-author-biography', 'core/avatar'] as $name) {
             $attributes = ['isLink' => true, 'showBio' => true];

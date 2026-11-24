@@ -29,6 +29,7 @@ $posts = [];
 $users = [];
 $hasTimber = class_exists(\Timber\Timber::class);
 $hasLegacyTimber = $hasTimber && method_exists(\Timber\Post::class, 'import_custom');
+$hasTimber2 = $hasTimber && !$hasLegacyTimber;
 // Exercise the compatibility subscribers registered by the real plugin bootstrap.
 $originalHooks = [];
 $previewHooks = [
@@ -338,8 +339,8 @@ try {
     $check(end($sources) === [$postId, $internalId, false], 'Live-source context must not be read-only.');
     $check(
         apply_filters('timber/post/import_data', ['post_title' => 'Saved title'], $post)['post_title']
-            === ($hasTimber ? 'Internal live preview' : 'Saved title'),
-        'Timber must use the authorized live source only when the dependency is available.'
+            === ($hasTimber2 ? 'Internal live preview' : 'Saved title'),
+        'Only Timber 2 binds the post import hook to the authorized live source.'
     );
     if ($hasLegacyTimber) {
         // Themes can construct Post directly, without passing through a Timber factory.
@@ -388,12 +389,15 @@ try {
                 'Direct Timber 1 properties must agree with explicit ACF metadata reads.'
             );
         }
-    } elseif ($hasTimber) {
-        $legacyImports = did_filter('timber_post_get_meta_pre');
+    } elseif ($hasTimber2) {
+        $timberPost = \Timber\Timber::get_post($postId);
+        $check($timberPost->post_title === 'Internal live preview', 'Timber 2 must import live core fields.');
+        $legacyReads = did_action('timber_post_get_meta_pre');
+        // Twig property access can trigger this deprecated action during a real metadata lookup.
+        $timberPost->meta('mtflpp_revision_test_missing');
         $check(
-            \Timber\Timber::get_post($postId)->post_title === 'Internal live preview'
-            && did_filter('timber_post_get_meta_pre') === $legacyImports,
-            'Timber 2 must import core fields without calling the legacy metadata hook.'
+            did_action('timber_post_get_meta_pre') === $legacyReads,
+            'Reading Timber 2 metadata must not dispatch the deprecated Timber 1 hook.'
         );
     }
     if (function_exists('get_field')) {
@@ -468,7 +472,7 @@ try {
     $check($rendered->ID === $postId, 'The parent identity must remain stable.');
     $check(end($sources) === [$postId, $revisionId, true], 'History must expose the selected read-only source.');
     $import = ['ID' => $postId, 'custom' => 'Keep me'];
-    $expected = $hasTimber ? $import + [
+    $expected = $hasTimber2 ? $import + [
         'post_title' => 'Historical title', 'post_content' => 'Historical content',
         'post_excerpt' => 'Historical excerpt',
     ] : $import;
@@ -484,7 +488,7 @@ try {
             && apply_filters('timber_post_get_meta_field_pre', null, $postId, 'mtflpp_revision_test_deleted') === null,
             'The Timber 1 live metadata overlay must be removed on rebinding to saved history.'
         );
-    } elseif ($hasTimber) {
+    } elseif ($hasTimber2) {
         $timberPost = \Timber\Timber::get_post($postId);
         $check(
             $timberPost->post_title === 'Historical title'

@@ -553,14 +553,16 @@ try {
     );
     $timber = new Timber();
     $timber->bindPreview($postId, $id);
+    $hasTimber = class_exists(\Timber\Timber::class);
+    $hasTimber1 = $hasTimber && method_exists(\Timber\Post::class, 'import_custom');
     $check(
-        (has_filter('timber/post/import_data', [$timber, 'readPost']) === PHP_INT_MAX)
-            === class_exists(\Timber\Timber::class)
-        && (has_filter('timber_post_get_meta_pre', [$timber, 'readLegacyPostMeta']) === PHP_INT_MAX)
-            === class_exists(\Timber\Timber::class)
-        && (has_filter('timber_post_get_meta_field_pre', [$timber, 'readLegacyPostMetaField']) === PHP_INT_MAX)
-            === method_exists(\Timber\Post::class, 'import_custom'),
-        'Timber read hooks must be installed only when Timber is available.'
+        has_filter('timber/post/import_data', [$timber, 'readPost'])
+            === ($hasTimber && !$hasTimber1 ? PHP_INT_MAX : false)
+        && has_filter('timber_post_get_meta_pre', [$timber, 'readLegacyPostMeta'])
+            === ($hasTimber1 ? PHP_INT_MAX : false)
+        && has_filter('timber_post_get_meta_field_pre', [$timber, 'readLegacyPostMetaField'])
+            === ($hasTimber1 ? PHP_INT_MAX : false),
+        'Only the installed Timber version’s read hooks should be registered.'
     );
     $timber->bindPreview($postId, 0);
     $timber->unbindPreview();
