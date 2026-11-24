@@ -101,7 +101,7 @@ final class LivePreview
         return true;
     }
 
-    /** Saved fields, metadata and terms; editor locks and asynchronous queue flags are not content. */
+    /** Saved fields, metadata and terms, excluding volatile editor state and caches. */
     public function fingerprint(int $postId): string
     {
         $meta = get_post_meta($postId);
@@ -113,6 +113,12 @@ final class LivePreview
             $meta['_pingme'],
             $meta['classic-editor-remember']
         );
+        // Core stores rendered oEmbeds and cache timestamps separately from the saved URL.
+        foreach (array_keys($meta) as $key) {
+            if (preg_match('/^_oembed_(?:time_)?[a-f0-9]{32}$/D', (string) $key)) {
+                unset($meta[$key]);
+            }
+        }
         ksort($meta);
 
         $taxonomies = get_object_taxonomies(get_post_type($postId));
