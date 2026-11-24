@@ -116,6 +116,35 @@ try {
     } finally {
         remove_action('mtflpp_live_preview_custom_fields_initialized', $sameAuthor);
     }
+    $keys = [LivePreview::AUTHOR_META, LivePreview::DATE_META, LivePreview::TERMS_META];
+    $recordChurn = static function ($metaId, int $id, string $key) use ($sourceId, $keys, $check): void {
+        $check($id !== $sourceId || !in_array($key, $keys, true), 'Unchanged preview fields must not be recreated.');
+    };
+    add_action('added_post_meta', $recordChurn, 10, 3);
+    add_action('deleted_post_meta', $recordChurn, 10, 3);
+    try {
+        $title = 'Only the title changed';
+        $repeat = $prepare($input + ['post_title' => $title]);
+        $check($repeat->get_status() === 200, 'Unchanged fields must remain usable.');
+        $check(get_post($sourceId)->post_title === $title, 'The new title must be saved on the same preview source.');
+    } finally {
+        remove_action('added_post_meta', $recordChurn);
+        remove_action('deleted_post_meta', $recordChurn);
+    }
+    // A matching first value does not excuse duplicate rows left by integrations or older data.
+    add_metadata('post', $sourceId, LivePreview::AUTHOR_META, $author);
+    $check($prepare($input)->get_status() === 200, 'A duplicate preview field must be repaired.');
+    $check(get_post_meta($sourceId, LivePreview::AUTHOR_META, false) === [(string) $admin], 'Keep one author value.');
+
+    $reset = ['author' => $author, 'date' => '2020-01-10T13:00:00Z', 'terms' => wp_json_encode(['category' => []])];
+    $check($prepare($reset)->get_status() === 200, 'Reverting fields and clearing assignments must work on reuse.');
+    $check(get_post_meta($sourceId, LivePreview::AUTHOR_META, true) === (string) $author, 'Restore the saved author.');
+    $check(
+        get_post_meta($sourceId, LivePreview::DATE_META, true)['post_date_gmt'] === '2020-01-10 13:00:00',
+        'Restore the saved date.'
+    );
+    $check(get_post_meta($sourceId, LivePreview::TERMS_META, true)['category'] === [], 'Store the explicit clear.');
+
     // Also reject a later save callback changing a successfully written snapshot.
     $corrupt = static function (int $id) use ($postId): void {
         if (wp_get_post_parent_id($id) === $postId && get_post_status($id) === 'mtflpp-preview') {

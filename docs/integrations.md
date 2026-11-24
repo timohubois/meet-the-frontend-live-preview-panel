@@ -254,6 +254,11 @@ enters this workflow.
 | `mtflpp_live_preview_preparation_error` (filter) | `?WP_Error $error, array $context`, containing `post` and the established `source` identity, or null if no source identity was established. Verify contributions and preserve earlier errors. Runs after success, rejection or exceptions. Rejected form values pass their `WP_Error`. Core write errors still take precedence. |
 | `mtflpp_live_preview_preparation_finished` (action) | `array $context`, with the same identities as the verification filter. Release temporary state here, even if verification threw and later verifiers did not run. Cleanup should be idempotent and must not throw. |
 
+At `mtflpp_live_preview_custom_fields_initialized`, the plugin's internal preview
+keys for author, date, and taxonomy selections may already contain unchanged
+values. Do not depend on those keys being absent or on their metadata delete/add
+hooks firing on every refresh.
+
 For example, preparation context is:
 
 ```php
