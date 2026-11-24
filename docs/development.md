@@ -132,9 +132,10 @@ still persist those options when configured to do so.
 The block-editor fixture checks native REST save receipts, source conflicts,
 authorization, first-save eligibility, draft/published autosaves, unchanged validation
 rejections, metadata errors after partial post updates, and isolated serialized-block
-previews. Client adapter tests cover pre-save draining, request correlation, legacy
-meta-box acknowledgement and failure handling, including malformed fingerprints and
-read-only errors in strict mode. The HTTP-free preview-isolation fixture checks that
+previews. It also verifies that core oEmbed cache writes do not invalidate live previews
+or native save receipts. Client adapter tests cover pre-save draining, request correlation,
+legacy meta-box acknowledgement and failure handling, including malformed fingerprints
+and read-only errors in strict mode. The HTTP-free preview-isolation fixture checks that
 existing site policies are preserved with both core APIs and the older-core fallback.
 The HTTP-free preview-source fixture checks the HTML API wire format, Unicode/entity
 escaping, element identities, native buffer capture, cleaning and streaming opt-out,

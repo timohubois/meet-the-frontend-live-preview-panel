@@ -303,6 +303,41 @@ try {
     update_post_meta($published, 'enclosure', 'https://example.invalid/test.mp3');
     $check($live->fingerprint($published) !== $base, 'Actual enclosure metadata must still invalidate the preview.');
     delete_post_meta($published, 'enclosure');
+
+    // Core can cache a newly resolved URL in post meta while either editor is still open.
+    $embed = clone $GLOBALS['wp_embed'];
+    $embed->post_ID = $published;
+    $video = 'https://example.invalid/video';
+    $html = '<iframe src="https://example.invalid/player"></iframe>';
+    $provider = static fn ($result, string $url) => $url === $video ? $html : $result;
+    add_filter('pre_oembed_result', $provider, 10, 2);
+    try {
+        $check($embed->shortcode([], $video) === $html, 'Core must resolve the fixture embed without HTTP.');
+    } finally {
+        remove_filter('pre_oembed_result', $provider);
+    }
+    $cacheKey = md5($video . serialize($embed->last_attr));
+    $check(
+        get_post_meta($published, '_oembed_' . $cacheKey, true) === $html
+        && (int) get_post_meta($published, '_oembed_time_' . $cacheKey, true) > 0,
+        'The fixture must write both of the real core oEmbed cache keys to the saved post.'
+    );
+    $response = $send('/meet-the-frontend-live-preview-panel/v1/posts/' . $published . '/preview', [
+        'base' => $base, 'content' => '[embed]' . $video . '[/embed]',
+    ], null);
+    $check($response->get_status() === 200, 'A live preview must accept the existing baseline after embed caching.');
+    parse_str(wp_parse_url($response->get_data()['url'], PHP_URL_QUERY), $embedPreview);
+    update_post_meta($published, '_oembed_time_' . $cacheKey, time() + 1);
+    $source = $live->authorizedSource(
+        $published,
+        (int) $embedPreview['mtflpp_revision'],
+        $embedPreview['mtflpp_token']
+    );
+    $check($source !== null, 'Refreshing the embed cache timestamp must not invalidate a prepared preview.');
+    update_post_meta($published, 'video_url', $video);
+    $check($live->fingerprint($published) !== $base, 'Saved custom field URLs still belong in the baseline.');
+    delete_post_meta($published, 'video_url');
+
     $response = $send(rest_get_route_for_post($published) . '/autosaves', [
         'title' => 'Published recovery autosave', 'content' => '<p>Recovery</p>',
     ], $base);
@@ -319,6 +354,7 @@ try {
         'Core must retain its recovery autosave.'
     );
     $recoveryBase = $live->fingerprint($recovery->ID);
+    $embed->delete_oembed_caches($published);
     $response = $send('/meet-the-frontend-live-preview-panel/v1/posts/' . $published . '/preview', [
         'base' => $base, 'post_title' => 'Unsaved changes after recovery autosave',
     ], null);
