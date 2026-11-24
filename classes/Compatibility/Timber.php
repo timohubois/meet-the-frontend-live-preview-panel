@@ -74,6 +74,10 @@ final class Timber
         }
         // Timber can reload the parent by ID instead of using WordPress's filtered preview object.
         add_filter('timber/post/import_data', [$this, 'readPost'], PHP_INT_MAX, 2);
+        // Timber 1 eagerly imports metadata as properties and does not call timber/post/import_data.
+        if (!$saved) {
+            add_filter('timber_post_get_meta_pre', [$this, 'readLegacyPostMeta'], PHP_INT_MAX, 2);
+        }
         add_action('shutdown', [$this, 'unbindPreview'], PHP_INT_MAX);
     }
 
@@ -81,12 +85,31 @@ final class Timber
     public function unbindPreview(): void
     {
         remove_filter('timber/post/import_data', [$this, 'readPost'], PHP_INT_MAX);
+        remove_filter('timber_post_get_meta_pre', [$this, 'readLegacyPostMeta'], PHP_INT_MAX);
         remove_filter('timber/post/class', [$this, 'postClass'], PHP_INT_MAX);
         remove_action('shutdown', [$this, 'unbindPreview'], PHP_INT_MAX);
         $this->previewPostId = 0;
         $this->source = null;
         $this->fields = [];
         $this->terms = [];
+    }
+
+    public function readLegacyPostMeta(mixed $meta, mixed $postId): mixed
+    {
+        if (
+            $meta === false || !empty($meta) || !$this->source || !is_numeric($postId)
+            || (int) $postId !== $this->previewPostId || $this->previewPostId === $this->source->ID
+        ) {
+            return $meta;
+        }
+        // Give Timber the same raw shape as get_post_meta($id), without preview bookkeeping.
+        $meta = array_filter(
+            get_post_meta($this->source->ID),
+            static fn ($key): bool => !str_starts_with((string) $key, '_mtflpp_'),
+            ARRAY_FILTER_USE_KEY
+        );
+        // Timber treats an empty array as a request to load the saved post's metadata.
+        return $meta ?: false;
     }
 
     /** Use Timber's public class hook without replacing theme-specific Post subclasses. */
