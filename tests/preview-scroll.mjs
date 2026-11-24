@@ -730,6 +730,50 @@ async function browserTests(source) {
                 equal(after.defaultView.scrollY > 0, true, 'Reveal an off-screen destination.');
             });
         }
+        for (const scenario of captured ? [
+            'down', 'up', 'margin-only spacer', 'different-sized blank sibling', 'duplicate blank', 'duplicate rendered witness', 'duplicate submitted witness',
+            'reversed source', 'reversed live order', 'reversed visual order', 'no live box', 'live exclusion', 'more than one swap',
+            'unrelated source styling', 'nonempty moved row', 'image-only row', 'nonadjacent drag',
+        ] : ['down']) {
+            await check(`${mode}: an adjacent empty-row boundary (${scenario})`, async (frame, doc) => {
+                const up = scenario === 'up', crossed = '<section id="crossed"><h2>Section B</h2></section>';
+                const spacing = scenario === 'margin-only spacer' ? 'margin-top:160px' : 'height:160px';
+                const blank = `<div id="blank" style="${spacing}">${scenario === 'image-only row' ? '<img src="data:," alt="">' : ''}</div>`;
+                const extra = (changed) => `<div style="height:800px;${changed ? 'background:red' : ''}"></div>`;
+                const earlier = '<div style="height:900px"></div>';
+                const suffix = (changed) => {
+                    const peers = section(scenario === 'duplicate rendered witness' ? 'Section B' : 'Section C') + section('Section D');
+                    return (scenario === 'different-sized blank sibling' ? '<div style="height:190px"></div>' : '')
+                        + (scenario === 'duplicate blank' ? '<div style="height:160px"></div>' : '')
+                        + (changed && scenario === 'more than one swap' ? section('Section D') + section('Section C') : peers)
+                        + extra(changed && scenario === 'unrelated source styling');
+                };
+                const markup = (after) => {
+                    const blankFirst = after === up;
+                    return earlier + (blankFirst !== (scenario === 'reversed source') ? blank + crossed : crossed + blank) + suffix(after);
+                };
+                const initialize = {
+                    'reversed live order': "document.querySelector('#crossed').before(document.querySelector('#blank'))",
+                    'reversed visual order': "document.querySelector('#blank').style.transform = 'translateY(-240px)'",
+                    'no live box': "document.querySelector('#blank').style.display = 'none'",
+                    'live exclusion': "document.querySelector('#blank').setAttribute('role', 'navigation')",
+                };
+                const before = await doc(markup(false), options);
+                const after = await doc(markup(true), { ...options, script: initialize[scenario] });
+                const oldOrder = up ? ['B', 'A', 'C', 'D'] : ['A', 'B', 'C', 'D'];
+                const nextOrder = up ? ['A', 'B', 'C', 'D'] : scenario === 'nonadjacent drag' ? ['B', 'C', 'A', 'D'] : ['B', 'A', 'C', 'D'];
+                const title = (item) => item === 'A' && scenario !== 'nonempty moved row' ? ''
+                    : item === 'C' && scenario === 'duplicate submitted witness' ? 'Section B' : `Section ${item}`;
+                before.defaultView.scrollTo(0, 110);
+                frame.scrolling.remember(before);
+                const target = follow(frame, before, after, rowOrder(oldOrder, undefined, title), rowOrder(nextOrder, 'A', title));
+                const boundary = captured && ['down', 'up', 'margin-only spacer', 'different-sized blank sibling'].includes(scenario)
+                    ? after.querySelector(up ? '#crossed' : '#blank') : null;
+                equal(target, boundary, 'Only a confirmed, visible pair can locate the new boundary.');
+                await frame.scrolling.restore(after, target);
+                equal(after.defaultView.scrollY === 110, !boundary, 'Do not jump without a boundary.');
+            });
+        }
         await check(`${mode}: a boxless moved row follows its eligible off-screen heading, not its fixed navigation`, async (frame, doc) => {
             const spacer = '<div style="height:900px"></div>';
             const row = '<section style="display:contents"><nav style="position:fixed;top:0;right:0">Navigation</nav><h2 id="heading">Section A</h2></section>';
@@ -1877,5 +1921,5 @@ test('preview scrolling matches changed sections conservatively in Chromium', as
     const comparison = await readFile(new URL('../src/preview/comparison.js', import.meta.url), 'utf8');
     const scrolling = await readFile(new URL('../src/preview/scroll.js', import.meta.url), 'utf8');
     const source = `${comparison.replace('export function', 'function')}\n${scrolling.replace(/^import .*;\n/, '')}`;
-    await runChromiumTests(t, { script: `(${browserTests.toString()})(${JSON.stringify(source)})`, count: 391, virtualTimeBudget: 24000 });
+    await runChromiumTests(t, { script: `(${browserTests.toString()})(${JSON.stringify(source)})`, count: 409, virtualTimeBudget: 24000 });
 });

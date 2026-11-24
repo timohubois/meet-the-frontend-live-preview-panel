@@ -24,9 +24,17 @@ export function createPreviewComparison(excludedSelectors = []) {
                 const edited = valuesChanged(before.values, after.values);
                 const captured = !!before.source && !!after.source;
                 const transition = !!before.source !== !!after.source;
-                const move = inputMove(before.values, after.values);
+                const move = inputMove(before.values, after.values,
+                    captured && !edited && !inputOrderChanged(before.values, after.values));
+                const sourceChanges = captured ? changedCandidates(before.source, after.source, move, true) : [];
+                if (move?.boundaryGroups?.length) {
+                    const meaningful = sourceChanges.filter((item) => item.priority > 0);
+                    if (meaningful.length === 1 && meaningful[0].boundary) {
+                        return renderedBoundary(meaningful[0].boundary, after.source?.excluded);
+                    }
+                }
                 const candidates = [
-                    ...(captured ? changedCandidates(before.source, after.source, move).map((item) => ({ ...item, source: true })) : []),
+                    ...sourceChanges.map((item) => ({ ...item, source: true })),
                     ...changedCandidates(before.dom, after.dom, move),
                 ];
                 const rendered = new Map();
@@ -213,6 +221,29 @@ function renderedElement(entry) {
     return findMappedElement(entry, hasRenderedBox);
 }
 
+// The seam starts at the second box, regardless of which side the empty space moved to.
+function renderedBoundary({ before, after }, excluded) {
+    for (const [first, second] of [before, after]) {
+        const a = first.node, b = second.node;
+        if (!a?.isConnected || !b?.isConnected || a.nextElementSibling !== b) return null;
+        const boxes = [];
+        for (const node of [a, b]) {
+            const { position, marginTop, marginBottom } = node.ownerDocument.defaultView.getComputedStyle(node);
+            if ((excluded && node.closest(excluded)) || !hasRenderedBox(node) || !['static', 'relative'].includes(position)
+                || node.closest('[hidden], details:not([open])')
+                || node.checkVisibility?.({ opacityProperty: true, contentVisibilityAuto: true }) === false) return null;
+            const box = node.getBoundingClientRect();
+            // Empty blocks can occupy space through margins alone.
+            if (!box.height && !(parseFloat(marginTop) > 0 || parseFloat(marginBottom) > 0)) return null;
+            boxes.push(box);
+        }
+        const [firstBox, secondBox] = boxes;
+        if (firstBox.bottom > secondBox.top
+            || Math.max(firstBox.left, secondBox.left) >= Math.min(firstBox.right, secondBox.right)) return null;
+    }
+    return after[1].node;
+}
+
 // The payload is data from this verified response, never inserted into the live DOM or executed.
 function sourceDocument(doc) {
     try {
@@ -362,9 +393,23 @@ function couldBeSeparateReplacements(before, after) {
     return false;
 }
 
-function changedCandidates(previous, next, move) {
+function changedCandidates(previous, next, move, cleanSource = false) {
     const identities = new Map(), keys = new Map(), presentationKeys = new Map(), exactKeys = new Map(), candidates = [];
     let rowAnchors;
+    function matchesRow(old, dest, groups) {
+        rowAnchors ??= [uniqueRowAnchors(previous, new Set(groups.flat())), uniqueRowAnchors(next, new Set(groups.flat()))];
+        const [oldAnchors, newAnchors] = rowAnchors;
+        const matched = new Map();
+        for (const [label, anchor] of oldAnchors) {
+            const target = newAnchors.get(label);
+            if (!target) continue;
+            if ((old !== anchor.entry && !containsEntry(old, anchor.entry))
+                || (dest !== target.entry && !containsEntry(dest, target.entry))) return false;
+            matched.set(label, anchor.substantive && target.substantive);
+        }
+        return groups.some((group) => group.every((label) => matched.has(label))
+            && group.some((label) => matched.get(label)));
+    }
     function intern(value) {
         const signature = JSON.stringify(value);
         if (!identities.has(signature)) identities.set(signature, identities.size + 1);
@@ -428,7 +473,7 @@ function changedCandidates(previous, next, move) {
             return keys.get(old) === keys.get(next) && corresponds(old, next, presentationKeys)
                 && corresponds(old, next, exactKeys);
         }
-        function unresolved(oldStart, oldEnd, newStart, newEnd, reason, moved) {
+        function unresolved(oldStart, oldEnd, newStart, newEnd, reason, moved, boundary) {
             const oldRange = before.slice(oldStart, oldEnd), newRange = after.slice(newStart, newEnd);
             const replaced = reason === 'replacement' && local
                 && oldRange.some((entry) => !newPositions.has(keys.get(entry)))
@@ -436,10 +481,11 @@ function changedCandidates(previous, next, move) {
                 && (!couldBeSeparateReplacements(oldRange, newRange)
                     || (parent.tag === 'form' && replacesFormFields(oldRange, newRange)));
             const regionChange = local && (reason === 'reorder' || replaced) ? reason : undefined;
-            candidates.push({ kind: 'region', after: parent, priority: 2, unresolved: true, regionChange, oldRange, newRange, moved });
+            candidates.push({ kind: 'region', after: parent, priority: 2, unresolved: true,
+                regionChange, oldRange, newRange, moved, boundary });
         }
         function movedEntry(oldStart, oldEnd, newStart, newEnd) {
-            if (!move?.labels.size) return;
+            if (!move?.groups.length) return;
             const length = Math.abs(move.offset) + 1;
             if (oldEnd - oldStart !== length || newEnd - newStart !== length) return;
             const from = move.offset > 0 ? oldStart : oldEnd - 1;
@@ -452,18 +498,21 @@ function changedCandidates(previous, next, move) {
             }
             // An unrelated list or reversed output can show the same rotation. Require a
             // unique, unchanged value from the dropped row inside both rendered sections.
-            rowAnchors ??= [uniqueRowAnchors(previous, move.labels), uniqueRowAnchors(next, move.labels)];
-            const [oldAnchors, newAnchors] = rowAnchors;
-            const matched = new Map();
-            for (const [label, anchor] of oldAnchors) {
-                const dest = newAnchors.get(label);
-                if (!dest) continue;
-                if ((before[from] !== anchor.entry && !containsEntry(before[from], anchor.entry))
-                    || (after[to] !== dest.entry && !containsEntry(after[to], dest.entry))) return;
-                matched.set(label, anchor.substantive && dest.substantive);
-            }
-            if (move.groups.some((group) => group.every((label) => matched.has(label))
-                && group.some((label) => matched.get(label)))) return after[to];
+            if (matchesRow(before[from], after[to], move.groups)) return after[to];
+        }
+        function adjacentBoundary(oldStart, oldEnd, newStart, newEnd) {
+            if (!cleanSource || !move?.boundaryGroups?.length || oldEnd - oldStart !== 2 || newEnd - newStart !== 2) return;
+            const oldPair = before.slice(oldStart, oldEnd), newPair = after.slice(newStart, newEnd);
+            const keysOf = (entry) => presentationKeys.get(entry);
+            const [a, b] = oldPair.map(keysOf);
+            if (a === b || b !== keysOf(newPair[0]) || a !== keysOf(newPair[1])) return;
+            // Presentation can distinguish different empty layouts; an ID alone cannot.
+            const from = move.offset > 0 ? 0 : 1, crossed = 1 - from;
+            const blank = oldPair[from], key = keysOf(blank);
+            if (before.filter((entry) => keysOf(entry) === key).length !== 1
+                || after.filter((entry) => keysOf(entry) === key).length !== 1
+                || !isEmptyLayout(blank) || !matchesRow(oldPair[crossed], newPair[from], move.boundaryGroups)) return;
+            return { before: oldPair, after: newPair };
         }
         function reordered(oldStart, oldEnd, newStart, newEnd) {
             const length = oldEnd - oldStart;
@@ -518,8 +567,13 @@ function changedCandidates(previous, next, move) {
             }
             // Compare order before choosing anchors so a move is not split into an insertion and a deletion.
             const moved = movedEntry(oldStart, oldEnd, newStart, newEnd);
-            if (moved || (local && reordered(oldStart, oldEnd, newStart, newEnd))) {
-                unresolved(oldStart, oldEnd, newStart, newEnd, 'reorder', moved);
+            const boundary = adjacentBoundary(oldStart, oldEnd, newStart, newEnd);
+            if (moved || boundary || (local && reordered(oldStart, oldEnd, newStart, newEnd))) {
+                if (boundary) {
+                    compare(boundary.before[0], boundary.after[1]);
+                    compare(boundary.before[1], boundary.after[0]);
+                }
+                unresolved(oldStart, oldEnd, newStart, newEnd, 'reorder', moved, boundary);
                 return;
             }
             let anchors = findAnchors(oldStart, oldEnd, newStart, newEnd, oldPositions, newPositions, contentKey);
@@ -644,7 +698,7 @@ function inputOrderChanged(before, after) {
 }
 
 // An order hint can name a moved item, but its claim must agree with both submitted snapshots.
-function inputMove(before, after) {
+function inputMove(before, after, allowBoundary) {
     if (!before || !after) return;
     const changes = Object.entries(after).filter(([key, next]) => next?.type === 'row-order'
         && before[key]?.type === 'row-order' && before[key].value !== next.value);
@@ -659,14 +713,32 @@ function inputMove(before, after) {
     b.splice(to, 1);
     if (!a.every((item, index) => item === b[index])) return;
 
-    const groups = movedRowGroups(key, a, before, after);
-    return { offset: to - from, labels: new Set(groups.flat()), groups };
+    const offset = to - from;
+    const groups = rowGroups(key, next.moved, a, before, after);
+    let boundaryGroups;
+    if (allowBoundary && Math.abs(offset) === 1 && !groups.length
+        && hasNoRowText(old, next.moved, before) && hasNoRowText(next, next.moved, after)) {
+        const crossed = a.splice(Math.min(from, to), 1)[0];
+        boundaryGroups = rowGroups(key, crossed, [...a, next.moved], before, after);
+    }
+    return { offset, groups, boundaryGroups };
 }
 
-function movedRowGroups(key, siblings, before, after) {
-    const { moved, fieldsByRow } = after[key], oldFields = before[key].fieldsByRow;
-    if ([moved, ...siblings].some((row) => !oldFields?.[row] || !fieldsByRow?.[row])) return [];
-    const groups = [], html = new Map(), previousNames = new Set(oldFields[moved]);
+function hasNoRowText(order, row, values) {
+    const html = new Map();
+    return order.fieldsByRow?.[row]?.every((name) => rowFieldText(values[name], html)?.label === '');
+}
+
+function isEmptyLayout(entry) {
+    return !entry.text && !entry.media?.some(Boolean)
+        && !/^(?:a|button|input|select|textarea|form|details|img|video|audio|iframe|canvas|svg|object|embed)$/.test(entry.tag)
+        && entry.children.every(isEmptyLayout);
+}
+
+function rowGroups(key, row, siblings, before, after) {
+    const { fieldsByRow } = after[key], oldFields = before[key].fieldsByRow;
+    if ([row, ...siblings].some((item) => !oldFields?.[item] || !fieldsByRow?.[item])) return [];
+    const groups = [], html = new Map(), previousNames = new Set(oldFields[row]);
     let peers;
     function submittedLabels(names, values) {
         const labels = new Set();
@@ -688,7 +760,7 @@ function movedRowGroups(key, siblings, before, after) {
         peers ??= siblings.flatMap((row) => [submittedLabels(oldFields[row], before), submittedLabels(fieldsByRow[row], after)]);
         return peers.some((peer) => !peer || peer.has(label) || (blocks.length && blocks.every((block) => peer.has(block))));
     }
-    for (const name of fieldsByRow[moved]) {
+    for (const name of fieldsByRow[row]) {
         const hint = after[name], previous = before[name];
         if (!previousNames.has(name) || !hint || previous?.type !== hint.type || previous?.value !== hint.value) continue;
         const field = rowFieldText(hint, html);
