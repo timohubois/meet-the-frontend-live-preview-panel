@@ -16,17 +16,17 @@ ACF, Timber and Yoast SEO integrations are available when those plugins or libra
 1. Place a source checkout in `wp-content/plugins/meet-the-frontend-live-preview-panel/` and run `npm ci && npm run build` from that directory.
 2. Activate **Meet the Frontend – Live Preview Panel** under **Plugins**.
 3. Open a post, page or supported custom post type in the Block Editor or classic editor. Save new posts as drafts first. For a category, tag or public custom taxonomy term, open its **Edit** screen.
-4. Open **Live preview** and edit a supported field. Use WordPress's normal **Save**, **Update** or **Publish** controls to save your work.
+4. Open the live preview and edit a supported field. Use WordPress's normal **Save**, **Update** or **Publish** controls to save your work.
 
 Installable packages already include the built assets. GitHub's automatic source ZIPs, like a checkout, require a build.
 
 ## Usage
 
-Move the preview by its titlebar and resize it from its borders or corners. Use **Preview options** for docking, fullscreen, **Keep on top** (Picture-in-Picture) where supported, and preferences. Desktop, Tablet and Phone presets and the Zoom control let you inspect different viewport sizes without changing the panel size. Window movement and resizing are also available from the keyboard.
+In the Block Editor, choose **View → Show live preview** to open the floating panel without closing Settings. In the term editor, **Live Preview Changes** sits above the **Name** field. In the classic editor, choose **Live Preview Changes** below the native Preview button in the Publish box. **×** closes the floating panel and stops live updates.
 
-**Scroll to my changes** follows detected changes when possible; turn it off to retain manual positioning. Panel visibility, layout and viewport preferences are stored per user across posts and editors.
+Desktop, Tablet and Phone presets and the Zoom control let you inspect different viewport sizes. **Preview options** includes window placement, fullscreen, **Keep on top** (Picture-in-Picture) where supported, and **Scroll to my changes**. Floating layout and viewport preferences are stored per user.
 
-In WordPress's revision browser, **Revision preview** follows the right-hand **To** selection without restoring or changing content. See [detailed usage](docs/usage.md) and the [listing FAQ](readme.txt) for control behavior and troubleshooting.
+In WordPress's revision browser, **Preview revision** next to **Go to editor** opens a floating panel that follows the right-hand **To** selection without restoring it or changing content. See [detailed usage](docs/usage.md) and the [listing FAQ](readme.txt) for control behavior and troubleshooting.
 
 ## Limitations
 
