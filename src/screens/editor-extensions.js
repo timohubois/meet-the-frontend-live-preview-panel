@@ -57,8 +57,13 @@ export function createEditorExtensions(setupAction, context) {
             const result = new Map(Object.entries(coreValues));
             try {
                 const root = context.form || document;
+                const hidden = new Set();
                 for (const control of root.querySelectorAll('input[name], textarea[name], select[name]')) {
-                    if (result.has(control.name) || !body?.has(control.name) || ['hidden', 'password'].includes(control.type)) continue;
+                    if (result.has(control.name) || !body?.has(control.name) || control.type === 'password') continue;
+                    if (control.type === 'hidden') {
+                        hidden.add(control.name);
+                        continue;
+                    }
                     const textual = control.localName === 'textarea'
                         || ['text', 'search', 'email', 'url', 'tel'].includes(control.type);
                     const submitted = body.getAll(control.name);
@@ -69,6 +74,14 @@ export function createEditorExtensions(setupAction, context) {
                     result.set(control.name, {
                         type,
                         value: submitted.length === 1 ? submitted[0] : JSON.stringify(submitted),
+                    });
+                }
+                // Repeated hidden values only corroborate a change of order, never a text match or ordinary edit.
+                for (const name of hidden) {
+                    if (result.has(name)) continue;
+                    const submitted = body.getAll(name);
+                    if (submitted.length > 1) result.set(name, {
+                        type: 'order', value: JSON.stringify(submitted), members: JSON.stringify(submitted.sort()),
                     });
                 }
             } catch { /* Optional hints cannot break capture on an unavailable native form. */ }

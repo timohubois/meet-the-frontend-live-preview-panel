@@ -246,10 +246,11 @@ for (const copy of [false, true]) {
     });
 }
 
-test('submission hints include owned text/choices, not hidden helpers or unrelated controls', () => {
+test('submission hints include owned text/choices and repeated hidden values only for order', () => {
     const controls = [
         ['note', 'input', 'text'], ['rich', 'textarea', 'textarea'], ['toggle', 'input', 'checkbox'],
         ['choice', 'select', 'select-one'], ['nonce', 'input', 'hidden'], ['attachment', 'input', 'hidden'],
+        ['attachments[]', 'input', 'hidden'], ['password', 'input', 'password'],
         ['unsubmitted', 'input', 'text'], ['repeated', 'input', 'text'], ['__proto__', 'input', 'text'],
     ].map(([name, localName, type]) => ({ name, localName, type, value: 'Later UI state',
         classList: { contains: () => name === 'rich' } }));
@@ -258,6 +259,7 @@ test('submission hints include owned text/choices, not hidden helpers or unrelat
     const body = new URLSearchParams([
         ['note', 'Captured note'], ['rich', '<p>Captured rich text</p>'], ['toggle', '0'], ['toggle', '1'],
         ['choice', 'image-id'], ['nonce', 'nonce'], ['attachment', '123'],
+        ['attachments[]', '215'], ['attachments[]', '123'], ['attachments[]', '215'], ['password', 'secret'],
         ['repeated', 'one'], ['repeated', 'two'], ['__proto__', 'Safe name'],
     ]);
     const values = extensions.comparisonValues(body, {
@@ -273,7 +275,10 @@ test('submission hints include owned text/choices, not hidden helpers or unrelat
     assert.deepEqual(JSON.parse(values.toggle.value), ['0', '1']);
     assert.equal(values.choice.type, 'value');
     assert.equal(values.repeated.type, 'value');
-    for (const name of ['nonce', 'attachment', 'unsubmitted']) assert.equal(Object.hasOwn(values, name), false);
+    assert.equal(values['attachments[]'].type, 'order');
+    assert.deepEqual(JSON.parse(values['attachments[]'].value), ['215', '123', '215']);
+    assert.deepEqual(JSON.parse(values['attachments[]'].members), ['123', '215', '215']);
+    for (const name of ['nonce', 'attachment', 'password', 'unsubmitted']) assert.equal(Object.hasOwn(values, name), false);
     assert.equal(Object.hasOwn(values, '__proto__'), true);
     assert.equal(values.__proto__.value, 'Safe name');
     extensions.destroy();

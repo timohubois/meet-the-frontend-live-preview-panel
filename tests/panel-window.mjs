@@ -15,6 +15,7 @@ function fixture(open = false, {
     layout, position, rememberPosition, preferences: savedPreferences, legacyPreferences: oldPreferences, labels = {},
     width = 1440, height = 1000, direction = 'ltr', lang = 'en-US', gutter = 20, scrollbar = 0, toolbarHeight = 32,
     nativeSaving = false, pip = false, pipApi, videoPip = false, stylesheets = [], publicRedirect, fetch, beforeViewportChange,
+    viewportMotion = false,
 } = {}) {
     const nodes = new Map();
     const preferences = new Map(savedPreferences ?? [
@@ -97,7 +98,8 @@ function fixture(open = false, {
         location: { origin: 'https://site.test' }, fetch,
         innerWidth: width, innerHeight: height, scrollX: 0, requestAnimationFrame: () => 1, cancelAnimationFrame() {},
         getComputedStyle: () => ({ direction, cursor: 'ew-resize', getPropertyValue: () => '' }),
-        matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
+        matchMedia: (query) => ({ matches: viewportMotion && query === '(prefers-reduced-motion: no-preference)', addEventListener() {}, removeEventListener() {} }),
+        performance: { now: () => 0 },
         ResizeObserver: class { observe() {} disconnect() {} },
         wp: { data: {
             select: () => ({ get: (name, key) => {
@@ -579,6 +581,24 @@ for (const fit of ['automatic', 'window', 'width', 'custom']) {
         assert.equal(calls.length, 2, 'Skip disabled following.');
     });
 }
+
+test('use the final camera scale immediately only when following a visible edit', () => {
+    for (const tracked of [false, true]) {
+        let whenSettled;
+        const h = fixture(true, {
+            viewportMotion: true,
+            beforeViewportChange(viewport) {
+                whenSettled = viewport.whenSettled;
+                return tracked;
+            },
+        });
+        h.view.report('Loaded', 'current', { hasPreview: true });
+        h.actions.device('mobile');
+        assert.equal(!!whenSettled(), !tracked, 'Untracked device switches still animate when motion is enabled.');
+        h.actions.device('mobile');
+        assert.equal(!!whenSettled(), !tracked, 'Rotation uses the same rule.');
+    }
+});
 
 for (const legacy of [undefined, 'window', 'width', 'unknown']) {
     test(`legacy fitting ${String(legacy)} restores its intent without confusing the new uncapped window mode`, () => {

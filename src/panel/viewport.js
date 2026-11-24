@@ -72,28 +72,28 @@ export function createPreviewViewport(container, stage, dimensions, saved = {}, 
     }
 
     // Project the visible part of an iframe target into the canvas scrollport.
-    function canvasTarget(frame, bounds) {
+    function canvasTarget(frame, bounds, { fitTarget = false } = {}) {
         const origin = frame.getBoundingClientRect();
         const box = canvas.getBoundingClientRect();
         const x = origin.left - box.left - canvas.clientLeft;
         const y = origin.top - box.top - canvas.clientTop;
-        const left = panDistance(x + bounds.left * scale, x + bounds.right * scale, canvas.clientWidth);
-        const top = panDistance(y + bounds.top * scale, y + bounds.bottom * scale, canvas.clientHeight);
+        const left = panDistance(x + bounds.left * scale, x + bounds.right * scale, canvas.clientWidth, fitTarget);
+        const top = panDistance(y + bounds.top * scale, y + bounds.bottom * scale, canvas.clientHeight, fitTarget);
         const visibleLeft = Math.max(bounds.left, -x / scale);
         const visibleRight = Math.min(bounds.right, (canvas.clientWidth - x) / scale);
         return {
             visible: !left && !top,
             visibleCenterX: visibleLeft < visibleRight ? (visibleLeft + visibleRight) / 2 : undefined,
             distance: Math.hypot(left, top),
-            reveal() {
-                if (left || top) canvas.scrollBy({ left, top, behavior: 'instant' });
+            reveal(behavior = 'instant') {
+                if (left || top) canvas.scrollBy({ left, top, behavior });
             },
         };
     }
 
-    function panDistance(start, end, extent) {
-        if (end <= 0) return Math.max(start, end - extent);
-        if (start >= extent) return Math.min(start, end - extent);
+    function panDistance(start, end, extent, fitTarget) {
+        if (end <= 0 || (fitTarget && start < -1 && end < extent)) return Math.max(start, end - extent);
+        if (start >= extent || (fitTarget && start > 0 && end > extent + 1)) return Math.min(start, end - extent);
         return 0;
     }
 

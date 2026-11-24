@@ -628,7 +628,8 @@ export function createPreviewPanel(strings, {
                     canFollow: () => responsiveViewport.fit === fit && responsiveViewport.customZoom === customZoom,
                 });
             }
-            const options = { animate: visible, keepPan };
+            // A tracked switch needs only the reflow, not a separate zoom animation before following.
+            const options = { animate: visible && !keepPan, keepPan };
             if (name === previous) {
                 responsiveViewport.rotate(options);
                 preferenceActions.set(scope, `${name}Orientation`, responsiveViewport.orientation);
@@ -663,6 +664,7 @@ export function createPreviewPanel(strings, {
     return {
         // The coordinator owns frame contents; the panel owns their document and viewport geometry.
         stage,
+        canvasTarget: responsiveViewport.canvasTarget,
         get visible() { return visible; },
         get followChanges() { return followChanges; },
         setVisible(value) {

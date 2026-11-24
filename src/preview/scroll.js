@@ -8,7 +8,7 @@ export function createPreviewScroll() {
             try { if (doc) position = doc.defaultView.scrollY; }
             catch { /* Keep the last HTML offset if its document is no longer readable. */ }
         },
-        async restore(doc, element, canFollow = () => true) {
+        async restore(doc, element, canFollow = () => true, canvasTarget) {
             const version = ++restoration;
             try {
                 const frameWindow = doc.defaultView;
@@ -27,7 +27,7 @@ export function createPreviewScroll() {
                     if (version !== restoration || !canFollow()) return;
                     const target = element.ownerDocument === doc ? visibleTarget(element) : null;
                     if (target) {
-                        revealChange(target);
+                        followChange(target, canvasTarget);
                         // A broad ancestor is a fallback for the initial follow, not a breakpoint anchor.
                         if (element.contains(target)) followed = target;
                     }
@@ -84,12 +84,14 @@ function watchScrollInput(frameWindow, canvas, canvasWasPanned, signal, cancel) 
 
 async function keepTargetInView(target, canvasTarget, whenSettled, canFollow) {
     try {
-        // Let the iframe reflow and wait until the camera won't overwrite the canvas pan.
+        // A layout can run several rounds of resize observers. Let the new breakpoint render
+        // once before deciding whether its target is still visible or revealable.
         const win = target.ownerDocument.defaultView;
         await presentationFrame(win);
         if (!canFollow()) return;
         const { scrollX, scrollY } = win;
-        await whenSettled();
+        const settled = whenSettled();
+        if (settled) await settled;
         // Also respect new page scroll offsets during the camera wait (e.g. a native scrollbar drag).
         if (!canFollow() || win.scrollX !== scrollX || win.scrollY !== scrollY) return;
         let presentation = viewportTarget(target, canvasTarget);
@@ -120,9 +122,7 @@ function presentationFrame(win) {
         };
         // Background documents need a bound too: requestAnimationFrame may be suspended.
         const timeout = win.setTimeout(finish, 100);
-        let frame = win.requestAnimationFrame(() => {
-            frame = win.requestAnimationFrame(finish);
-        });
+        let frame = win.requestAnimationFrame(() => { frame = win.requestAnimationFrame(finish); });
     });
 }
 
@@ -162,43 +162,80 @@ function revealAncestors(element, canFollow) {
 // Resolve only the identified element's presentation, never choose between unrelated changes.
 function visibleTarget(element) {
     if (!element?.isConnected) return null;
-    if (isVisible(element)) return element;
-    for (const node of element.querySelectorAll('*')) {
-        if (isVisible(node)) return node;
+    const initial = targetBounds(element, true);
+    if (initial?.clipped) return element;
+    if (!initial?.boundary) {
+        for (const node of element.querySelectorAll('*')) {
+            if (targetBounds(node, true)?.clipped) return node;
+        }
     }
-    for (let node = element.parentElement; node; node = node.parentElement) {
-        if (isVisible(node)) return node;
+    for (let node = initial?.boundary || element.parentElement; node; ) {
+        const presentation = targetBounds(node, true);
+        if (presentation?.clipped) return node;
+        // Scroll the clipping container itself, not a child that could move its internal viewport.
+        node = presentation?.boundary || node.parentElement;
     }
     return null;
 }
 
-function viewportTarget(target, canvasTarget) {
-    // No presentation means scrolling cannot expose the target; no rects means it is off-screen.
+function targetBounds(target, forRefresh = false) {
     if (!isVisible(target, { visibilityProperty: true, opacityProperty: true })) return;
     const { left, right, top, bottom, width, height } = target.getBoundingClientRect();
-    if (!width || !height) return;
+    if (!forRefresh && (!width || !height)) return;
     const doc = target.ownerDocument;
     const { documentElement: root, body, defaultView: win } = doc;
-    const clipped = { left, right, top, bottom };
+    // The start of an emptied container is still a position. Test a one-pixel strip against the clips.
+    const clipped = { left, right: width ? right : left + 1, top, bottom: height ? bottom : top + 1 };
     const reachable = { ...clipped };
+    const extent = { x: clipped.right - clipped.left, y: clipped.bottom - clipped.top };
     // Accumulate clips before projecting into the canvas. A hard clip can only be
     // escaped if a scrollport inside it can move the target into the exposed area.
     const bodyOverflowIsViewport = win.getComputedStyle(root).overflow === 'visible';
+    const targetStyle = win.getComputedStyle(target);
     for (let node = target; node && node !== root; ) {
-        const style = win.getComputedStyle(node);
+        const style = node === target ? targetStyle : win.getComputedStyle(node);
         const { position, display, overflowX, overflowY } = style;
         if (node !== target && (node !== body || !bodyOverflowIsViewport)
             && display !== 'inline' && (overflowX !== 'visible' || overflowY !== 'visible')
             && node.offsetWidth && node.offsetHeight) {
             const { bounds, scaleX, scaleY } = overflowGeometry(node, style);
-            if (overflowX !== 'visible' && !clipAxis(clipped, reachable, bounds, 'left', 'right',
-                overflowX === 'clip' ? [0, 0] : scrollTravel(node, style, 'x', scaleX))) return;
-            if (overflowY !== 'visible' && !clipAxis(clipped, reachable, bounds, 'top', 'bottom',
-                overflowY === 'clip' ? [0, 0] : scrollTravel(node, style, 'y', scaleY))) return;
+            for (const [axis, overflow, start, end, scale] of [
+                ['x', overflowX, 'left', 'right', scaleX], ['y', overflowY, 'top', 'bottom', scaleY],
+            ]) {
+                if (overflow === 'visible') continue;
+                const travel = overflow === 'clip' ? [0, 0] : scrollTravel(node, style, axis, scale);
+                const hidden = forRefresh && overflow === 'hidden';
+                const blockAxis = (axis === 'y') === (style.writingMode === 'horizontal-tb');
+                // Alignment can pan even overflow:hidden, including when the box fits but its
+                // scroll margin or the scrollport's padding would put it outside the alignment area.
+                if (hidden && travel.some((amount) => amount)
+                    && (blockAxis || clipped[start] < bounds[start] || clipped[end] > bounds[end]
+                        || hasScrollInsets(style, targetStyle, axis))) return { boundary: node };
+                if (!clipAxis(clipped, reachable, bounds, start, end, hidden ? [0, 0] : travel)) return { boundary: node };
+                // Scrolling can move the reachable region, but cannot enlarge the part a clip lets through.
+                extent[axis] = Math.min(extent[axis], reachable[end] - reachable[start]);
+            }
         }
         // Positioned boxes escape overflow clips between them and their containing block.
         node = position === 'absolute' || position === 'fixed' ? node.offsetParent : node.parentElement;
     }
+    return { clipped, extent };
+}
+
+function hasScrollInsets(scrollport, target, axis) {
+    const edges = axis === 'x' ? ['Left', 'Right'] : ['Top', 'Bottom'];
+    // Defer to the container for author insets rather than duplicating native alignment math.
+    const nonzero = (value) => value && value !== 'auto' && parseFloat(value) !== 0;
+    return edges.some((edge) => nonzero(scrollport[`scrollPadding${edge}`]) || nonzero(target[`scrollMargin${edge}`]));
+}
+
+function viewportTarget(target, canvasTarget, forRefresh = false) {
+    // No presentation means scrolling cannot expose the target; no rects means it is off-screen.
+    const bounds = targetBounds(target, forRefresh);
+    if (!bounds?.clipped) return;
+    const { clipped, extent } = bounds;
+    const { ownerDocument: doc } = target;
+    const root = doc.documentElement;
     clipped.left = Math.max(root.clientLeft, clipped.left);
     clipped.right = Math.min(root.clientLeft + root.clientWidth, clipped.right);
     clipped.top = Math.max(0, clipped.top);
@@ -207,11 +244,12 @@ function viewportTarget(target, canvasTarget) {
 
     // Prefer the part of the target under the panel, but keep a horizontal sample
     // even when reflow moved it vertically off-screen and it needs scroll clearance.
-    const { visibleCenterX } = canvasTarget({ ...clipped, top: 0, bottom: root.clientHeight });
-    const x = visibleCenterX ?? (clipped.left + clipped.right) / 2;
+    const projection = canvasTarget?.({ ...clipped, top: 0, bottom: root.clientHeight });
+    const x = projection?.visibleCenterX ?? (clipped.left + clipped.right) / 2;
     const header = visibleHeaderAt(target, x);
     if (clipped.bottom <= clipped.top) return { rects: [], header: header?.bottom };
-    if (!header) return { rects: [clipped] };
+    const presentation = { rects: [clipped], inViewport: true, extent };
+    if (!header) return presentation;
     const overlap = {
         left: Math.max(clipped.left, header.left), right: Math.min(clipped.right, header.right),
         top: Math.max(clipped.top, header.top), bottom: Math.min(clipped.bottom, header.bottom),
@@ -219,7 +257,7 @@ function viewportTarget(target, canvasTarget) {
     // A target stacked above the header is still visible. Only subtract a header
     // we can actually hit in the area where it overlaps the target.
     if (!hasArea(overlap) || !header.node.contains(doc.elementFromPoint(x, (overlap.top + overlap.bottom) / 2))) {
-        return { rects: [clipped] };
+        return presentation;
     }
     const rects = [
         { ...clipped, top: overlap.bottom },
@@ -228,7 +266,7 @@ function viewportTarget(target, canvasTarget) {
         { ...overlap, left: overlap.right, right: clipped.right },
     ].filter(hasArea);
     if (!rects.length && header.bottom >= root.clientHeight && header.top <= 0) return;
-    return { rects, header: header.bottom };
+    return { rects, inViewport: true, extent, header: header.bottom };
 }
 
 function hasArea({ left, right, top, bottom }) {
@@ -290,26 +328,64 @@ function isVisible(node, options = { visibilityProperty: true }) {
         && node.ownerDocument.defaultView.getComputedStyle(node).visibility === 'visible';
 }
 
-// Decide clearance up front: one native scroll, with no delayed adjustment or scroll listeners.
-function revealChange(target, { behavior, header = visibleHeaderBottom(target) } = {}) {
+function followChange(target, canvasTarget) {
+    const presentation = viewportTarget(target, canvasTarget, true);
+    if (!presentation?.inViewport) {
+        revealChange(target);
+        return;
+    }
+    const { rects, extent, header = 0 } = presentation;
+    const root = target.ownerDocument.documentElement;
+    const requiredWidth = Math.min(extent.x, root.clientWidth);
+    const requiredHeight = Math.min(extent.y, root.clientHeight - header);
+    // A large target can already fill the usable viewport. Tolerate subpixel clipping.
+    if (rects.some((rect) => rect.right - rect.left >= requiredWidth - 1
+        && rect.bottom - rect.top >= requiredHeight - 1)) {
+        // In cropped zoom modes the page can already show the edit while the panel still clips it.
+        if (canvasTarget) canvasFragment(presentation, canvasTarget)?.reveal(followMotion(target.ownerDocument.defaultView));
+        return;
+    }
+    revealChange(target, { nearest: true, header });
+}
+
+function followMotion(win) {
+    return win.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth';
+}
+
+// Decide clearance up front: at most one native scroll, with no delayed adjustment or scroll listeners.
+function revealChange(target, { behavior, header = visibleHeaderBottom(target), nearest = false } = {}) {
     const doc = target.ownerDocument;
     const win = doc.defaultView;
+    const motion = behavior ?? followMotion(win);
+    if (nearest && !header) {
+        target.scrollIntoView({ behavior: motion, block: 'nearest', inline: 'nearest' });
+        return;
+    }
     const margin = win.getComputedStyle(target).scrollMarginTop;
     const root = doc.documentElement;
     const viewportHeight = root.clientHeight;
     const padding = win.getComputedStyle(root);
     const paddingTop = scrollPaddingPixels(padding.scrollPaddingTop, viewportHeight);
     const paddingBottom = scrollPaddingPixels(padding.scrollPaddingBottom, viewportHeight);
-    // Site padding and margin already contribute to clearance; do not add header height twice.
-    const clearance = header > 0 && paddingTop !== null ? `max(${margin}, ${header - paddingTop}px)` : margin;
-    const original = target.getAttribute('style');
-    let originalRoot;
+    let originalRoot, originalTarget;
     try {
-        target.style.setProperty('scroll-margin-top', `calc(${clearance} + 1lh)`, 'important');
-        const offsets = win.getComputedStyle(target);
+        let block = nearest ? 'nearest' : 'start';
+        if (nearest) {
+            // Clear the page header without imposing its height on inner scrollports.
+            const neededPadding = header - parseFloat(margin);
+            if (paddingTop !== null && neededPadding > paddingTop) {
+                originalRoot = root.getAttribute('style');
+                root.style.setProperty('scroll-padding-top', `${neededPadding}px`, 'important');
+            }
+        } else {
+            // Site padding and margin already contribute to clearance; do not add header height twice.
+            const clearance = header > 0 && paddingTop !== null ? `max(${margin}, ${header - paddingTop}px)` : margin;
+            originalTarget = target.getAttribute('style');
+            target.style.setProperty('scroll-margin-top', `calc(${clearance} + 1lh)`, 'important');
+        }
         // Leave CSS math to native scrolling: unknown padding conservatively keeps the beginning visible.
-        let block = 'start';
-        if (paddingTop !== null && paddingBottom !== null) {
+        if (!nearest && paddingTop !== null && paddingBottom !== null) {
+            const offsets = win.getComputedStyle(target);
             const availableHeight = viewportHeight - paddingTop - paddingBottom
                 - parseFloat(offsets.scrollMarginTop) - parseFloat(offsets.scrollMarginBottom);
             const freeHeight = availableHeight - target.getBoundingClientRect().height;
@@ -322,11 +398,10 @@ function revealChange(target, { behavior, header = visibleHeaderBottom(target) }
                 root.style.setProperty('scroll-padding-bottom', `${paddingBottom + bias}px`, 'important');
             }
         }
-        const motion = behavior ?? (win.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth');
         target.scrollIntoView({ behavior: motion, block, inline: 'nearest' });
     } finally {
         if (originalRoot !== undefined) restoreInlineStyle(root, originalRoot);
-        restoreInlineStyle(target, original);
+        if (originalTarget !== undefined) restoreInlineStyle(target, originalTarget);
     }
 }
 

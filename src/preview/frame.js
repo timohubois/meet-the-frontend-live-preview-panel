@@ -116,7 +116,8 @@ export function createPreviewFrame(view, scrolling, strings, report, excludedSel
                     && (!doc || frame.contentDocument === doc);
                 let revealed;
                 if (doc && replacing) {
-                    revealed = await scrolling.restore(doc, target, () => isActive() && view.followChanges && followChanges());
+                    const canvasTarget = view.canvasTarget && ((bounds) => view.canvasTarget(frame, bounds, { fitTarget: true }));
+                    revealed = await scrolling.restore(doc, target, () => isActive() && view.followChanges && followChanges(), canvasTarget);
                 }
                 if (!isActive()) { finish(); return; }
                 followedTarget = revealed;
