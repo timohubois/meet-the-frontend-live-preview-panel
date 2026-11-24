@@ -878,7 +878,7 @@ test('the block entry adds a separate action to the native View menu', async () 
     const calls = [];
     const preview = { openFromLauncher: () => calls.push('open') };
     const fallbackMedia = { matches: false };
-    let menu, options, viewHidden = false;
+    let menu, options, openOnFrame, viewHidden = false;
     const view = { focus(settings) {
         assert.equal(settings.preventScroll, true);
         if (!viewHidden) {
@@ -908,6 +908,7 @@ test('the block entry adds a separate action to the native View menu', async () 
                 assert.equal(query, '(max-width: 782px)');
                 return fallbackMedia;
             },
+            requestAnimationFrame(callback) { openOnFrame = callback; },
             wp: { editor: { PluginPreviewMenuItem: PreviewMenuItem }, plugins: {
                 registerPlugin(name, plugin) { assert.equal(name, 'meet-the-frontend-live-preview-panel'); menu = plugin; },
             } },
@@ -927,6 +928,8 @@ test('the block entry adds a separate action to the native View menu', async () 
     assert.equal(action.props.info, 'See unsaved changes in a floating window.');
     assert.equal(action.text, 'Show live preview');
     action.props.onClick();
+    assert.deepEqual(calls, [], 'Wait for the native menu to finish before focusing the preview.');
+    openOnFrame();
     assert.equal(options.nativeLauncher.fallbackMedia, fallbackMedia);
     options.nativeLauncher.focus();
     assert.equal(document.activeElement, view);

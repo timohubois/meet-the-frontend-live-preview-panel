@@ -35,7 +35,8 @@ if (config) {
                     role: 'menuitem',
                     icon: null,
                     info: config.strings.showLivePreviewHelp,
-                    onClick: () => preview.openFromLauncher(),
+                    // Let WordPress close View and restore focus before moving it into the panel.
+                    onClick: () => window.requestAnimationFrame(() => preview.openFromLauncher()),
                 }, config.strings.showLivePreview),
             });
         }
