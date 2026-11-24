@@ -102,13 +102,13 @@ Report issues or contribute on [GitHub](https://github.com/timohubois/meet-the-f
 
 == Screenshots ==
 
-1. Preview unsaved changes alongside the Block Editor.
-2. Preview unsaved changes alongside the classic editor.
-3. Preview unsaved category names and descriptions on the category archive.
-4. Preview saved revisions without restoring them.
-5. Preview changes to supported ACF PRO Flexible Content fields.
+1. Open Show live preview from the Block Editor’s View menu to check how an unsaved headline wraps over the featured image.
+2. Use Live Preview Changes in the classic editor’s Publish box to see unsaved edits.
+3. Use Live Preview Changes above the Name field to preview unsaved category edits on the archive.
+4. Open Preview revision beside Go to editor to see a saved version without restoring it.
+5. Preview unsaved edits to ACF PRO Flexible Content fields in the classic editor.
 6. Check responsive layouts with device viewport presets.
-7. Enlarge the preview while keeping the editor in view.
+7. Resize the floating preview for a closer look while keeping the editor in view.
 8. Keep the preview in a separate Picture-in-Picture window where supported.
 
 == Changelog ==
