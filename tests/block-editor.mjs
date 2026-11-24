@@ -702,7 +702,7 @@ async function previewFixture({ ready = true, notReady = 'Return to post', notRe
         preparePreview: () => { calls.writes++; return pending ?? Promise.resolve({ url: '/preview' }); },
     };
     const session = vm.runInNewContext(`${source}\ncreateLivePreview`, {
-        window: { isSecureContext: true, addEventListener() {} },
+        performance, window: { isSecureContext: true, addEventListener() {} },
         navigator: { locks: { request: (name, options, run) => { calls.locks++; return run({}); } } },
         setTimeout: (callback) => { timers.set(++nextTimer, callback); return nextTimer; },
         clearTimeout: (id) => timers.delete(id),
