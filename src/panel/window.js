@@ -71,6 +71,7 @@ export function createPreviewPanel(strings, {
     }
 
     let visible = canRememberVisibility && (!rememberVisibility || preferences.get(scope, 'panelOpen') !== false);
+    let suspended = false;
     let pipWindow;
     const savedLayout = preferences.get(scope, 'layout');
     // Older layouts retain their last preset in the dock or, after dragging, the shared anchor.
@@ -390,13 +391,18 @@ export function createPreviewPanel(strings, {
         if (!pipWindow && !event.target.closest('button, a')) toggleMode();
     });
     async function enterFullscreen() {
-        if (pipWindow || !mainDocument.fullscreenEnabled) return;
+        if (suspended || pipWindow || !mainDocument.fullscreenEnabled) return;
         controls.closeMenu();
         try {
             await panel.requestFullscreen();
+            if (suspended) {
+                returnToEditor();
+                return;
+            }
             clearWindowNotice();
             controls.focus('mode');
         } catch {
+            if (suspended) return;
             controls.focus('actions');
             showWindowNotice(strings.fullscreenFailed);
         }
@@ -506,7 +512,7 @@ export function createPreviewPanel(strings, {
     mainWindow.addEventListener('scroll', draw, { passive: true });
 
     async function popOut() {
-        if (pipWindow || mainDocument.fullscreenElement === panel || !supportsPip()) return;
+        if (suspended || pipWindow || mainDocument.fullscreenElement === panel || !supportsPip()) return;
         controls.closeMenu();
         let detached;
         const restore = () => {
@@ -521,14 +527,16 @@ export function createPreviewPanel(strings, {
             draw();
             responsiveViewport.afterMove();
             syncControls();
-            // Moving an iframe between documents can reload it. Refresh from current editor values.
-            afterMove();
-            if (visible) controls.focus('mode');
+            if (!suspended) {
+                // Moving an iframe between documents can reload it. Refresh from current editor values.
+                afterMove();
+                if (visible) controls.focus('mode');
+            }
         };
         try {
             // A rejected request leaves the current document and preview completely untouched.
             detached = await mainWindow.documentPictureInPicture.requestWindow({ width: 640, height: 440 });
-            if (!visible) {
+            if (!visible || suspended) {
                 detached.close();
                 return;
             }
@@ -580,15 +588,22 @@ export function createPreviewPanel(strings, {
                 restore();
                 detached.close();
             }
+            if (suspended) return;
             controls.focus('actions');
             showWindowNotice(strings.pipFailed);
         }
     }
 
     function updateVisibility() {
-        panel.hidden = !visible;
-        launcherContainer.hidden = !inlineLauncher && (visible || !floatingLauncherAvailable());
-        launcher.setAttribute('aria-expanded', String(visible));
+        panel.hidden = suspended || !visible;
+        launcherContainer.hidden = suspended || (!inlineLauncher && (visible || !floatingLauncherAvailable()));
+        launcher.setAttribute('aria-expanded', String(!panel.hidden));
+    }
+
+    function returnToEditor() {
+        controls.closeMenu();
+        pipWindow?.close();
+        if (mainDocument.fullscreenElement === panel) mainDocument.exitFullscreen().catch(() => {});
     }
 
     nativeLauncher?.fallbackMedia.addEventListener('change', () => {
@@ -606,6 +621,7 @@ export function createPreviewPanel(strings, {
     }
 
     function openFromLauncher(focus = true) {
+        if (suspended) return;
         if (visible) {
             controls.focus('actions');
             return;
@@ -689,6 +705,14 @@ export function createPreviewPanel(strings, {
         get visible() { return visible; },
         get followChanges() { return followChanges; },
         openFromLauncher,
+        setSuspended(value) {
+            if (suspended === value) return;
+            // Hide temporarily without changing the user's open/closed preference or layout.
+            suspended = value;
+            updateVisibility();
+            if (value) returnToEditor();
+            else draw();
+        },
         setVisible(value) {
             if (!value) {
                 controls.closeMenu();
@@ -710,10 +734,6 @@ export function createPreviewPanel(strings, {
                 canRetry: loading ? false : current.canRetry,
             });
         },
-        returnToEditor() {
-            controls.closeMenu();
-            pipWindow?.close();
-            if (mainDocument.fullscreenElement === panel) mainDocument.exitFullscreen().catch(() => {});
-        },
+        returnToEditor,
     };
 }

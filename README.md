@@ -26,7 +26,7 @@ In the Block Editor, choose **View → Show live preview** to open the floating 
 
 Desktop, Tablet and Phone presets and the Zoom control let you inspect different viewport sizes. **Preview options** includes window placement, fullscreen, **Keep on top** (Picture-in-Picture) where supported, and **Scroll to my changes**. Floating layout and viewport preferences are stored per user.
 
-In WordPress's revision browser, **Preview revision** next to **Go to editor** opens a floating panel that follows the right-hand **To** selection without restoring it or changing content. See [detailed usage](docs/usage.md) and the [listing FAQ](readme.txt) for control behavior and troubleshooting.
+On the classic Revisions screen, **Preview revision** next to **Go to editor** opens a floating panel that follows the right-hand **To** selection without restoring it. If WordPress opens Visual Revisions in the Block Editor, choose **Open classic revisions screen** in its Settings sidebar first. See [detailed usage](docs/usage.md) and the [listing FAQ](readme.txt) for control behavior and troubleshooting.
 
 ## Limitations
 

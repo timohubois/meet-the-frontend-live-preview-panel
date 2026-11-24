@@ -66,8 +66,14 @@ unchanged.
 
 ### Revision browser
 
-Open WordPress's native revision browser (`wp-admin/revision.php`) and click
-**Preview revision** next to **Go to editor** to open the floating window.
+The panel supports the classic Revisions screen (`wp-admin/revision.php`), not
+Visual Revisions inside the Block Editor. If you’re in Visual Revisions, open its
+**Settings** sidebar and choose **Open classic revisions screen** for the selected
+revision. Then click **Preview revision** next to **Go to editor** to open the
+floating window. While you browse Visual Revisions, the live panel is hidden and
+its updates are paused. Returning to editing restores the panel if it was open.
+A popped-out panel returns to the editor window.
+
 **×** closes it. The comparison keeps its full width whether the preview is open
 or closed. The panel follows the selected right-hand **To** revision when using
 the slider or Previous/Next buttons. Comparing two

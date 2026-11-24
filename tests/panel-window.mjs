@@ -188,6 +188,36 @@ test('Classic restores and updates remembered visibility without hiding its Publ
     assert.equal(classic([['panelOpen', false], ['rememberVisibility', false]]).view.visible, true);
 });
 
+for (const open of [true, false]) {
+    test(`temporarily hiding the view restores its ${open ? 'open panel' : 'closed panel and launcher'} without saving preferences`, () => {
+        const h = fixture(open, { layout: layout() });
+        const rect = h.rect();
+        h.view.setSuspended(true);
+        assert.equal(h.panel.hidden, true);
+        assert.equal(h.launcherContainer.hidden, true);
+        h.view.openFromLauncher();
+        assert.deepEqual(h.lifecycle, []);
+        h.view.setSuspended(false);
+        assert.equal(h.panel.hidden, !open);
+        assert.equal(h.launcherContainer.hidden, open);
+        assert.deepEqual(h.rect(), rect);
+        assert.deepEqual(h.writes, []);
+    });
+}
+
+test('temporarily hiding a popped-out preview returns it to the editor without changing preferences', async () => {
+    const h = fixture(true, { pip: true });
+    await h.actions.popOut();
+    assert.notEqual(h.panel.ownerDocument, h.document);
+    h.view.setSuspended(true);
+    assert.equal(h.panel.ownerDocument, h.document);
+    assert.equal(h.panel.hidden, true);
+    assert.deepEqual(h.lifecycle, ['before move', 'after move', 'before move']);
+    h.view.setSuspended(false);
+    assert.equal(h.panel.hidden, false);
+    assert.deepEqual(h.writes, []);
+});
+
 test('Revisions starts closed regardless of remembered visibility and retains saved floating geometry', () => {
     const saved = layout();
     const h = fixture(true, { inlineLauncher: true, canRememberVisibility: false, layout: saved });

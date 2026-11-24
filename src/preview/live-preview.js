@@ -310,6 +310,7 @@ export function createLivePreview(config, nativeEditor, { inlineLauncher, native
 
     return {
         changed, pause, resume,
+        setSuspended: view.setSuspended,
         setTitle: view.setTitle,
         openFromLauncher: view.openFromLauncher,
         start: () => { if (view.visible) startPreview(); },

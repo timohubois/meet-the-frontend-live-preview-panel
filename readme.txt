@@ -54,7 +54,7 @@ Flynt is not required and has no separate integration.
 
 = Can I preview older revisions? =
 
-Yes. **Preview revision**, next to **Go to editor**, opens a floating window without narrowing the diff. It follows the right-hand **To** selection without restoring it or changing your saved post.
+Yes, on the classic Revisions screen. If you’re in Visual Revisions in the Block Editor, choose **Open classic revisions screen** in the Settings sidebar first. Then click **Preview revision** next to **Go to editor**. The floating window follows the right-hand **To** selection without narrowing the diff, restoring the revision or changing your saved post.
 
 Historical content and supported stored fields use your current theme and settings. The post's author, publication date, categories and tags remain current. Not every field has a historical value. Some values remain current, while missing historical values may be empty. This is a content preview, not a snapshot of the whole site.
 
