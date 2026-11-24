@@ -15,6 +15,7 @@ if (!class_exists(\Timber\Timber::class)) {
     return;
 }
 require_once ABSPATH . 'wp-admin/includes/user.php';
+$legacy = method_exists(\Timber\Post::class, 'import_custom');
 $check = static function (bool $condition, string $message): void {
     if (!$condition) {
         throw new RuntimeException(esc_html($message));
@@ -52,6 +53,9 @@ $bind = static function (int $id, array|stdClass $selection) use ($live, $fronte
     $frontend->authorizePreview();
 };
 $ids = static fn (array $list): array => array_map(static fn (object $term): int => (int) $term->ID, $list);
+$queryTerms = static fn (\Timber\Post $post, array $query, bool $merge = true): array => $legacy
+    ? $post->terms(['query' => $query, 'merge' => $merge])
+    : $post->terms($query, ['merge' => $merge]);
 try {
     $user = wp_insert_user([
         'user_login' => 'mtflpp_timber_terms_' . wp_generate_password(12, false, false),
@@ -91,7 +95,20 @@ try {
     }
     $bind($postId, $selection);
     $post = \Timber\Timber::get_post($postId);
-    $check($post instanceof TimberPost, 'The public Timber class hook must bind the preview-only bridge.');
+    $check(
+        has_filter('pre_get_terms', [$adapter, 'readLegacyTermQuery']) === ($legacy ? PHP_INT_MIN : false),
+        'Only Timber 1 should install the legacy query hook.'
+    );
+    $check(
+        $legacy ? get_class($post) === \Timber\Post::class : $post instanceof TimberPost,
+        'Only Timber 2 should use the preview-only subclass.'
+    );
+    if ($legacy) {
+        $check(
+            $ids((new \Timber\Post($postId))->terms('category')) === $selection['category'],
+            'Timber 1 must also support direct construction.'
+        );
+    }
     $check($post->category()->ID === $choices['category']['Edited'], 'category() must use unsaved terms.');
     $check($ids($post->categories()) === $selection['category'], 'categories() must use the selection.');
     $check($ids($post->terms('tags')) === $selection['post_tag'], 'Native taxonomy aliases must remain supported.');
@@ -128,26 +145,31 @@ try {
         $ids($post->terms('mtflpp_timber_hidden')) === [$choices['mtflpp_timber_hidden']['Saved']],
         'Other taxonomies stay saved.'
     );
-    $grouped = $post->terms(['category', 'post_tag'], ['merge' => false]);
+    $grouped = $queryTerms($post, ['taxonomy' => ['category', 'post_tag']], false);
     $check($ids($grouped['category']) === $selection['category'], 'Native taxonomy grouping must be preserved.');
     $check($ids($grouped['post_tag']) === $selection['post_tag'], 'Grouped tags must use the same source.');
+    if (!$legacy) {
+        $check(
+            $queryTerms($post, ['taxonomy' => 'category', 'fields' => 'ids']) === $selection['category'],
+            'ID fields stay native.'
+        );
+    }
     $check(
-        $post->terms(['taxonomy' => 'category', 'fields' => 'ids']) === $selection['category'],
-        'ID fields stay native.'
+        $queryTerms($post, ['taxonomy' => 'category', 'exclude' => $selection['category']]) === [],
+        'Exclusions work.'
     );
-    $check($post->terms(['taxonomy' => 'category', 'exclude' => $selection['category']]) === [], 'Exclusions work.');
     $check(
-        $post->terms(['taxonomy' => 'category', 'include' => [$choices['category']['Saved']]]) === [],
+        $queryTerms($post, ['taxonomy' => 'category', 'include' => [$choices['category']['Saved']]]) === [],
         'Include must intersect the preview selection.'
     );
 
     $savedCategory = [$choices['category']['Saved']];
     $check(
-        $ids($post->terms(['taxonomy' => 'category', 'fields' => 'all_with_object_id'])) === $savedCategory,
+        $ids($queryTerms($post, ['taxonomy' => 'category', 'fields' => 'all_with_object_id'])) === $savedCategory,
         'Relationship-object fields must retain native reads.'
     );
     $check(
-        $ids($post->terms(['taxonomy' => 'category', 'orderby' => 'term_order'])) === $savedCategory,
+        $ids($queryTerms($post, ['taxonomy' => 'category', 'orderby' => 'term_order'])) === $savedCategory,
         'Relationship ordering must retain native reads.'
     );
 
@@ -205,7 +227,7 @@ try {
     $multiple['category'][] = $choices['category']['Saved'];
     $bind($postId, $multiple);
     $check(
-        $ids($post->terms(['taxonomy' => 'category', 'orderby' => 'term_id', 'order' => 'DESC', 'number' => 1]))
+        $ids($queryTerms($post, ['taxonomy' => 'category', 'orderby' => 'term_id', 'order' => 'DESC', 'number' => 1]))
             === $selection['category'],
         'Native ordering and limits must apply to multiple selected terms.'
     );
@@ -214,7 +236,7 @@ try {
         $post->category() === null && $post->terms('tag') === [],
         'Rebinding/clearing must update existing bridges.'
     );
-    $emptyGroups = $post->terms(['category', 'post_tag'], ['merge' => false]);
+    $emptyGroups = $queryTerms($post, ['taxonomy' => ['category', 'post_tag']], false);
     // Some Timber versions omit empty groups. Preserve native grouping without restoring saved relationships.
     $check($emptyGroups === [] || $emptyGroups === ['category' => [], 'post_tag' => []], 'Both groups stay empty.');
     $check(
@@ -234,7 +256,12 @@ try {
     $check($savedPost->category()->ID === $choices['category']['Saved'], 'History categories must remain saved.');
     $check($post->category()->ID === $choices['category']['Saved'], 'Old bridges must release their live source.');
     $adapter->unbindPreview();
-    $check(!has_filter('timber/post/class', [$adapter, 'postClass']), 'Class binding must be released.');
+    $check(
+        !has_filter('timber/post/class', [$adapter, 'postClass'])
+        && !has_filter('pre_get_terms', [$adapter, 'readLegacyTermQuery'])
+        && !has_filter('terms_pre_query', [$adapter, 'emptyLegacyTermQuery']),
+        'Class and query bindings must be released.'
+    );
     WP_CLI::success('Timber/Twig categories, tags, query delegation, caches, custom classes and rebinding passed.');
 } finally {
     $adapter->unbindPreview();

@@ -28,11 +28,13 @@ $originalGet = $_GET;
 $posts = [];
 $users = [];
 $hasTimber = class_exists(\Timber\Timber::class);
+$hasLegacyTimber = $hasTimber && method_exists(\Timber\Post::class, 'import_custom');
 // Exercise the compatibility subscribers registered by the real plugin bootstrap.
 $originalHooks = [];
 $previewHooks = [
-    'the_preview', 'get_post_metadata', 'timber/post/import_data', 'acf/validate_post_id',
-    'acf/pre_load_metadata', 'acf/pre_update_metadata', 'acf/pre_delete_metadata',
+    'the_preview', 'get_post_metadata', 'timber/post/import_data',
+    'timber_post_get_meta_pre', 'timber_post_get_meta_field_pre',
+    'acf/validate_post_id', 'acf/pre_load_metadata', 'acf/pre_update_metadata', 'acf/pre_delete_metadata',
 ];
 foreach ($previewHooks as $hook) {
     $originalHooks[$hook] = isset($GLOBALS['wp_filter'][$hook]) ? clone $GLOBALS['wp_filter'][$hook] : null;
@@ -214,6 +216,14 @@ try {
     update_metadata('post', $revisionId, 'mtflpp_revision_test_meta', 'Historical metadata');
     update_post_meta($postId, 'mtflpp_unrevisioned_test_meta', 'Current unrevisioned metadata');
     update_metadata('post', $revisionId, 'mtflpp_unrevisioned_test_meta', 'Must not be used');
+    update_post_meta($otherId, 'mtflpp_revision_test_meta', 'Unrelated metadata');
+    update_metadata('post', $internalId, 'mtflpp_revision_test_meta', 'Live preview metadata');
+    update_metadata('post', $internalId, 'mtflpp_revision_test_array', ['Live preview', 'array']);
+    update_metadata('post', $internalId, 'mtflpp_revision_test_missing', '');
+    update_post_meta($postId, 'mtflpp_revision_test_deleted', 'Saved value to delete');
+    update_metadata('post', $internalId, 'mtflpp_revision_test_deleted', 'Saved value to delete');
+    $check(delete_metadata('post', $internalId, 'mtflpp_revision_test_deleted'), 'Remove the key, not just its value.');
+    update_metadata('post', $internalId, LivePreview::AUTHOR_META, (string) $admin);
 
     if (function_exists('acf_add_local_field_group')) {
         acf_add_local_field_group([
@@ -231,7 +241,7 @@ try {
                 ],
             ],
         ]);
-        foreach ([$postId => 'Saved', $revisionId => 'Historical'] as $id => $prefix) {
+        foreach ([$postId => 'Saved', $revisionId => 'Historical', $internalId => 'Live'] as $id => $prefix) {
             update_field('field_mtflpp_revision_test_text', $prefix . ' ACF text', $id);
             update_field('field_mtflpp_revision_test_rows', [['text' => $prefix . ' ACF row']], $id);
         }
@@ -331,6 +341,61 @@ try {
             === ($hasTimber ? 'Internal live preview' : 'Saved title'),
         'Timber must use the authorized live source only when the dependency is available.'
     );
+    if ($hasLegacyTimber) {
+        // Themes can construct Post directly, without passing through a Timber factory.
+        $timberPost = new \Timber\Post($postId);
+        $check(
+            (int) $timberPost->ID === $postId
+            && $timberPost->mtflpp_revision_test_meta === 'Live preview metadata'
+            && $timberPost->mtflpp_revision_test_array === ['Live preview', 'array']
+            && $timberPost->mtflpp_revision_test_missing === ''
+            && !array_key_exists(LivePreview::AUTHOR_META, $timberPost->custom),
+            'Timber 1 must eagerly import the matching live snapshot with native metadata shapes.'
+        );
+        $check(
+            (new \Timber\Post($otherId))->mtflpp_revision_test_meta === 'Unrelated metadata'
+            && get_post_meta($postId, 'mtflpp_revision_test_meta', true) === 'Saved metadata',
+            'Timber 1 live imports must not change other posts or ordinary metadata reads.'
+        );
+        $check(
+            !array_key_exists('mtflpp_revision_test_deleted', $timberPost->custom)
+            && \Timber\Timber::compile_string('{{ post.mtflpp_revision_test_deleted }}', ['post' => $timberPost]) === ''
+            && get_post_meta($postId, 'mtflpp_revision_test_deleted', true) === 'Saved value to delete',
+            'A deleted metadata key must stay absent in Twig without changing ordinary reads.'
+        );
+        $check(
+            apply_filters('timber_post_get_meta_field_pre', null, $postId, 'mtflpp_revision_test_deleted') === false
+            && apply_filters('timber_post_get_meta_field_pre', 'Earlier value', $postId, 'mtflpp_revision_test_deleted')
+                === 'Earlier value',
+            'Only short-circuit the native metadata fallback, not earlier Timber filters.'
+        );
+        $virtualMeta = static fn ($value, int $id, string $key) => $id === $postId && $key === 'mtflpp_virtual_meta'
+            ? ['Virtual value'] : $value;
+        add_filter('get_post_metadata', $virtualMeta, 20, 3);
+        try {
+            $check(
+                get_post_meta($postId, 'mtflpp_virtual_meta', true) === 'Virtual value'
+                && apply_filters('timber_post_get_meta_field_pre', null, $postId, 'mtflpp_virtual_meta') === null,
+                'Virtual metadata is not a deleted key and must retain the native read path.'
+            );
+        } finally {
+            remove_filter('get_post_metadata', $virtualMeta, 20);
+        }
+        if (function_exists('get_field')) {
+            $check(
+                $timberPost->mtflpp_revision_test_text === 'Live ACF text'
+                && $timberPost->meta('mtflpp_revision_test_text') === 'Live ACF text',
+                'Direct Timber 1 properties must agree with explicit ACF metadata reads.'
+            );
+        }
+    } elseif ($hasTimber) {
+        $legacyImports = did_filter('timber_post_get_meta_pre');
+        $check(
+            \Timber\Timber::get_post($postId)->post_title === 'Internal live preview'
+            && did_filter('timber_post_get_meta_pre') === $legacyImports,
+            'Timber 2 must import core fields without calling the legacy metadata hook.'
+        );
+    }
     if (function_exists('get_field')) {
         $check(
             update_field('field_mtflpp_revision_test_text', 'Writable live ACF text', $postId) !== false
@@ -411,7 +476,15 @@ try {
         apply_filters('timber/post/import_data', $import, $post) === $expected,
         'Timber must preserve unrelated data, and stay inert when its dependency is absent.'
     );
-    if ($hasTimber) {
+    if ($hasLegacyTimber) {
+        $timberSaved = new \Timber\Post($postId);
+        $check(
+            $timberSaved->mtflpp_revision_test_meta === 'Saved metadata'
+            && $timberSaved->mtflpp_revision_test_deleted === 'Saved value to delete'
+            && apply_filters('timber_post_get_meta_field_pre', null, $postId, 'mtflpp_revision_test_deleted') === null,
+            'The Timber 1 live metadata overlay must be removed on rebinding to saved history.'
+        );
+    } elseif ($hasTimber) {
         $timberPost = \Timber\Timber::get_post($postId);
         $check(
             $timberPost->post_title === 'Historical title'

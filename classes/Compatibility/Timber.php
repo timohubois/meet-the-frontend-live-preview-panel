@@ -3,6 +3,7 @@
 namespace MeetTheFrontendLivePreviewPanel\Compatibility;
 
 use MeetTheFrontendLivePreviewPanel\LivePreview;
+use WeakMap;
 use WP_Post;
 use WP_Term;
 use WP_Term_Query;
@@ -14,6 +15,7 @@ final class Timber
     private ?WP_Post $source = null;
     private array $fields = [];
     private array $terms = [];
+    private ?WeakMap $legacyEmptyQueries = null;
 
     public function __construct()
     {
@@ -34,7 +36,9 @@ final class Timber
 
     private function bindTermPreview(WP_Term $term, WP_Term $saved): void
     {
-        if (!class_exists(\Timber\Term::class)) {
+        // Timber 1 lacks the class hook and its Term::init() has a different signature.
+        // Leave its archive on the native WordPress preview path.
+        if (!method_exists(\Timber\Term::class, 'wp_object')) {
             return;
         }
         require_once __DIR__ . '/TimberTerm.php';
@@ -70,10 +74,23 @@ final class Timber
         $terms = $saved ? [] : get_post_meta($sourceId, LivePreview::TERMS_META, true);
         $this->terms = is_array($terms) ? $terms : [];
         if ($this->terms) {
-            add_filter('timber/post/class', [$this, 'postClass'], PHP_INT_MAX, 2);
+            if (method_exists(\Timber\Post::class, 'import_custom')) {
+                $this->legacyEmptyQueries = new WeakMap();
+                add_action('pre_get_terms', [$this, 'readLegacyTermQuery'], PHP_INT_MIN);
+                add_filter('terms_pre_query', [$this, 'emptyLegacyTermQuery'], PHP_INT_MIN, 2);
+            } else {
+                add_filter('timber/post/class', [$this, 'postClass'], PHP_INT_MAX, 2);
+            }
         }
         // Timber can reload the parent by ID instead of using WordPress's filtered preview object.
         add_filter('timber/post/import_data', [$this, 'readPost'], PHP_INT_MAX, 2);
+        // Timber 1 eagerly imports metadata as properties and does not call timber/post/import_data.
+        if (!$saved) {
+            add_filter('timber_post_get_meta_pre', [$this, 'readLegacyPostMeta'], PHP_INT_MAX, 2);
+            if (method_exists(\Timber\Post::class, 'import_custom')) {
+                add_filter('timber_post_get_meta_field_pre', [$this, 'readLegacyPostMetaField'], PHP_INT_MAX, 3);
+            }
+        }
         add_action('shutdown', [$this, 'unbindPreview'], PHP_INT_MAX);
     }
 
@@ -81,12 +98,51 @@ final class Timber
     public function unbindPreview(): void
     {
         remove_filter('timber/post/import_data', [$this, 'readPost'], PHP_INT_MAX);
+        remove_filter('timber_post_get_meta_pre', [$this, 'readLegacyPostMeta'], PHP_INT_MAX);
+        remove_filter('timber_post_get_meta_field_pre', [$this, 'readLegacyPostMetaField'], PHP_INT_MAX);
         remove_filter('timber/post/class', [$this, 'postClass'], PHP_INT_MAX);
+        remove_action('pre_get_terms', [$this, 'readLegacyTermQuery'], PHP_INT_MIN);
+        remove_filter('terms_pre_query', [$this, 'emptyLegacyTermQuery'], PHP_INT_MIN);
+        $this->legacyEmptyQueries = null;
         remove_action('shutdown', [$this, 'unbindPreview'], PHP_INT_MAX);
         $this->previewPostId = 0;
         $this->source = null;
         $this->fields = [];
         $this->terms = [];
+    }
+
+    public function readLegacyPostMeta(mixed $meta, mixed $postId): mixed
+    {
+        $sourceId = $this->legacyMetaSourceId($postId);
+        if ($meta === false || !empty($meta) || !$sourceId) {
+            return $meta;
+        }
+        // Give Timber the same raw shape as get_post_meta($id), without preview bookkeeping.
+        $meta = array_filter(
+            get_post_meta($sourceId),
+            static fn ($key): bool => !str_starts_with((string) $key, '_mtflpp_'),
+            ARRAY_FILTER_USE_KEY
+        );
+        // Timber treats an empty array as a request to load the saved post's metadata.
+        return $meta ?: false;
+    }
+
+    public function readLegacyPostMetaField(mixed $value, mixed $postId, mixed $key): mixed
+    {
+        $sourceId = $this->legacyMetaSourceId($postId);
+        if ($value !== null || !is_string($key) || $key === '' || !$sourceId) {
+            return $value;
+        }
+        // A missing imported property can fall through to Timber's single-field read on the parent.
+        // Compare the bulk snapshots so virtual per-key metadata and later formatting filters stay native.
+        return !array_key_exists($key, get_post_meta($sourceId))
+            && array_key_exists($key, get_post_meta($this->previewPostId)) ? false : $value;
+    }
+
+    private function legacyMetaSourceId(mixed $postId): int
+    {
+        return $this->source && is_numeric($postId) && (int) $postId === $this->previewPostId
+            && $this->source->ID !== $this->previewPostId ? $this->source->ID : 0;
     }
 
     /** Use Timber's public class hook without replacing theme-specific Post subclasses. */
@@ -108,48 +164,13 @@ final class Timber
         // Timber can issue one direct query per taxonomy when grouping. Queries triggered by
         // WordPress hooks inside those reads (including our own fallback reads) stay native.
         $queryDepth = count($GLOBALS['wp_current_filter']) + 1;
-        $emptyQueries = new \WeakMap();
+        $emptyQueries = new WeakMap();
         $adapt = function (WP_Term_Query $query) use ($queryDepth, $emptyQueries): void {
-            if (
-                count($GLOBALS['wp_current_filter']) !== $queryDepth
-                || wp_parse_id_list($query->query_vars['object_ids'] ?? []) !== [$this->previewPostId]
-            ) {
-                return;
+            if (count($GLOBALS['wp_current_filter']) === $queryDepth) {
+                $this->adaptTermQuery($query, $emptyQueries);
             }
-            $args = &$query->query_vars;
-            // These modes depend on real relationship rows, not just a selection of terms.
-            if (
-                $args['fields'] === 'all_with_object_id' || $args['orderby'] === 'term_order' || $args['exclude_tree']
-            ) {
-                return;
-            }
-            $ids = [];
-            foreach ((array) $args['taxonomy'] as $taxonomy) {
-                $selected = $this->terms[$taxonomy] ?? wp_get_object_terms(
-                    $this->previewPostId,
-                    $taxonomy,
-                    ['fields' => 'ids']
-                );
-                if (!is_array($selected)) {
-                    return;
-                }
-                $ids = array_merge($ids, $selected);
-            }
-            $include = wp_parse_id_list($args['include']);
-            $ids = $include ? array_intersect($include, $ids)
-                : array_diff($ids, wp_parse_id_list($args['exclude']));
-            $args['object_ids'] = [];
-            $args['include'] = array_values(array_unique($ids));
-            if (!$ids) {
-                $emptyQueries[$query] = true;
-            }
-            // Native object_ids queries include assigned terms even when their count is zero.
-            $args['hide_empty'] = false;
         };
-        // Empty include lists (and even [0] on older core) otherwise query every term.
-        $empty = static function ($terms, WP_Term_Query $query) use ($emptyQueries) {
-            return isset($emptyQueries[$query]) ? ($query->query_vars['fields'] === 'count' ? '0' : []) : $terms;
-        };
+        $empty = fn ($terms, WP_Term_Query $query) => $this->emptyTermQuery($terms, $query, $emptyQueries);
         add_action('pre_get_terms', $adapt, PHP_INT_MIN);
         add_filter('terms_pre_query', $empty, PHP_INT_MIN, 2);
         try {
@@ -158,6 +179,83 @@ final class Timber
             remove_action('pre_get_terms', $adapt, PHP_INT_MIN);
             remove_filter('terms_pre_query', $empty, PHP_INT_MIN);
         }
+    }
+
+    public function readLegacyTermQuery(WP_Term_Query $query): void
+    {
+        if (!$this->legacyEmptyQueries || !$this->isPreviewTermQuery($query)) {
+            return;
+        }
+        // Timber 1 has no post class hook. Match only its direct relationship query, not a
+        // native query nested inside it. Otherwise core could cache unsaved terms on the parent.
+        // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_debug_backtrace -- Identify the legacy caller without reading its arguments.
+        $stack = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 14);
+        foreach ($stack as $index => $frame) {
+            if (isset($frame['class']) || $frame['function'] !== 'get_terms') {
+                continue;
+            }
+            $index++;
+            while (($stack[$index]['function'] ?? '') === 'wp_get_object_terms' && !isset($stack[$index]['class'])) {
+                $index++;
+            }
+            if (
+                ($stack[$index]['function'] ?? '') === 'wp_get_post_terms' && !isset($stack[$index]['class'])
+                && ($stack[$index + 1]['class'] ?? '') === \Timber\Post::class
+                && $stack[$index + 1]['function'] === 'terms'
+            ) {
+                $this->adaptTermQuery($query, $this->legacyEmptyQueries);
+            }
+            return;
+        }
+    }
+
+    public function emptyLegacyTermQuery($terms, WP_Term_Query $query)
+    {
+        return $this->legacyEmptyQueries ? $this->emptyTermQuery($terms, $query, $this->legacyEmptyQueries) : $terms;
+    }
+
+    private function isPreviewTermQuery(WP_Term_Query $query): bool
+    {
+        return wp_parse_id_list($query->query_vars['object_ids'] ?? []) === [$this->previewPostId];
+    }
+
+    private function adaptTermQuery(WP_Term_Query $query, WeakMap $emptyQueries): void
+    {
+        if (!$this->isPreviewTermQuery($query)) {
+            return;
+        }
+        $args = &$query->query_vars;
+        // These modes depend on real relationship rows, not just a selection of terms.
+        if ($args['fields'] === 'all_with_object_id' || $args['orderby'] === 'term_order' || $args['exclude_tree']) {
+            return;
+        }
+        $ids = [];
+        foreach ((array) $args['taxonomy'] as $taxonomy) {
+            $selected = $this->terms[$taxonomy] ?? wp_get_object_terms(
+                $this->previewPostId,
+                $taxonomy,
+                ['fields' => 'ids']
+            );
+            if (!is_array($selected)) {
+                return;
+            }
+            $ids = array_merge($ids, $selected);
+        }
+        $include = wp_parse_id_list($args['include']);
+        $ids = $include ? array_intersect($include, $ids) : array_diff($ids, wp_parse_id_list($args['exclude']));
+        $args['object_ids'] = [];
+        $args['include'] = array_values(array_unique($ids));
+        if (!$ids) {
+            $emptyQueries[$query] = true;
+        }
+        // Native object_ids queries include assigned terms even when their count is zero.
+        $args['hide_empty'] = false;
+    }
+
+    private function emptyTermQuery($terms, WP_Term_Query $query, WeakMap $emptyQueries)
+    {
+        // Empty include lists (and even [0] on older core) otherwise query every term.
+        return isset($emptyQueries[$query]) ? ($query->query_vars['fields'] === 'count' ? '0' : []) : $terms;
     }
 
     public function readPost(array $data, object $post): array

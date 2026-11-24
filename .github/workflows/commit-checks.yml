@@ -45,6 +45,9 @@ jobs:
       matrix:
         wordpress: ['6.9', 'latest']
         timber: ['none', '^2.0']
+        include:
+          - wordpress: '6.9'
+            timber: '^1.24'
     env:
       WORDPRESS_VERSION: ${{ matrix.wordpress }}
       TIMBER_CONSTRAINT: ${{ matrix.timber }}
@@ -84,8 +87,20 @@ jobs:
         if: matrix.timber != 'none'
         run: |
           mkdir -p "$RUNNER_TEMP/timber"
+          if [ "$TIMBER_CONSTRAINT" = '^1.24' ]; then
+            # Legacy compatibility fixture only; no production or global Composer changes.
+            composer init --working-dir="$RUNNER_TEMP/timber" --name=mtflpp/legacy-fixture --no-interaction
+            composer config --working-dir="$RUNNER_TEMP/timber" allow-plugins.composer/installers false
+            composer config --working-dir="$RUNNER_TEMP/timber" --json policy.advisories.ignore \
+              '{"twig/twig":{"constraint":"^1.0 || ^2.0","reason":"Legacy Timber 1 compatibility fixture only; never shipped with the plugin."}}'
+          fi
           composer require --working-dir="$RUNNER_TEMP/timber" "timber/timber:$TIMBER_CONSTRAINT" --no-interaction --prefer-dist
           composer show --working-dir="$RUNNER_TEMP/timber" timber/timber
+      - name: Report legacy dependency advisories
+        if: matrix.timber == '^1.24'
+        run: |
+          echo '::warning::Timber 1 requires vulnerable legacy Twig. The exception is confined to this disposable test job.'
+          composer audit --working-dir="$RUNNER_TEMP/timber" --format=plain --abandoned=report
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -106,7 +121,11 @@ jobs:
             printf '%s\n' \
               '<?php' \
               "require \"$RUNNER_TEMP/timber/vendor/autoload.php\";" \
-              '\Timber\Timber::init();' > "$RUNNER_TEMP/site/wp-content/mu-plugins/timber.php"
+              'if (is_callable([\Timber\Timber::class, "init"])) {' \
+              '    \Timber\Timber::init();' \
+              '} else {' \
+              '    new \Timber\Timber();' \
+              '}' > "$RUNNER_TEMP/site/wp-content/mu-plugins/timber.php"
           fi
           ln -s "$GITHUB_WORKSPACE" "$RUNNER_TEMP/site/wp-content/plugins/meet-the-frontend-live-preview-panel"
           wp plugin activate meet-the-frontend-live-preview-panel --path="$RUNNER_TEMP/site"
