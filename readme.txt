@@ -3,7 +3,7 @@ Contributors: timohubois
 Tags: preview, editor
 Requires at least: 6.9
 Tested up to: 7.1
-Stable tag: 1.2.2
+Stable tag: 1.2.3
 Requires PHP: 8.3
 License: GPLv3 or later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
@@ -112,6 +112,11 @@ Report issues or contribute on [GitHub](https://github.com/timohubois/meet-the-f
 8. Keep the preview in a separate Picture-in-Picture window where supported.
 
 == Changelog ==
+
+= 1.2.3 =
+* Keep the part you edited in view when switching or rotating preview devices, and follow more visible changes, including whitespace edits.
+* Refresh live previews sooner and avoid rewriting unchanged preview metadata.
+* Clarify the viewport size and zoom readout, and make preview notices easier to scan, including when WordPress returns a URL on a different site address.
 
 = 1.2.2 =
 * Show password-protected content in authorized live and revision previews without unlocking the public page.
