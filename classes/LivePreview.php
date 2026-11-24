@@ -101,17 +101,18 @@ final class LivePreview
         return true;
     }
 
-    /** Saved fields, metadata and terms, excluding volatile editor state and caches. */
+    /** Fingerprint saved post fields, metadata and terms for preview and save checks. */
     public function fingerprint(int $postId): string
     {
         $meta = get_post_meta($postId);
-        // Editor preferences and core queue flags can change independently of saved content.
+        // Editor state, queue flags and RSS enclosure metadata can change without a post save.
         unset(
             $meta['_edit_lock'],
             $meta['_edit_last'],
             $meta['_encloseme'],
             $meta['_pingme'],
-            $meta['classic-editor-remember']
+            $meta['classic-editor-remember'],
+            $meta['enclosure']
         );
         // Core stores rendered oEmbeds and cache timestamps separately from the saved URL.
         foreach (array_keys($meta) as $key) {
@@ -127,7 +128,10 @@ final class LivePreview
         ]) : [];
         // WP_Post::to_array() also reads filtered term lists; fingerprint stored fields instead.
         $post = get_post($postId);
-        return hash('sha256', (string) wp_json_encode([$post ? get_object_vars($post) : null, $meta, $terms]));
+        $fields = $post ? get_object_vars($post) : null;
+        // Moderating comments updates this derived count without saving the post.
+        unset($fields['comment_count']);
+        return hash('sha256', (string) wp_json_encode([$fields, $meta, $terms]));
     }
 
     /** Only the same editor's successful native autosave may advance its known saved state. */
