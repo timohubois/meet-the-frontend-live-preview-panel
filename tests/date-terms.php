@@ -174,10 +174,10 @@ try {
             $check(get_post($source)->post_status === 'mtflpp-preview', 'Date selection must not schedule the source.');
             $check(get_post($id) == $parent, 'The saved parent and cached fields must remain unchanged.');
             $import = apply_filters('timber/post/import_data', (array) $parent, $parent);
-            if (class_exists(\Timber\Timber::class)) {
+            if (class_exists(\Timber\Timber::class) && !method_exists(\Timber\Post::class, 'import_custom')) {
                 $check(
                     $import['post_date'] === $local && $import['post_date_gmt'] === $utc,
-                    'Timber must import both publication dates.'
+                    'Timber 2 must import both publication dates.'
                 );
             }
         }

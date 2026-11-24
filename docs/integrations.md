@@ -339,11 +339,11 @@ The revision fixture exercises the real compatibility subscriptions: denied requ
 never announce a source; live, historical and current sources rebind correctly; Timber
 imports preserve unrelated data; ACF history remains read-only. With Timber 1 it checks
 that directly constructed posts import metadata from the authorized live source. With
-Timber 2 it checks the native post import for live and saved sources and verifies that
-the Timber 1 metadata hook does not run. The taxonomy fixture covers post term lists
-on both versions without changing raw relationship reads. Term archives on Timber 1
-use WordPress's native preview term and display filters: a Twig `term.name` from a
-fresh lookup by ID may still show the saved name.
+Timber 2 it checks the native post import for live and saved sources. The compatibility
+fixture verifies that only the installed Timber version's hooks are registered. The
+taxonomy fixture covers post term lists on both versions without changing raw
+relationship reads. Term archives on Timber 1 use WordPress's native preview term and
+display filters: a Twig `term.name` from a fresh lookup by ID may still show the saved name.
 
 The compatibility fixture checks core-only writes, lifecycle/error propagation,
 exception cleanup and read-filter rebinding/release without requiring ACF or Timber. The
