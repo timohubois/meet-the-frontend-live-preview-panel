@@ -15,6 +15,7 @@ export function createLivePreview(config, nativeEditor) {
         onClose: () => stopPreview(),
         onRefresh: refreshPreview,
         onRetry: (takeOver) => takeOver ? startPreview(true) : refreshPreview(),
+        beforeViewportChange: (viewport) => frames.beforeViewportChange(viewport),
         beforeMove: discardFrames,
         afterMove: () => { if (previewActive) refreshPreview(); },
     });

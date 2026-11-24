@@ -490,7 +490,7 @@ test('desktop stays in landscape and ignores rotation and old orientation prefer
         const before = { ...h.stage.style };
         const dimensions = h.dimensions.textContent;
         h.viewport.rotate();
-        h.viewport.rotate(true);
+        h.viewport.rotate({ animate: true });
         assert.equal(h.viewport.orientation, 'landscape');
         assert.deepEqual(h.stage.style, before);
         assert.equal(h.dimensions.textContent, dimensions);
@@ -537,7 +537,7 @@ test('hidden panels establish CSS viewport geometry immediately and wait for mea
 
 test('orientation motion animates only zoom; CSS dimensions immediately match the selected orientation', () => {
     const h = fixture({ device: 'mobile' }, 480, 248, true);
-    h.viewport.rotate(true);
+    h.viewport.rotate({ animate: true });
     assert.equal(h.stage.style.width, '844px');
     assert.equal(h.stage.style.height, '390px');
     h.advance(100);
@@ -547,7 +547,7 @@ test('orientation motion animates only zoom; CSS dimensions immediately match th
     h.viewport.layout();
     assert.equal(h.frames.size, 0);
     assert.equal(h.stage.style.transform, `scale(${480 / 844})`);
-    h.viewport.select('desktop', true);
+    h.viewport.select('desktop', { animate: true });
     h.viewport.beforeMove();
     assert.equal(h.frames.size, 0);
     h.container.ownerDocument = { defaultView: h.pipWindow };
@@ -556,9 +556,32 @@ test('orientation motion animates only zoom; CSS dimensions immediately match th
     assert.equal(h.stage.style.height, '800px');
 });
 
+test('a tracked canvas pan waits for the final camera paint or a superseding layout', async () => {
+    const h = fixture({ device: 'mobile', fit: 'width' }, 600, 160, true);
+    h.canvas.scrollTop = 100 * (600 / 390);
+    h.viewport.rotate({ animate: true, keepPan: true });
+    let settled = false;
+    const done = h.viewport.whenSettled().then(() => { settled = true; });
+    h.advance(100);
+    await Promise.resolve();
+    assert.equal(settled, false);
+    h.advance(200);
+    await done;
+    assert.ok(Math.abs(h.canvas.scrollTop - 100 * (600 / 844)) < 0.01, 'Keep the same iframe-space pan at the new scale.');
+    h.viewport.rotate({ animate: true });
+    const canceled = h.viewport.whenSettled();
+    assert.equal(h.viewport.canvasWasPanned(), false, 'Do not interpret a camera paint as user input.');
+    h.canvas.scrollTop = 25;
+    assert.equal(h.viewport.canvasWasPanned(), true, 'A scrollbar change is distinct from the last paint.');
+    h.viewport.finishMotion();
+    await canceled;
+    assert.ok(h.canvas.scrollTop > 0, 'Finishing motion preserves the new logical pan.');
+    assert.equal(h.viewport.whenSettled(), undefined);
+});
+
 test('reduced motion skips camera animation without changing fixed viewport dimensions', () => {
     const h = fixture({ device: 'mobile' });
-    h.viewport.rotate(true);
+    h.viewport.rotate({ animate: true });
     assert.equal(h.frames.size, 0);
     assert.equal(h.stage.style.width, '844px');
     assert.equal(h.stage.style.height, '390px');
@@ -694,6 +717,110 @@ test('Chromium verifies fixed geometry, zoom and independent scrolling in all 80
     await runChromiumTests(t, { script: `(${browserTests.toString()})(${JSON.stringify({ source, css })})`, count: 80 });
 });
 
+async function browserBreakpointTests({ viewportSource, scrollSource, css }) {
+    const { createPreviewViewport, createPreviewScroll } = new Function(
+        `${viewportSource}\n${scrollSource}\nreturn { createPreviewViewport, createPreviewScroll };`,
+    )();
+    const results = [];
+    const style = document.createElement('style');
+    style.textContent = css;
+    document.head.append(style);
+    const check = (condition, message) => { if (!condition) throw new Error(message); };
+    for (const [fit, move] of [
+        ['automatic', 'page'], ['window', 'page'], ['width', 'canvas'], ['custom', 'canvas'],
+        ['custom', 'both'], ['custom', 'panned away'], ['custom', 'still visible'],
+        ['custom', 'header over canvas'], ['custom', 'off-center header over canvas'],
+    ]) {
+        const name = `${fit}: ${move} on breakpoint change`;
+        const panel = document.createElement('section');
+        panel.className = 'mtflpp-panel';
+        panel.style.cssText = 'left:0;top:0;width:420px;height:250px';
+        panel.innerHTML = '<header class="mtflpp-header"></header><div class="mtflpp-viewport"><div class="mtflpp-canvas"><div class="mtflpp-canvas-space"><div class="mtflpp-stage"><iframe class="mtflpp-frame"></iframe></div></div></div></div><footer class="mtflpp-devicebar"><span class="mtflpp-dimensions"></span></footer>';
+        document.body.append(panel);
+        const container = panel.querySelector('.mtflpp-viewport'), stage = panel.querySelector('.mtflpp-stage');
+        const canvas = panel.querySelector('.mtflpp-canvas'), frame = panel.querySelector('iframe');
+        const rotate = fit === 'width';
+        const offCenter = move === 'off-center header over canvas';
+        const narrowHeader = move === 'header over canvas' || offCenter;
+        const viewport = createPreviewViewport(container, stage, panel.querySelector('.mtflpp-dimensions'), {
+            device: rotate ? 'mobile' : 'desktop', mobileOrientation: rotate ? 'landscape' : 'portrait', fit, customZoom: offCenter ? 300 : 200,
+        });
+        try {
+            const doc = frame.contentDocument, win = frame.contentWindow;
+            const samePosition = move === 'still visible' || narrowHeader;
+            const shift = samePosition ? 0 : move === 'canvas' ? 300 : 1100;
+            const shiftX = fit === 'custom' && !samePosition ? 315 : 40;
+            doc.open();
+            doc.write(`<!doctype html><style>
+                html { overflow-anchor: none; } body { margin: 0; } #spacer { height: 800px; }
+                #edited { margin: 0 0 0 40px; width: ${narrowHeader ? 300 : 30}px; height: 30px; }
+                @media (max-width: 400px) {
+                    #spacer { height: ${800 + shift}px; } #edited { margin-left: ${shiftX}px; }
+                    ${narrowHeader ? `header { position: fixed; left: ${offCenter ? 35 : 70}px; top: 0;
+                        width: ${offCenter ? 150 : 250}px; height: 350px; background: white; }` : ''}
+                }
+            </style><header></header><div id="spacer"></div><p id="edited">Edit</p><div style="height:1800px"></div>`);
+            doc.close();
+            win.matchMedia = () => ({ matches: true }); // Position the initial follow instantly.
+            const target = doc.querySelector('#edited');
+            const scrolling = createPreviewScroll();
+            const anchor = await scrolling.restore(doc, target);
+            const touchesCanvas = () => {
+                const inner = target.getBoundingClientRect(), outer = frame.getBoundingClientRect(), clip = canvas.getBoundingClientRect();
+                const scale = outer.height / win.innerHeight;
+                const offsetY = inner.top + inner.height / 2;
+                const y = outer.top + offsetY * scale;
+                const samples = narrowHeader ? [inner.left + 15, inner.left + inner.width / 2, inner.right - 10]
+                    : [inner.left + inner.width / 2];
+                return inner.top >= 0 && inner.bottom <= win.innerHeight && y >= clip.top && y < clip.top + canvas.clientHeight
+                    && samples.some((offsetX) => {
+                        const x = outer.left + offsetX * scale;
+                        return x >= clip.left && x < clip.left + canvas.clientWidth && doc.elementFromPoint(offsetX, offsetY) === target;
+                    });
+            };
+            if (fit === 'custom') {
+                const scale = frame.getBoundingClientRect().height / win.innerHeight;
+                canvas.scrollTop = move === 'panned away' ? 0 : target.getBoundingClientRect().top * scale - 40;
+                if (narrowHeader) canvas.scrollLeft = (offCenter ? 40 : 85) * scale;
+            }
+            const oldPage = win.scrollY, oldPan = canvas.scrollTop, oldPanX = canvas.scrollLeft;
+            check(touchesCanvas() === (move !== 'panned away'), 'Set up whether the original target is on screen.');
+            const pending = scrolling.keepInView(anchor, {
+                canvasTarget: (bounds) => viewport.canvasTarget(frame, bounds),
+                whenSettled: viewport.whenSettled,
+                canFollow: () => true,
+            });
+            const options = { keepPan: !!pending };
+            if (rotate) viewport.rotate(options);
+            else viewport.select('mobile', options);
+            await pending;
+            check(win.innerWidth === 390, 'The iframe must use the new breakpoint.');
+            check(touchesCanvas() === (move !== 'panned away'), 'Only a previously visible change should be on screen.');
+            check((win.scrollY !== oldPage) === ['page', 'both'].includes(move), 'Do not scroll the webpage for canvas-only clipping.');
+            if (move === 'canvas') check(canvas.scrollTop > oldPan, 'Pan vertically when the edit moves below the panel.');
+            if (move === 'canvas' || move === 'both') {
+                check((canvas.scrollLeft > 0) === (fit === 'custom'), 'Only custom zoom needs to pan horizontally.');
+            }
+            if (move === 'still visible') check(canvas.scrollTop === oldPan, 'Keep the canvas pan if the change is still visible.');
+            if (narrowHeader) check(offCenter ? canvas.scrollLeft > oldPanX : canvas.scrollLeft < oldPanX,
+                'Pan to the nearer exposed side rather than scrolling the page.');
+            if (move === 'panned away') check(!pending && canvas.scrollTop === 0, 'Do not follow a change clipped by the old canvas.');
+            results.push({ name });
+        } catch (error) { results.push({ name, error: error.stack }); }
+        finally { viewport.beforeMove(); panel.remove(); }
+    }
+    return results;
+}
+
+test('Chromium keeps followed changes in the panel across breakpoints in all zoom modes', async (t) => {
+    const [viewportSource, scrollSource, css] = await Promise.all([
+        sourceForVm(new URL('../src/panel/viewport.js', import.meta.url)),
+        sourceForVm(new URL('../src/preview/scroll.js', import.meta.url)),
+        readFile(new URL('../src/panel/panel.css', import.meta.url), 'utf8'),
+    ]);
+    await runChromiumTests(t, { script: `(${browserBreakpointTests.toString()})(${JSON.stringify({ viewportSource, scrollSource, css })})`, count: 9 });
+});
+
 test('trusted Chromium verifies independent scrolling and DPR-corrected physical pixel geometry', { timeout: 30000 }, async (t) => {
     const modules = new Map(await Promise.all(['panel/viewport.js', 'preview/frame.js', 'preview/comparison.js', 'preview/scroll.js'].map(async (path) =>
         [`/src/${path}`, await readFile(new URL(`../src/${path}`, import.meta.url), 'utf8')])));
@@ -719,7 +846,7 @@ test('trusted Chromium verifies independent scrolling and DPR-corrected physical
         viewport.layout();
         let wheels = 0;
         frame.contentDocument.addEventListener('wheel', (event) => { if (event.isTrusted) wheels++; }, {passive:true});
-        Object.assign(window, {canvas,frame,viewport,preview,reports});
+        Object.assign(window, {canvas,frame,viewport,preview,reports,createPreviewScroll});
         window.canvasInputState = () => ({pan:canvas.scrollTop,panX:canvas.scrollLeft,page:frame.contentWindow.scrollY,pageX:frame.contentWindow.scrollX,width:frame.contentWindow.innerWidth,height:frame.contentWindow.innerHeight,zoom:viewport.zoomPercent,wheels});
         </script>`;
     await withChromiumPage(html, async ({ args }) => {
@@ -938,6 +1065,47 @@ test('trusted Chromium verifies independent scrolling and DPR-corrected physical
                 await send('Page.captureScreenshot', { format: 'png' });
                 await waitFor('Math.abs(frame.getBoundingClientRect().width - 5120) < 0.01');
                 assert.equal((await evaluate('canvasInputState()')).zoom, 400, 'A host DPR change preserves the selected manual percentage.');
+            });
+            await t.test('trusted wheel input takes priority over pending breakpoint following', async () => {
+                await evaluate(`(async () => {
+                    viewport.setFit('automatic');
+                    viewport.select('desktop');
+                    const doc = frame.contentDocument, win = frame.contentWindow;
+                    const style = doc.createElement('style');
+                    style.textContent = 'html{overflow-anchor:none} #edit{position:relative;top:600px;height:30px;margin:0} @media (max-width:400px){#edit{top:1600px}}';
+                    doc.head.append(style);
+                    const target = doc.createElement('p');
+                    target.id = 'edit'; target.textContent = 'Changed';
+                    doc.querySelector('main').append(target);
+                    const scrolling = createPreviewScroll(), anchor = await scrolling.restore(doc, target);
+                    const gate = {};
+                    gate.promise = new Promise((resolve) => { gate.release = resolve; });
+                    window.wheelFollow = { gate, oldScroll: win.scrollY };
+                    const pending = scrolling.keepInView(anchor, {
+                        canvas, canvasTarget: (bounds) => viewport.canvasTarget(frame,bounds),
+                        canvasWasPanned: viewport.canvasWasPanned, finishMotion: viewport.finishMotion,
+                        whenSettled: () => { wheelFollow.waiting = true; return gate.promise; },
+                        canFollow: () => true,
+                    });
+                    viewport.select('mobile', { animate: true, keepPan: !!pending });
+                    pending?.then(() => { wheelFollow.done = true; });
+                })()`);
+                await waitFor('wheelFollow.waiting');
+                const { x, y } = await evaluate(`(() => {
+                    const rect = frame.getBoundingClientRect(), clip = canvas.getBoundingClientRect();
+                    return { x: Math.round((Math.max(rect.left, clip.left) + Math.min(rect.right, clip.right)) / 2),
+                        y: Math.round((Math.max(rect.top, clip.top) + Math.min(rect.bottom, clip.bottom)) / 2) };
+                })()`);
+                // Assert cancellation on the trusted input itself, before its default action scrolls the page.
+                await evaluate(`frame.contentDocument.addEventListener('wheel', (event) => {
+                    if (event.isTrusted) { wheelFollow.delivered = true; event.preventDefault(); }
+                }, {once:true,passive:false})`);
+                await send('Input.dispatchMouseEvent', { type: 'mouseWheel', x, y, deltaX: 0, deltaY: -120 });
+                await waitFor('wheelFollow.delivered');
+                await evaluate('wheelFollow.gate.release()');
+                await waitFor('wheelFollow.done');
+                assert.equal(await evaluate('frame.contentWindow.scrollY'), await evaluate('wheelFollow.oldScroll'),
+                    'A pending reveal must not scroll after the user takes control.');
             });
             for (const path of ['unmarked', 'plain']) await t.test(`${path}: native output is displayed without scroll containment`, async () => {
                 await evaluate(`preview.load(new URL('/${path}?mtflpp_token=trusted-scroll', location.href).href, () => true)`);

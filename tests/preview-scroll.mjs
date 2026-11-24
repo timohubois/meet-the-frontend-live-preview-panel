@@ -743,7 +743,7 @@ async function browserTests(source) {
     });
     await check('comparison exposes only capture and single-element identification; scrolling owns no snapshots', async (frame, doc) => {
         equal(Object.keys(frame.comparison).sort().join(','), 'capture,findChange', 'No snapshot/candidate API escapes.');
-        equal(Object.keys(frame.scrolling).sort().join(','), 'remember,restore', 'Scroll presentation has no comparison lifecycle.');
+        equal(Object.keys(frame.scrolling).sort().join(','), 'keepInView,remember,restore', 'Scroll presentation has no comparison lifecycle.');
         const before = await doc(content('Hello'), { captured: true });
         const after = await doc(content('Welcome'), { captured: true });
         equal(frame.comparison.findChange(before, after), null, 'Only explicit frame capture may establish a baseline.');
@@ -1032,6 +1032,160 @@ async function browserTests(source) {
         await frame.scrolling.restore(after, target);
         equal(target.getBoundingClientRect().top - scroller.getBoundingClientRect().top, 50, 'Center the target with its existing clearance inside the nested scrollport.');
     });
+    for (const scrolledAway of [false, true]) {
+        await check(`breakpoint following ${scrolledAway ? 'does not pull back a nested scrollport the user left' : 'reveals a newly clipped nested target'}`, async (frame, doc) => {
+            const after = await doc(`<style>
+                * { overflow-anchor: none; }
+                #scroller { height: 120px; overflow: auto; }
+                #inside { height: ${scrolledAway ? 150 : 0}px; }
+                @media (max-width: 400px) {
+                    ${scrolledAway ? '#outside { height: 650px; }' : '#inside { height: 150px; }'}
+                }
+            </style><div id="outside"></div><div id="scroller"><div id="inside"></div><p id="edited">Changed</p>
+            <div style="height:500px"></div></div><div style="height:800px"></div>`);
+            const scroller = after.querySelector('#scroller'), target = after.querySelector('#edited');
+            const anchor = await frame.scrolling.restore(after, target);
+            const targetVisible = () => {
+                const { left, top } = target.getBoundingClientRect();
+                return after.elementFromPoint(left + 10, top + 10) === target;
+            };
+            if (scrolledAway) scroller.scrollTop = 0;
+            equal(targetVisible(), !scrolledAway, 'Set the real visibility inside the nested scrollport.');
+            const win = after.defaultView;
+            const pending = frame.scrolling.keepInView(anchor, {
+                canvasTarget: () => ({ visible: true, reveal() {} }),
+                whenSettled: () => {},
+                canFollow: () => true,
+            });
+            win.frameElement.style.width = '390px';
+            await pending;
+            equal(targetVisible(), !scrolledAway, 'Honor nested clipping before and after reflow.');
+            if (scrolledAway) {
+                equal(win.scrollY, 0, 'Do not move the page back to a change the user left.');
+                equal(scroller.scrollTop, 0, 'Do not override the nested scroll position either.');
+            }
+        });
+    }
+    for (const mode of ['hard clip', 'inner scrollport', 'limited scroll range', 'clip margin',
+        'fixed header', 'transparent header', 'above the header', 'narrow header', 'wide target', 'wide target reflows', 'transparent ancestor']) {
+        await check(`breakpoint following accounts for ${mode}`, async (frame, doc) => {
+            const wide = mode === 'wide target' || mode === 'wide target reflows';
+            const transparentHeader = mode === 'transparent header';
+            const usesHeader = wide || transparentHeader || ['fixed header', 'above the header', 'narrow header'].includes(mode);
+            const transparent = mode === 'transparent ancestor';
+            const limited = mode === 'limited scroll range';
+            const wrapsScrollable = limited || mode === 'inner scrollport';
+            const spacerHeight = { 'clip margin': 125, 'wide target reflows': 520, 'transparent ancestor': 520 }[mode] ?? 170;
+            const after = await doc(`<style>
+                * { overflow-anchor: none; }
+                #outside, #after { height: 650px; }
+                #spacer { height: 0; }
+                #edited { position: relative; height: 30px; ${mode === 'above the header' ? 'z-index: 2;' : ''} }
+                #cover { display: none; }
+                ${wide ? '#edited { width: 1000px; }' : ''}
+                ${usesHeader || transparent ? '' : '#clip { display: flow-root; height: 120px; overflow: clip; }'}
+                ${mode === 'clip margin' ? '#clip { overflow-clip-margin: 45px; }' : ''}
+                ${wrapsScrollable ? '#inner { height: 120px; overflow: auto; }' : ''}
+                @media (max-width: 400px) {
+                    ${usesHeader ? '#cover { display: block; position: fixed; inset: 0 0 auto; height: 135px; background: white; z-index: 1; }' : ''}
+                    ${transparentHeader ? '#cover { height: 180px; opacity: 0; }' : ''}
+                    ${!usesHeader || mode === 'wide target reflows' ? `#spacer { height: ${spacerHeight}px; }` : ''}
+                    ${transparent ? '#inner { opacity: 0; pointer-events: none; }' : ''}
+                    ${mode === 'narrow header' ? '#cover { left: 80px; right: auto; width: 230px; }' : ''}
+                    ${limited ? '#inner { margin-top: 105px; } #after { height: 0; }' : ''}
+                }
+            </style><div id="cover"></div><div id="outside"></div><div id="clip"><div id="inner"><div id="spacer"></div>
+                <p id="edited">Changed</p><div id="after"></div></div></div><div style="height:800px"></div>`);
+            const win = after.defaultView, target = after.querySelector('#edited');
+            if (mode === 'clip margin' && !win.CSS.supports('overflow-clip-margin', '45px')) return;
+            const targetVisible = () => {
+                const { left, top } = target.getBoundingClientRect();
+                return after.elementFromPoint(left + 10, top + 10) === target;
+            };
+            const anchor = await frame.scrolling.restore(after, target);
+            equal(targetVisible(), true, 'The change was on screen before reflow.');
+            const offset = win.scrollY;
+            let reveals = 0;
+            const scroll = target.scrollIntoView;
+            target.scrollIntoView = function (options) { reveals++; return scroll.call(this, options); };
+            const pending = frame.scrolling.keepInView(anchor, {
+                canvasTarget: () => ({ visible: true, reveal() {} }),
+                whenSettled: () => {},
+                canFollow: () => true,
+            });
+            win.frameElement.style.width = '390px';
+            await pending;
+            if (transparentHeader) {
+                const cover = after.querySelector('#cover');
+                equal(win.getComputedStyle(cover).opacity, '0', 'The header is fully transparent.');
+                equal(targetVisible(), false, 'A transparent header can still intercept the hit test.');
+            } else {
+                equal(targetVisible(), mode !== 'hard clip' && !limited && !transparent, 'Keep the target on screen only if it can be revealed.');
+            }
+            const shouldReveal = wide || mode === 'fixed header' || mode === 'inner scrollport';
+            equal(reveals, Number(shouldReveal), 'Scroll only when needed and possible.');
+            if (!shouldReveal) equal(win.scrollY, offset, 'Do not jump the page for this layout.');
+            if (limited) equal(after.querySelector('#inner').scrollTop, 0, 'Do not try an inner scroll that cannot expose the target.');
+        });
+    }
+    for (const scenario of ['moved', 'still visible', 'scrolled away', 'hidden', 'collapsed', 'replaced', 'invalidated',
+        'moved across two quick switches', 'scrolled while the camera settled']) {
+        await check(`viewport change when the follow target is ${scenario}`, async (frame, doc) => {
+            const after = await doc(`<style>
+                html { overflow-anchor: none; scroll-behavior: smooth; }
+                #spacer { height: 700px; }
+                @media (max-width: 400px) {
+                    #spacer { height: ${scenario === 'still visible' ? 730 : 1400}px; }
+                    ${scenario === 'hidden' ? '#edited { display: none; }' : ''}
+                    ${scenario === 'collapsed' ? '#edited { height: 0; overflow: hidden; }' : ''}
+                }
+            </style><div id="spacer"></div><p id="edited">Changed</p><div style="height:900px"></div>`);
+            const target = after.querySelector('#edited');
+            const anchor = await frame.scrolling.restore(after, target);
+            equal(anchor, target, 'Remember the element actually followed.');
+            const win = after.defaultView;
+            if (scenario === 'scrolled away') win.scrollTo({ top: 0, behavior: 'instant' });
+            const offset = win.scrollY;
+            let corrections = 0;
+            const scroll = win.Element.prototype.scrollIntoView;
+            win.Element.prototype.scrollIntoView = function (options) {
+                corrections++;
+                equal(this, target, 'Only the same DOM element can be followed again.');
+                equal(options.behavior, 'instant', 'Do not start a second smooth animation on resize.');
+                return scroll.call(this, options);
+            };
+            let eligible = true;
+            const rapid = scenario === 'moved across two quick switches';
+            const interrupted = scenario === 'scrolled while the camera settled';
+            const options = {
+                canvasTarget: () => ({ visible: true, reveal() {} }),
+                whenSettled: () => interrupted ? new Promise((resolve) => win.setTimeout(() => {
+                    win.scrollTo({ top: 0, behavior: 'instant' });
+                    resolve();
+                }, 20)) : undefined,
+                canFollow: () => eligible,
+            };
+            const pending = frame.scrolling.keepInView(anchor, options);
+            if (rapid) {
+                win.frameElement.style.width = '400px';
+                equal(target.getBoundingClientRect().top >= win.innerHeight, true, 'The intermediate breakpoint has already moved the target.');
+            }
+            const next = rapid ? frame.scrolling.keepInView(anchor, options) : null;
+            win.frameElement.style.width = '390px';
+            if (scenario === 'replaced') target.replaceWith(target.cloneNode(true));
+            if (scenario === 'invalidated') eligible = false;
+            await Promise.all([pending, next]);
+            equal(win.innerWidth, 390, 'Use a real responsive breakpoint in the iframe.');
+            const shouldReveal = rapid || scenario === 'moved';
+            equal(corrections, Number(shouldReveal), 'Adjust only if the same target moved out of view without user intervention.');
+            if (shouldReveal) {
+                const { top, bottom } = target.getBoundingClientRect();
+                equal(top >= 0 && bottom <= win.innerHeight, true, 'The moved element is back on screen.');
+            } else {
+                equal(win.scrollY, interrupted ? 0 : offset, 'Respect the last page scroll offset.');
+            }
+        });
+    }
     await check('following requests smooth scrolling even when the theme does not', async (frame, doc) => {
         const after = await doc(content(), { reducedMotion: false });
         after.documentElement.style.scrollBehavior = 'auto';
@@ -1060,5 +1214,5 @@ test('preview scrolling matches changed sections conservatively in Chromium', as
     const comparison = await readFile(new URL('../src/preview/comparison.js', import.meta.url), 'utf8');
     const scrolling = await readFile(new URL('../src/preview/scroll.js', import.meta.url), 'utf8');
     const source = `${comparison.replace('export function', 'function')}\n${scrolling.replace(/^import .*;\n/, '')}`;
-    await runChromiumTests(t, { script: `(${browserTests.toString()})(${JSON.stringify(source)})`, count: 190 });
+    await runChromiumTests(t, { script: `(${browserTests.toString()})(${JSON.stringify(source)})`, count: 212, virtualTimeBudget: 15000 });
 });

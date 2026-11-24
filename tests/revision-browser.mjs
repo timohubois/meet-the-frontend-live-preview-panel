@@ -13,7 +13,7 @@ const revision = (id, address = url(id)) => ({
 
 function fixture({ visible = true, selected = revision(11), isolated = false, excludedSelectors = [], deferRestore = false } = {}) {
     const timers = new Map(), listeners = new Map(), events = new Map(), reports = [], allFrames = [], scrolls = [];
-    const captures = [], comparisons = [], restorations = [];
+    const captures = [], comparisons = [], restorations = [], viewportChanges = [];
     let options, comparisonSelectors, nextTimer = 0, title = '', clears = 0, returned = 0;
     const children = [];
     const stage = {
@@ -68,7 +68,9 @@ function fixture({ visible = true, selected = revision(11), isolated = false, ex
                 const restoration = { doc, target, canFollow };
                 restorations.push(restoration);
                 if (deferRestore && target) return new Promise((resolve) => { restoration.resolve = resolve; });
+                return target;
             },
+            keepInView: (target, options) => viewportChanges.push({ target, ...options }),
         }) },
         '../preview/comparison.js': { createPreviewComparison: (selectors) => {
             comparisonSelectors = selectors;
@@ -90,6 +92,7 @@ function fixture({ visible = true, selected = revision(11), isolated = false, ex
     init({ postId: 1, currentPreviewUrl: url(1), strings, comparisonExcludedSelectors: excludedSelectors }, model);
     return {
         view, options, reports, children, allFrames, timers, scrolls, captures, comparisons, restorations, comparisonSelectors, listeners,
+        viewportChanges,
         get title() { return title; }, get clears() { return clears; }, get returned() { return returned; },
         get last() { return reports.at(-1); },
         select(next) { selected = next; listeners.get('update:revisions')?.(); },
@@ -146,6 +149,28 @@ test('frame capture precedes comparison and deletion analysis runs before the ol
     assert.equal(restored.length, 3, 'Scrolling still receives one identified element, not comparison state.');
     assert.equal(h.restorations.at(-1).canFollow(), true, 'The frame owns deferred reveal eligibility.');
     assert.equal(h.children.length, 1);
+});
+
+test('breakpoint following uses only the current iframe’s last revealed target', async () => {
+    const h = fixture();
+    const viewport = { canFollow: () => true };
+    await h.load();
+    h.options.beforeViewportChange(viewport);
+    assert.equal(h.viewportChanges.length, 0, 'The baseline has not followed a target.');
+    h.select(revision(12)); await h.runTimers(); await h.load();
+    h.options.beforeViewportChange(viewport);
+    const { target, canFollow } = h.viewportChanges[0];
+    assert.equal(target, 'target');
+    assert.equal(canFollow(), true);
+    h.view.followChanges = false;
+    assert.equal(canFollow(), false, 'Disabling following also cancels a pending check.');
+    h.view.followChanges = true;
+    const frame = h.children[0];
+    frame.contentDocument = null;
+    assert.equal(canFollow(), false, 'Native navigation invalidates the target even before load.');
+    await h.load();
+    h.options.beforeViewportChange(viewport);
+    assert.equal(h.viewportChanges.length, 1, 'Native navigation does not carry a target forward.');
 });
 
 test('verified iframe scrolling is contained after capture on initial, replacement and native loads', async () => {

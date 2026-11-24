@@ -6,7 +6,7 @@ import { createPanelGeometry } from './geometry.js';
 
 // Bind the PHP-rendered panel. Never capture fields, fetch previews, acquire locks or control native saves.
 export function createPreviewPanel(strings, {
-    postTitle = '', publicRedirect, onOpen, onClose, onRefresh, onRetry, beforeMove, afterMove,
+    postTitle = '', publicRedirect, onOpen, onClose, onRefresh, onRetry, beforeMove, afterMove, beforeViewportChange,
 }) {
     const mainWindow = window;
     const mainDocument = document;
@@ -617,13 +617,22 @@ export function createPreviewPanel(strings, {
         dock: (side) => dockWindow(side), reset: () => dockWindow('right', true),
         follow: toggleFollow, rememberVisibility: toggleRememberVisibility, rememberPosition: toggleRememberPosition,
         device(name) {
-            if (name === responsiveViewport.device) {
-                if (name === 'desktop') return;
-                responsiveViewport.rotate(visible);
+            const previous = responsiveViewport.device;
+            if (name === previous && name === 'desktop') return;
+            let keepPan = false;
+            if (visible && followChanges && beforeViewportChange) {
+                const { fit, customZoom, canvasTarget, whenSettled, finishMotion, canvasWasPanned } = responsiveViewport;
+                keepPan = !!beforeViewportChange({
+                    canvas, canvasTarget, whenSettled, finishMotion, canvasWasPanned,
+                    canFollow: () => responsiveViewport.fit === fit && responsiveViewport.customZoom === customZoom,
+                });
+            }
+            const options = { animate: visible, keepPan };
+            if (name === previous) {
+                responsiveViewport.rotate(options);
                 preferenceActions.set(scope, `${name}Orientation`, responsiveViewport.orientation);
             } else {
-                const previous = responsiveViewport.device;
-                responsiveViewport.select(name, visible);
+                responsiveViewport.select(name, options);
                 if (responsiveViewport.device !== previous) preferenceActions.set(scope, 'viewport', responsiveViewport.device);
             }
             syncControls();

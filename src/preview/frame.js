@@ -17,6 +17,7 @@ export function createPreviewFrame(view, scrolling, strings, report, excludedSel
     const comparison = createPreviewComparison(excludedSelectors);
     let activeFrame;
     let activeDocument;
+    let followedTarget;
     let redirectDestination;
     let cancelLoad;
 
@@ -73,7 +74,10 @@ export function createPreviewFrame(view, scrolling, strings, report, excludedSel
             }
             frame.onload = async () => {
                 const replacing = frame !== activeFrame;
-                if (!replacing) activeDocument = null;
+                if (!replacing) {
+                    activeDocument = null;
+                    followedTarget = null;
+                }
                 if (canceled || !isCurrent()) { finish(); return; }
                 let doc;
                 let destination;
@@ -103,16 +107,19 @@ export function createPreviewFrame(view, scrolling, strings, report, excludedSel
                 }
                 activeFrame = frame;
                 activeDocument = doc;
+                followedTarget = null;
                 redirectDestination = destination;
                 frame.classList.remove('mtflpp-loading');
                 frame.removeAttribute('aria-hidden');
                 frame.removeAttribute('tabindex');
                 const isActive = () => !canceled && isCurrent() && frame === activeFrame && doc === activeDocument
                     && (!doc || frame.contentDocument === doc);
+                let revealed;
                 if (doc && replacing) {
-                    await scrolling.restore(doc, target, () => isActive() && view.followChanges && followChanges());
+                    revealed = await scrolling.restore(doc, target, () => isActive() && view.followChanges && followChanges());
                 }
                 if (!isActive()) { finish(); return; }
+                followedTarget = revealed;
                 // A load is not proof of valid content; only marked HTML receives scroll enhancements.
                 report(strings.current, 'ready');
                 finish();
@@ -120,6 +127,7 @@ export function createPreviewFrame(view, scrolling, strings, report, excludedSel
             frame.onerror = () => {
                 if (frame === activeFrame) {
                     activeDocument = null;
+                    followedTarget = null;
                     redirectDestination = undefined;
                     if (isCurrent()) report(strings.failed, 'error');
                 } else finish(new Error(strings.failed));
@@ -135,6 +143,18 @@ export function createPreviewFrame(view, scrolling, strings, report, excludedSel
         get redirectDestination() { return redirectDestination; },
         load,
         cancel,
+        beforeViewportChange({ canvasTarget, canFollow, ...viewport }) {
+            const target = followedTarget;
+            const doc = activeDocument;
+            const frame = activeFrame;
+            if (!target || !doc) return;
+            return scrolling.keepInView(target, {
+                ...viewport,
+                canvasTarget: (bounds) => canvasTarget(frame, bounds),
+                canFollow: () => target === followedTarget && doc === activeDocument && frame.contentDocument === doc
+                    && view.visible && view.followChanges && canFollow(),
+            });
+        },
         clear() {
             cancel();
             scrolling.remember(activeDocument);
@@ -144,6 +164,7 @@ export function createPreviewFrame(view, scrolling, strings, report, excludedSel
             }
             activeFrame = null;
             activeDocument = null;
+            followedTarget = null;
             redirectDestination = undefined;
             view.clearPreview();
         },

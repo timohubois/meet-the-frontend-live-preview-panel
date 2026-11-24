@@ -14,7 +14,7 @@ const source = await sourceForVm(new URL('../src/panel/window.js', import.meta.u
 function fixture(open = false, {
     layout, position, rememberPosition, preferences: savedPreferences, legacyPreferences: oldPreferences, labels = {},
     width = 1440, height = 1000, direction = 'ltr', lang = 'en-US', gutter = 20, scrollbar = 0, toolbarHeight = 32,
-    nativeSaving = false, pip = false, pipApi, videoPip = false, stylesheets = [], publicRedirect, fetch,
+    nativeSaving = false, pip = false, pipApi, videoPip = false, stylesheets = [], publicRedirect, fetch, beforeViewportChange,
 } = {}) {
     const nodes = new Map();
     const preferences = new Map(savedPreferences ?? [
@@ -143,7 +143,7 @@ function fixture(open = false, {
     delete window.wp;
     const createPreviewPanel = vm.runInNewContext(`${source}\ncreatePreviewPanel`, { window, document, imports, URL });
     const view = createPreviewPanel(strings, {
-        nativeSaving, publicRedirect, beforeMove() {}, afterMove() {},
+        nativeSaving, publicRedirect, beforeViewportChange, beforeMove() {}, afterMove() {},
         onOpen() { view.setVisible(true); }, onClose() { view.setVisible(false); }, onRetry(takeOver) { retryCalls.push(takeOver); },
         onRefresh(follow = true) { refreshCalls.push({ follow, enabled: preferences.get('scrollToChanges') }); },
     });
@@ -555,6 +555,30 @@ test('reselecting a device rotates it; fitting and independent orientations pers
     assert.equal(reopened.state.fit, 'width', 'Reset size and position does not reset fitting.');
     assert.equal(reopened.state.orientation, 'portrait');
 });
+
+for (const fit of ['automatic', 'window', 'width', 'custom']) {
+    test(`device changes and rotations preserve the follow target in ${fit}`, () => {
+        const calls = [];
+        const h = fixture(true, {
+            preferences: [['fitMode', fit]],
+            beforeViewportChange({ canFollow }) {
+                calls.push({ device: h.state.device, orientation: h.state.orientation, canFollow });
+            },
+        });
+        h.actions.device('desktop');
+        h.actions.device('mobile');
+        h.actions.device('mobile');
+        assert.deepEqual(calls.map(({ device, orientation }) => [device, orientation]), [
+            ['desktop', 'landscape'], ['mobile', 'portrait'],
+        ], 'Check the old viewport before resizing or rotating.');
+        assert.equal(calls.at(-1).canFollow(), true);
+        h.actions.zoom(125);
+        assert.equal(calls.at(-1).canFollow(), false, 'Changing the zoom invalidates a deferred check.');
+        h.actions.follow();
+        h.actions.device('desktop');
+        assert.equal(calls.length, 2, 'Skip disabled following.');
+    });
+}
 
 for (const legacy of [undefined, 'window', 'width', 'unknown']) {
     test(`legacy fitting ${String(legacy)} restores its intent without confusing the new uncapped window mode`, () => {
