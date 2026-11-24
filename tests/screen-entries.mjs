@@ -10,10 +10,13 @@ const failureSource = await sourceForVm(new URL('../src/panel/startup-error.js',
 function fixture(screen, { configured = true, formAvailable = true, modelAvailable = true, fail = false } = {}) {
     const calls = [], removed = [], notices = [], errors = [];
     const model = { get() {}, on() {}, off() {} };
-    const form = {};
+    const launcher = {};
+    const form = { querySelector: (selector) => selector === '#mtflpp-publish-preview button' ? launcher : null };
     const native = { destroy: () => calls.push('destroy') };
     const config = { strings: { bootFailed: 'Unavailable' } };
-    const nodes = new Map(['mtflpp-panel', 'mtflpp-toggle'].map((id) => [id, { remove: () => removed.push(id) }]));
+    const pluginIds = ['mtflpp-panel', 'mtflpp-toggle'];
+    if (screen === 'editor') pluginIds.push('mtflpp-publish-preview');
+    const nodes = new Map(pluginIds.map((id) => [id, { remove: () => removed.push(id) }]));
     const context = {
         window: {
             jQuery: (ready) => ready(),
@@ -35,9 +38,10 @@ function fixture(screen, { configured = true, formAvailable = true, modelAvailab
             calls.push('observe');
             return native;
         } },
-        './screens/classic-editor.js': { initLivePreview(received, observer) {
+        './screens/classic-editor.js': { initLivePreview(received, observer, button) {
             assert.equal(received, config);
             assert.equal(observer, native);
+            assert.equal(button, launcher);
             calls.push('editor');
             if (fail) throw new Error('Fixture startup failure');
         } },
@@ -62,7 +66,7 @@ test('the editor observes native operations and initializes synchronously withou
 test('editor initialization failure detaches native observers and removes only plugin UI', () => {
     const h = fixture('editor', { fail: true });
     assert.deepEqual(h.calls, ['observe', 'editor', 'destroy']);
-    assert.deepEqual(h.removed, ['mtflpp-panel', 'mtflpp-toggle']);
+    assert.deepEqual(h.removed, ['mtflpp-panel', 'mtflpp-toggle', 'mtflpp-publish-preview']);
     assert.equal(h.notices[0].children[0].textContent, 'Unavailable');
     assert.equal(h.errors.length, 1);
 });

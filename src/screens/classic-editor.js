@@ -2,7 +2,7 @@ import { createEditorExtensions } from './editor-extensions.js';
 import { createLivePreview } from '../preview/live-preview.js';
 
 // Classic fields and native form controls stay outside the shared preview lifecycle.
-export function initLivePreview(config, nativeEditor) {
+export function initLivePreview(config, nativeEditor, inlineLauncher) {
     const form = document.getElementById('post');
     if (!config || !form) return;
     let capturing = false;
@@ -36,7 +36,7 @@ export function initLivePreview(config, nativeEditor) {
         if (!response.ok) throw Object.assign(new Error(result.message || config.strings.failed), { code: result.code });
         return { ...result, comparisonValues };
     };
-    const preview = createLivePreview(config, nativeEditor);
+    const preview = createLivePreview(config, nativeEditor, { inlineLauncher });
     const changed = () => {
         if (capturing || destroyed) return;
         const reason = extensions?.filter('previewPauseReason', '') || extensions?.error?.message;

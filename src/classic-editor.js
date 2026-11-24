@@ -10,7 +10,7 @@ if (config && form) {
     // Bind native observers first. All plugin modules are bundled, so initialization cannot yield to a save.
     const nativeEditor = createNativeEditor(config, form);
     try {
-        initLivePreview(config, nativeEditor);
+        initLivePreview(config, nativeEditor, form.querySelector('#mtflpp-publish-preview button'));
     } catch (error) {
         nativeEditor.destroy();
         showStartupError(config.strings.bootFailed, error);
