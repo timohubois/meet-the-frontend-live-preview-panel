@@ -31,8 +31,8 @@ export function createPreviewFrame(view, scrolling, strings, report, excludedSel
             throw Object.assign(new Error(strings.failed), { code: 'mtflpp_preview_unsupported_url' });
         }
         if (url.origin !== window.location.origin) {
-            // Report only the origin; the URL can contain preview state and other private values.
-            const message = strings.originMismatch.replace('%s', () => url.origin);
+            // Show where WordPress pointed without exposing credentials, preview tokens or other query values.
+            const message = strings.originMismatch.replace('%s', () => url.origin + url.pathname);
             throw Object.assign(new Error(message), { code: 'mtflpp_preview_origin_mismatch' });
         }
         const token = url.searchParams.get('mtflpp_token');

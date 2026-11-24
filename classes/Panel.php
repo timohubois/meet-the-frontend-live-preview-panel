@@ -289,9 +289,12 @@ final class Panel
                 'Preview uses a different website address',
                 'meet-the-frontend-live-preview-panel'
             ),
-            /* translators: %s: Preview website address, without the path, e.g. https://example.org. */
+            /* translators: %s: Preview URL without credentials, query or fragment. Keep it on its own line. */
             'originMismatch' => __(
-                'WordPress provided a preview URL at %s. It must use the same website address as the editor.',
+                'WordPress provided this preview URL:
+%s
+
+It must use the same website address as the editor.',
                 'meet-the-frontend-live-preview-panel'
             ),
         ];

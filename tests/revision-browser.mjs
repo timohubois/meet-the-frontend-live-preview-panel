@@ -396,17 +396,17 @@ test('only the actual parent entry uses the current saved-post URL', async () =>
     assert.equal(h.last.hasPreview, false);
 });
 
-for (const [address, origin] of [
-    ['http://name:secret@other.example/private-path?mtflpp_token=private-token#private-fragment', 'http://other.example'],
-    ['https://site.local/?mtflpp_token=token', 'https://site.local'],
-    ['http://site.local:8080/?mtflpp_token=token', 'http://site.local:8080'],
+for (const [address, displayUrl] of [
+    ['http://name:secret@other.example/news/page/?mtflpp_token=private-token&key=private-key#private-fragment', 'http://other.example/news/page/'],
+    ['https://site.local/?mtflpp_token=token', 'https://site.local/'],
+    ['http://site.local:8080/?mtflpp_token=token', 'http://site.local:8080/'],
 ]) {
-    test(`revision preview explains a different address (${origin}) without creating a frame`, async () => {
+    test(`revision preview explains a different address (${displayUrl}) without creating a frame`, async () => {
         const h = fixture({ selected: revision(11, address) }); await flush();
         assert.equal(h.allFrames.length, 0);
         assert.equal(h.last.state, 'error');
         assert.equal(h.last.reason, 'origin-mismatch');
-        assert.equal(h.last.text, `WordPress provided a preview URL at ${origin}. It must use the same website address as the editor.`);
+        assert.equal(h.last.text, `WordPress provided this preview URL:\n${displayUrl}\n\nIt must use the same website address as the editor.`);
         assert.equal(h.last.canRetry, false);
         assert.equal(h.last.canRefresh, false);
     });

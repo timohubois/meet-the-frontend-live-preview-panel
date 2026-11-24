@@ -232,7 +232,7 @@ for (const hasPreview of [false, true]) {
 }
 
 for (const [code, reason, detail] of [
-    ['mtflpp_preview_origin_mismatch', 'origin-mismatch', panelStrings.originMismatch.replace('%s', 'https://other.example')],
+    ['mtflpp_preview_origin_mismatch', 'origin-mismatch', panelStrings.originMismatch.replace('%s', 'https://other.example/news/page/')],
     ['mtflpp_preview_unsupported_url', 'unsupported-url', panelStrings.failed],
 ]) {
     test(`a blocked preview URL stops live updates without clearing the last preview (${reason})`, { timeout: 5000 }, async (t) => {

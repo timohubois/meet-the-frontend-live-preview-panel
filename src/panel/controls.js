@@ -254,7 +254,8 @@ export function createPreviewControls(panel, strings, callbacks) {
         const { empty } = state;
         if (!empty) return null;
         return h(Placeholder, {
-            className: 'mtflpp-placeholder', icon: empty.busy ? h(Spinner) : icons[empty.icon],
+            className: empty.stackIcon ? 'mtflpp-placeholder mtflpp-placeholder-stacked' : 'mtflpp-placeholder',
+            icon: empty.busy ? h(Spinner) : icons[empty.icon],
             label: h('h3', { className: 'mtflpp-empty-title', tabIndex: -1, 'data-action': 'empty-title' }, empty.heading),
             instructions: empty.description,
         },

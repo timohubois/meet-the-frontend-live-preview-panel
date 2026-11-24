@@ -1095,7 +1095,7 @@ for (const hasPreview of [false, true]) {
 for (const hasPreview of [false, true]) {
     test(`a different preview address is explained in ${hasPreview ? 'the inline error' : 'the placeholder'}`, () => {
         const h = fixture(true, { labels: panelStrings });
-        const text = panelStrings.originMismatch.replace('%s', 'https://other.example:8443');
+        const text = panelStrings.originMismatch.replace('%s', 'https://other.example:8443/news/page/');
         h.view.report(text, 'error', { hasPreview, reason: 'origin-mismatch', canRetry: false });
         const content = hasPreview ? h.state.notice : h.state.empty;
         assert.equal(content.heading, 'Preview uses a different website address');
@@ -1111,6 +1111,7 @@ for (const hasPreview of [false, true]) {
             assert.equal(h.state.notice, null);
             assert.equal(content.busy, false);
             assert.equal(content.icon, 'info');
+            assert.equal(content.stackIcon, true);
         }
     });
 }
