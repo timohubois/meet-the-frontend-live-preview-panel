@@ -197,7 +197,7 @@
     font-size: 18px;
     line-height: 1.4;
 }
-.mtflpp-placeholder-stacked .components-placeholder__label {
+.mtflpp-placeholder[data-empty-icon] .components-placeholder__label {
     flex-direction: column;
 }
 .mtflpp-empty-title {
@@ -209,9 +209,11 @@
     flex-shrink: 0;
     margin: 0;
 }
-.mtflpp-placeholder-stacked .components-placeholder__label > svg {
+.mtflpp-placeholder[data-empty-icon] .components-placeholder__label > svg {
     inline-size: 32px;
     block-size: 32px;
+}
+.mtflpp-placeholder[data-empty-icon="info"] .components-placeholder__label > svg {
     color: var(--mtflpp-accent);
 }
 /* Block Placeholder hides instructions at medium widths; recovery instructions must remain readable here. */

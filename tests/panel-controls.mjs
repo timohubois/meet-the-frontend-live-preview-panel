@@ -351,17 +351,26 @@ for (const mode of ['in-page', 'fullscreen', 'PiP']) {
 test('placeholder actions and loading use public components with no custom spinner or fake title button', () => {
     const h = fixture();
     h.controls.update({ ...h.state, hasPreview: false, empty: {
-        heading: 'Loading', description: 'Preparing', note: 'Each tab keeps its edits', busy: true,
+        heading: 'Loading', description: 'Preparing', note: 'Each tab keeps its edits', busy: true, icon: 'info',
         retry: true, disabled: true, action: 'Switching',
     } });
     const placeholder = h.nodes('Placeholder')[0];
     assert.equal(placeholder.props.instructions, 'Preparing');
     assert.equal(placeholder.props.icon.type, 'Spinner');
+    assert.equal(placeholder.props['data-empty-icon'], undefined, 'Loading keeps its compact icon layout.');
     assert.equal(placeholder.props.label.type, 'h3', 'Nest the empty state below the panel heading.');
     assert.equal(placeholder.props.label.children[0], 'Loading');
     assert.equal(placeholder.props.label.props.tabIndex, -1, 'Keep programmatic focus without adding a Tab stop.');
     const retry = h.nodes('Button').find(({ props }) => props['data-action'] === 'retry');
     assert.equal(retry.props.disabled, true);
+});
+
+test('non-loading placeholders expose their icon type for the shared empty-state layout', () => {
+    const h = fixture();
+    for (const icon of ['info', 'warning']) {
+        h.controls.update({ ...h.state, hasPreview: false, empty: { heading: 'Preview paused', icon } });
+        assert.equal(h.nodes('Placeholder')[0].props['data-empty-icon'], icon);
+    }
 });
 
 test('native notices keep unresolved failures persistent and dismiss only incidental window messages', () => {
