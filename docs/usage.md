@@ -128,7 +128,9 @@ receipt confirms that the saved fingerprint stayed unchanged: even a 4xx can fol
 a partial post update. Failed saves never advance the baseline. Classic Preview
 and block-editor legacy meta-box saves use a short-lived
 acknowledgement cookie containing fingerprints, not editor content; it is cleared
-on completion and expires after one minute.
+on completion and expires after one minute. Changes limited to comment counts
+or RSS enclosure metadata do not trigger live preview conflicts. This includes
+manual changes to the enclosure metadata.
 
 - **Block Editor ACF fields:** native form serialization preserves ACF's field keys, empty values, signed field lists and paginated row changes. The optional ACF PRO datastore is respected when already enabled; the plugin never enables it or changes Gutenberg's edited metadata to prepare a preview. After a native meta-box save, previewing pauses with its last frame until ACF replaces its paginated rows. If ACF's reload fails, the panel remains paused and asks you to reload; it never resets row markers or guesses that a delay was sufficient. Live preview storage is not recovery storage: legacy meta boxes are not sent by Gutenberg's native autosave, and ACF datastore recovery behavior remains ACF's responsibility.
 - **Classic live ACF fields:** support depends on compatible field and revision APIs; not every field type has been verified. Paginated repeaters use ACF's native row merging to preserve unloaded saved rows and edits retained across pages. If native Preview saves draft repeater additions, deletions or reordering, the panel retains its last frame but requires an editor reload: ACF's remaining row changes still refer to the old saved order. Copy any later edits before reloading, and reload before saving again.

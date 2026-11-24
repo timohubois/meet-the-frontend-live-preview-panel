@@ -279,6 +279,8 @@ try {
         'The fixture must exercise a real parent-writing draft autosave.'
     );
 
+    $publishedRoute = rest_get_route_for_post($published);
+    $publishedPreviewRoute = '/meet-the-frontend-live-preview-panel/v1/posts/' . $published . '/preview';
     $base = $live->fingerprint($published);
     foreach (['_encloseme', '_pingme'] as $key) {
         update_post_meta($published, $key, '1');
@@ -287,7 +289,7 @@ try {
     }
     foreach (['block-editor', 'classic-editor'] as $editor) {
         update_post_meta($published, 'classic-editor-remember', $editor);
-        $response = $send('/meet-the-frontend-live-preview-panel/v1/posts/' . $published . '/preview', [
+        $response = $send($publishedPreviewRoute, [
             'base' => $base, 'post_title' => 'Preview after editor preference update',
         ], null);
         $check(
@@ -300,9 +302,6 @@ try {
         );
     }
     delete_post_meta($published, 'classic-editor-remember');
-    update_post_meta($published, 'enclosure', 'https://example.invalid/test.mp3');
-    $check($live->fingerprint($published) !== $base, 'Actual enclosure metadata must still invalidate the preview.');
-    delete_post_meta($published, 'enclosure');
 
     // Core can cache a newly resolved URL in post meta while either editor is still open.
     $embed = clone $GLOBALS['wp_embed'];
@@ -338,14 +337,37 @@ try {
     $check($live->fingerprint($published) !== $base, 'Saved custom field URLs still belong in the baseline.');
     delete_post_meta($published, 'video_url');
 
-    $response = $send(rest_get_route_for_post($published) . '/autosaves', [
+    $mediaUrl = 'https://example.invalid/test.mp3';
+    wp_update_post(['ID' => $published, 'post_content' => '<a href="' . $mediaUrl . '">Episode</a>']);
+    $base = $live->fingerprint($published);
+    $mediaHeaders = static function ($response, array $args, string $url) use ($mediaUrl) {
+        if ($url !== $mediaUrl || $args['method'] !== 'HEAD') {
+            return new WP_Error('unexpected_request', 'Unexpected HTTP request during enclosure processing.');
+        }
+        return [
+            'headers' => ['Content-Type' => 'audio/mpeg', 'Content-Length' => '12345'],
+            'response' => ['code' => 200, 'message' => 'OK'],
+            'body' => '',
+        ];
+    };
+    add_filter('pre_http_request', $mediaHeaders, 10, 3);
+    try {
+        do_enclose(null, $published);
+    } finally {
+        remove_filter('pre_http_request', $mediaHeaders, 10);
+    }
+    $check(
+        get_post_meta($published, 'enclosure', true) === "$mediaUrl\n12345\naudio/mpeg\n",
+        'Core must add enclosure metadata for the linked audio.'
+    );
+    $response = $send($publishedRoute . '/autosaves', [
         'title' => 'Published recovery autosave', 'content' => '<p>Recovery</p>',
     ], $base);
     $check($response->get_status() < 300, 'Published autosaves must work.');
     $check(
         ($response->get_data()['_mtflpp_receipt']['after'] ?? '') === $base
         && $live->fingerprint($published) === $base,
-        'Published autosaves must keep the unchanged parent baseline.'
+        'Core adding an RSS enclosure must not invalidate a published autosave receipt.'
     );
     $recovery = wp_get_post_autosave($published, $admin);
     $check(
@@ -355,12 +377,50 @@ try {
     );
     $recoveryBase = $live->fingerprint($recovery->ID);
     $embed->delete_oembed_caches($published);
-    $response = $send('/meet-the-frontend-live-preview-panel/v1/posts/' . $published . '/preview', [
+    $response = $send($publishedPreviewRoute, [
         'base' => $base, 'post_title' => 'Unsaved changes after recovery autosave',
     ], null);
     $check(
         $response->get_status() === 200 && $live->fingerprint($recovery->ID) === $recoveryBase,
         'Live previews with revisions disabled must leave a genuine recovery autosave intact.'
+    );
+
+    parse_str(wp_parse_url($response->get_data()['url'], PHP_URL_QUERY), $publishedQuery);
+    $comment = wp_insert_comment([
+        'comment_post_ID' => $published, 'comment_content' => 'Pending fixture comment', 'comment_approved' => 0,
+    ]);
+    $check($comment > 0, 'Could not create a pending fixture comment.');
+    foreach ([1, 0] as $count) {
+        $moderated = $count ? wp_set_comment_status($comment, 'approve') : wp_delete_comment($comment, true);
+        $check(
+            $moderated && (int) get_post($published)->comment_count === $count,
+            'Core must update the stored comment count after moderation.'
+        );
+        $source = $live->authorizedSource(
+            $published,
+            (int) $publishedQuery['mtflpp_revision'],
+            $publishedQuery['mtflpp_token']
+        );
+        $check($source !== null, 'Comment moderation must not invalidate a prepared live preview.');
+        $response = $send($publishedRoute . '/autosaves', ['title' => 'Recovery after moderation ' . $count], $base);
+        $check(
+            $response->get_status() < 300 && ($response->get_data()['_mtflpp_receipt']['after'] ?? '') === $base,
+            'Comment moderation must not invalidate native autosave receipts.'
+        );
+    }
+
+    wp_update_post(['ID' => $published, 'post_content' => '<p>Episode link removed.</p>']);
+    $base = $live->fingerprint($published);
+    do_enclose(null, $published);
+    $check(!metadata_exists('post', $published, 'enclosure'), 'Core must delete the unlinked enclosure.');
+    $response = $send($publishedPreviewRoute, ['base' => $base, 'post_title' => 'After enclosure cleanup'], null);
+    $check($response->get_status() === 200, 'Core deleting an RSS enclosure must not invalidate the preview baseline.');
+
+    update_post_meta($published, 'fixture_editorial_field', 'Saved from another session');
+    $response = $send($publishedPreviewRoute, ['base' => $base], null);
+    $check(
+        $response->get_status() === 409 && $response->get_data()['code'] === 'mtflpp_preview_conflict',
+        'Concurrent changes to other post metadata must still invalidate the preview baseline.'
     );
 
     $response = $send(
