@@ -1131,7 +1131,6 @@ for (const hasPreview of [false, true]) {
             assert.equal(h.state.notice, null);
             assert.equal(content.busy, false);
             assert.equal(content.icon, 'info');
-            assert.equal(content.stackIcon, true);
         }
     });
 }

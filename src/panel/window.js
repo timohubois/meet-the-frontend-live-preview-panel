@@ -352,7 +352,6 @@ export function createPreviewPanel(strings, {
             busy: current.hasPreview && ['stale', 'loading', 'handover'].includes(current.state) && current.text !== strings.saving,
             empty: current.hasPreview ? null : {
                 ...presentation(), busy: ['loading', 'stale', 'ready', 'handover'].includes(current.state),
-                stackIcon: current.reason === 'origin-mismatch',
                 icon: ['paused', 'conflict'].includes(current.state) || ['unavailable', 'browser', 'origin-mismatch'].includes(current.reason) ? 'info' : 'warning',
                 retry, disabled: current.state === 'handover', close: current.state === 'error' && !retry,
                 action: retryLabel(),
