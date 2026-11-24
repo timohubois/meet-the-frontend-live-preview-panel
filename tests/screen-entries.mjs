@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import vm from 'node:vm';
+import { runChromiumTests } from './helpers/chromium.mjs';
 import { sourceForVm } from './helpers/modules.mjs';
 
 const editorSource = await sourceForVm(new URL('../src/classic-editor.js', import.meta.url));
@@ -11,7 +12,7 @@ const failureSource = await sourceForVm(new URL('../src/panel/startup-error.js',
 function fixture(screen, { configured = true, formAvailable = true, modelAvailable = true, headerAvailable = true, fail = false } = {}) {
     const calls = [], removed = [], notices = [], errors = [];
     const model = { get() {}, on() {}, off() {} };
-    const launcher = {}, backLink = {}, setupAcfTermEditor = () => {};
+    const launcher = {}, backLink = { after: (node) => notices.push(node) }, setupAcfTermEditor = () => {};
     const launcherId = { editor: 'mtflpp-publish-preview', term: 'mtflpp-term-preview' }[screen];
     const form = { querySelector: (selector) => selector === `#${launcherId} button` ? launcher : null };
     const native = { destroy: () => calls.push('destroy') };
@@ -27,7 +28,7 @@ function fixture(screen, { configured = true, formAvailable = true, modelAvailab
             wp: modelAvailable ? { revisions: { view: { frame: { model } } } } : {},
         },
         document: {
-            querySelector: (selector) => selector === '#wpbody-content > .wrap > h1.long-header + a' && headerAvailable ? backLink : null,
+            querySelector: (selector) => selector === '#wpbody-content > .wrap > h1.long-header ~ a' && headerAvailable ? backLink : null,
             getElementById: (id) => id === formId ? (formAvailable ? form : null)
                 : id === 'wpbody-content' ? { prepend: (node) => notices.push(node) } : nodes.get(id),
             createElement: () => ({ children: [], setAttribute() {}, append(node) { this.children.push(node); } }),
@@ -127,3 +128,55 @@ test('the revision entry is inert without screen configuration', () => {
     assert.deepEqual(h.calls, []);
     assert.deepEqual(h.removed, []);
 });
+
+function browserRevisionHeaderTests(entry, startupError) {
+    const results = [];
+    const showStartupError = new Function(`${startupError}\nreturn showStartupError;`)();
+    const run = new Function('imports', entry);
+    for (const modelAvailable of [true, false]) {
+        const name = modelAvailable ? 'a native notice before the return link does not block startup'
+            : 'a startup error appears below the return link, before the native comparison';
+        try {
+            const content = document.createElement('div');
+            content.id = 'wpbody-content';
+            // Core moves admin notices after the heading when the page has no .wp-header-end.
+            content.innerHTML = `<div class="wrap">
+                <h1 class="long-header">Compare revisions</h1>
+                <div class="notice"><p><a href="/help">Native notice</a></p></div>
+                <a id="return-link" href="post.php">Go to editor</a>
+                <div id="native-comparison"></div>
+            </div><div id="mtflpp-panel"></div>`;
+            document.body.append(content);
+            const backLink = content.querySelector('#return-link');
+            const comparison = content.querySelector('#native-comparison');
+            const model = { get() {}, on() {}, off() {} };
+            window.jQuery = (ready) => ready();
+            window.wp = modelAvailable ? { revisions: { view: { frame: { model } } } } : {};
+            window.meetTheFrontendLivePreviewPanel = { strings: { bootFailed: 'Unavailable' } };
+            let initialized = false;
+            run({
+                './panel/startup-error.js': { showStartupError },
+                './screens/revision-browser.js': { initRevisionPreview(config, selection, anchor) {
+                    initialized = selection === model && anchor === backLink;
+                } },
+            });
+            const notice = content.querySelector('[role="alert"]');
+            if (modelAvailable) {
+                if (!initialized || notice) throw new Error('Expected startup with the native return link and no error.');
+            } else if (!notice || backLink.nextElementSibling !== notice || notice.nextElementSibling !== comparison) {
+                throw new Error('Expected the error between the return link and comparison.');
+            }
+            results.push({ name });
+        } catch (error) {
+            results.push({ name, error: error.message });
+        } finally {
+            document.getElementById('wpbody-content')?.remove();
+        }
+    }
+    return results;
+}
+
+test('classic revision header with WordPress admin notices', (t) => runChromiumTests(t, {
+    script: `(${browserRevisionHeaderTests})(${JSON.stringify(revisionsSource)}, ${JSON.stringify(failureSource)})`,
+    count: 2,
+}));
