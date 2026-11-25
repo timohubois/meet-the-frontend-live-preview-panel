@@ -2,13 +2,16 @@
 
 /** Run with `wp eval-file tests/block-editor.php`; fixtures are created and removed on this single site. */
 
-use MeetTheFrontendLivePreviewPanel\LivePreview;
 use MeetTheFrontendLivePreviewPanel\FrontendPreview;
+use MeetTheFrontendLivePreviewPanel\LivePreview;
+use MeetTheFrontendLivePreviewPanel\Panel;
 
 if (!defined('WP_CLI') || !WP_CLI || !class_exists(LivePreview::class) || is_multisite()) {
     throw new RuntimeException('Run through WP-CLI on a single-site installation with this plugin active.');
 }
 require_once ABSPATH . 'wp-admin/includes/user.php';
+require_once ABSPATH . 'wp-admin/includes/screen.php';
+require_once ABSPATH . 'wp-admin/includes/template.php';
 $check = static function (bool $condition, string $message): void {
     if (!$condition) {
         throw new RuntimeException(esc_html($message));
@@ -23,14 +26,20 @@ register_post_meta('post', '_mtflpp_rejected_meta', [
     'single' => true, 'type' => 'string', 'show_in_rest' => true,
     'auth_callback' => '__return_false',
 ]);
-$server = rest_get_server();
+$registerRestMeta = static function (): void {
+    register_post_meta('post', '_mtflpp_rest_only', [
+        'single' => true, 'type' => 'string', 'show_in_rest' => true,
+        'auth_callback' => '__return_true',
+    ]);
+};
+add_action('rest_api_init', $registerRestMeta, 5);
 $send = static function (
     string $route,
     array $data,
     ?string $base,
     string $method = 'POST',
     ?string $nonce = null
-) use ($server): WP_REST_Response {
+): WP_REST_Response {
     $request = new WP_REST_Request($method, $route);
     $request->set_body_params($data);
     $request->set_header('X-WP-Nonce', $nonce ?? wp_create_nonce('wp_rest'));
@@ -38,7 +47,8 @@ $send = static function (
         $request->set_header('X-MTFLPP-Base', $base);
         $request->set_header('X-MTFLPP-Request', str_repeat('a', 32));
     }
-    return apply_filters('rest_post_dispatch', rest_ensure_response(rest_do_request($request)), $server, $request);
+    $response = rest_ensure_response(rest_do_request($request));
+    return apply_filters('rest_post_dispatch', $response, rest_get_server(), $request);
 };
 $lateMeta = static function (WP_Post $post): void {
     if (get_post_meta($post->ID, '_mtflpp_test', true)) {
@@ -71,8 +81,12 @@ try {
     [$draft, $published, $new] = $posts;
     $check(!wp_revisions_enabled(get_post($draft)), 'The fixture must disable core revision history.');
     $check(!$live->isAvailable(get_post($new)), 'Live previews must still require a first save.');
-    $route = rest_get_route_for_post($draft);
     update_post_meta($draft, '_mtflpp_test', '1');
+    update_post_meta($draft, '_mtflpp_rest_only', 'Persisted REST-only metadata');
+    $check(
+        !isset(get_registered_meta_keys('post', 'post')['_mtflpp_rest_only']),
+        'The editor baseline must be taken before the REST-only metadata registration.'
+    );
     $base = $live->fingerprint($draft);
     $previewRoute = '/meet-the-frontend-live-preview-panel/v1/posts/' . $draft . '/preview';
     $preview = $send($previewRoute, [
@@ -81,9 +95,14 @@ try {
     ], null);
     $check(
         $preview->get_status() === 200,
-        'Serialized block content must preview even when core revision history is disabled.'
+        'Serialized block content must preview from a pre-REST baseline even when revision history is disabled.'
     );
-    $check($live->fingerprint($draft) === $base, 'Preview writes must leave the saved parent untouched.');
+    $check(
+        !empty(get_registered_meta_keys('post', 'post')['_mtflpp_rest_only']['show_in_rest'])
+        && current_user_can('edit_post_meta', $draft, '_mtflpp_rest_only'),
+        'The persisted fixture meta must really be editable once REST initializes.'
+    );
+    $check($live->fingerprint($draft) === $base, 'REST initialization must not change the editor baseline.');
     $check(!wp_get_post_autosave($draft, $admin), 'Preview writes must not create a recovery autosave.');
     parse_str(wp_parse_url($preview->get_data()['url'], PHP_URL_QUERY), $query);
     $revision = get_post((int) $query['mtflpp_revision']);
@@ -92,6 +111,19 @@ try {
         && str_contains($revision->post_content, '<!-- wp:paragraph -->'),
         'Preview revisions must retain block serialization.'
     );
+    $check(
+        get_post_meta($revision->ID, '_mtflpp_rest_only', true) === 'Persisted REST-only metadata',
+        'REST-only metadata must still be copied into the preview snapshot.'
+    );
+    update_post_meta($draft, '_mtflpp_rest_only', 'New saved value outside the preview baseline');
+    $check($live->fingerprint($draft) === $base, 'Arbitrary registered metadata must not expand the editor baseline.');
+    // Simulate a fresh frontend bootstrap: no REST registration or edit-meta capability for this key.
+    unregister_post_meta('post', '_mtflpp_rest_only');
+    $check(
+        $live->authorizedSource($draft, $revision->ID, $query['mtflpp_token']) !== null,
+        'A token issued while REST-only meta is registered must still authorize the frame without that registry.'
+    );
+    $route = rest_get_route_for_post($draft);
 
     update_post_meta($draft, '_edit_lock', time() . ':' . $subscriber);
     foreach ([$base, str_repeat('0', 64)] as $lockedBase) {
@@ -188,16 +220,17 @@ try {
         $check(!wp_get_post_autosave($draft, $admin), 'Image previews must not create recovery autosaves.');
     }
     $revision = get_post($imageRevision);
-    $revisionBase = $live->fingerprint($imageRevision);
+    $revisionBase = $live->snapshotFingerprint($imageRevision);
     foreach ([-1, [$images[1]], 'invalid', $draft, PHP_INT_MAX] as $invalid) {
         $response = $send($previewRoute, ['base' => $base, 'featured_media' => $invalid], null);
         $check($response->get_status() === 400, 'Invalid or non-image featured media must be rejected.');
         $check(
-            $live->fingerprint($draft) === $base && $live->fingerprint($imageRevision) === $revisionBase,
+            $live->fingerprint($draft) === $base && $live->snapshotFingerprint($imageRevision) === $revisionBase,
             'Rejected image changes must not alter either the parent or its preview.'
         );
     }
 
+    update_post_meta($draft, '_mtflpp_background', 'fresh metadata from another request');
     $response = $send($route, ['title' => 'Native update'], $base, 'PUT');
     $receipt = $response->get_data()['_mtflpp_receipt'] ?? [];
     $check($response->get_status() === 200, 'Receipt handling must not replace native REST saves.');
@@ -207,8 +240,9 @@ try {
         'Receipts must identify exactly their request and initial state.'
     );
     $check(
-        ($receipt['after'] ?? '') === $live->fingerprint($draft),
-        'The receipt must include metadata saved after the core update.'
+        ($receipt['after'] ?? '') === $live->fingerprint($draft)
+        && get_post_meta($draft, '_mtflpp_after_rest', true) === 'saved after the core update',
+        'The native save must preserve late metadata writes and acknowledge the final editor state.'
     );
     $check(($receipt['available'] ?? false) === true, 'Saved eligible posts must remain available.');
     $check(!get_post($revision->ID), 'Native saves must discard the old internal preview revision.');
@@ -239,6 +273,36 @@ try {
         'A metadata 403 after wp_update_post must not confirm the old baseline or advance a failed save.'
     );
     unregister_post_meta('post', '_mtflpp_rejected_meta');
+
+    // A late error after a metadata-only write must not be acknowledged just because the editor hash is unchanged.
+    $base = $live->fingerprint($draft);
+    $keepModified = static function (array $data, array $postarr) use ($draft): array {
+        if ((int) $postarr['ID'] === $draft) {
+            $saved = get_post($draft);
+            $data['post_modified'] = $saved->post_modified;
+            $data['post_modified_gmt'] = $saved->post_modified_gmt;
+        }
+        return $data;
+    };
+    register_rest_field('post', 'mtflpp_partial_fixture', [
+        'update_callback' => static function ($value, WP_Post $post): WP_Error {
+            update_post_meta($post->ID, '_mtflpp_background', $value);
+            return new WP_Error('fixture_partial_save', 'Partial fixture write.', ['status' => 400]);
+        },
+    ]);
+    add_filter('wp_insert_post_data', $keepModified, 10, 2);
+    try {
+        $response = $send($route, ['mtflpp_partial_fixture' => 'Partially saved'], $base, 'PUT');
+        $check(
+            $response->get_status() === 400 && $response->get_data()['code'] === 'fixture_partial_save'
+            && get_post_meta($draft, '_mtflpp_background', true) === 'Partially saved'
+            && $live->fingerprint($draft) === $base && !isset($response->get_data()['_mtflpp_receipt']),
+            'A metadata-only partial save must not confirm an unchanged editor baseline.'
+        );
+    } finally {
+        remove_filter('wp_insert_post_data', $keepModified, 10);
+        unset($GLOBALS['wp_rest_additional_fields']['post']['mtflpp_partial_fixture']);
+    }
 
     $base = $live->fingerprint($draft);
     wp_update_post(['ID' => $draft, 'post_excerpt' => 'External change']);
@@ -334,12 +398,23 @@ try {
     );
     $check($source !== null, 'Refreshing the embed cache timestamp must not invalidate a prepared preview.');
     update_post_meta($published, 'video_url', $video);
-    $check($live->fingerprint($published) !== $base, 'Saved custom field URLs still belong in the baseline.');
+    $check($live->fingerprint($published) === $base, 'Raw Custom Fields must not expand the baseline.');
     delete_post_meta($published, 'video_url');
 
     $mediaUrl = 'https://example.invalid/test.mp3';
     wp_update_post(['ID' => $published, 'post_content' => '<a href="' . $mediaUrl . '">Episode</a>']);
     $base = $live->fingerprint($published);
+    $originalScreen = get_current_screen();
+    $originalMetaBoxes = $GLOBALS['wp_meta_boxes'] ?? null;
+    try {
+        set_current_screen('post');
+        add_meta_box('postcustom', 'Custom Fields', 'post_custom_meta_box', 'post', 'normal', 'core');
+        $panel = new Panel(dirname(__DIR__) . '/meet-the-frontend-live-preview-panel.php');
+        $classicBase = $panel->liveConfig(get_post($published), $live)['base'];
+    } finally {
+        $GLOBALS['current_screen'] = $originalScreen;
+        $GLOBALS['wp_meta_boxes'] = $originalMetaBoxes;
+    }
     $mediaHeaders = static function ($response, array $args, string $url) use ($mediaUrl) {
         if ($url !== $mediaUrl || $args['method'] !== 'HEAD') {
             return new WP_Error('unexpected_request', 'Unexpected HTTP request during enclosure processing.');
@@ -360,6 +435,11 @@ try {
         get_post_meta($published, 'enclosure', true) === "$mediaUrl\n12345\naudio/mpeg\n",
         'Core must add enclosure metadata for the linked audio.'
     );
+    $response = $send($publishedPreviewRoute, ['base' => $classicBase, 'content' => 'Unsaved Classic edit'], null);
+    $check(
+        $response->get_status() === 200,
+        'A new enclosure row must not block the open Classic editor with a native Custom Fields box.'
+    );
     $response = $send($publishedRoute . '/autosaves', [
         'title' => 'Published recovery autosave', 'content' => '<p>Recovery</p>',
     ], $base);
@@ -375,13 +455,13 @@ try {
         && $recovery->post_title === 'Published recovery autosave',
         'Core must retain its recovery autosave.'
     );
-    $recoveryBase = $live->fingerprint($recovery->ID);
+    $recoveryBase = $live->snapshotFingerprint($recovery->ID);
     $embed->delete_oembed_caches($published);
     $response = $send($publishedPreviewRoute, [
         'base' => $base, 'post_title' => 'Unsaved changes after recovery autosave',
     ], null);
     $check(
-        $response->get_status() === 200 && $live->fingerprint($recovery->ID) === $recoveryBase,
+        $response->get_status() === 200 && $live->snapshotFingerprint($recovery->ID) === $recoveryBase,
         'Live previews with revisions disabled must leave a genuine recovery autosave intact.'
     );
 
@@ -416,12 +496,34 @@ try {
     $response = $send($publishedPreviewRoute, ['base' => $base, 'post_title' => 'After enclosure cleanup'], null);
     $check($response->get_status() === 200, 'Core deleting an RSS enclosure must not invalidate the preview baseline.');
 
-    update_post_meta($published, 'fixture_editorial_field', 'Saved from another session');
+    parse_str(wp_parse_url($response->get_data()['url'], PHP_URL_QUERY), $query);
+    $sourceId = (int) $query['mtflpp_revision'];
+    update_post_meta($published, '_mtflpp_background', 'Background change');
+    $check(
+        $live->authorizedSource($published, $sourceId, $query['mtflpp_token']) !== null,
+        'Background metadata must not invalidate an already prepared live frame.'
+    );
     $response = $send($publishedPreviewRoute, ['base' => $base], null);
     $check(
-        $response->get_status() === 409 && $response->get_data()['code'] === 'mtflpp_preview_conflict',
-        'Concurrent changes to other post metadata must still invalidate the preview baseline.'
+        $response->get_status() === 200 && get_post_meta($sourceId, '_mtflpp_background', true) === 'Background change',
+        'The next live frame must seed fresh metadata without treating it as an editor conflict.'
     );
+    parse_str(wp_parse_url($response->get_data()['url'], PHP_URL_QUERY), $query);
+    update_metadata('post', $sourceId, '_mtflpp_background', 'Tampered');
+    $check(
+        $live->authorizedSource($published, $sourceId, $query['mtflpp_token']) === null,
+        'The same metadata change on the owned source itself must invalidate its read token.'
+    );
+
+    foreach (['_thumbnail_id' => $images[0], '_wp_page_template' => 'fixture-template'] as $key => $value) {
+        $base = $live->fingerprint($published);
+        update_post_meta($published, $key, $value);
+        $response = $send($publishedPreviewRoute, ['base' => $base], null);
+        $check(
+            $response->get_status() === 409 && $response->get_data()['code'] === 'mtflpp_preview_conflict',
+            'A metadata-only change to the featured image or page template must conflict.'
+        );
+    }
 
     $response = $send(
         rest_get_route_for_post($new),
@@ -447,6 +549,8 @@ try {
         remove_filter('wp_post_revisions_to_keep', $disableHistory);
     }
     unregister_post_meta('post', '_mtflpp_rejected_meta');
+    remove_action('rest_api_init', $registerRestMeta, 5);
+    unregister_post_meta('post', '_mtflpp_rest_only');
     remove_action('rest_after_insert_post', $lateMeta);
     wp_set_current_user($users[0] ?? $originalUser);
     foreach (array_reverse($posts) as $id) {

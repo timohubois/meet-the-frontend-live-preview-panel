@@ -1260,17 +1260,19 @@ test('a blocked preview URL uses the generic error without suggesting a retry', 
 });
 
 // Exercise complete messages, not just individual strings: server errors must not repeat the reload warning.
-const reloadDetails = [acfStrings.nativePreviewAcf, panelStrings.nativePreviewFailed, blockEditorStrings.nativeSaveFailed,
+const reloadDetails = [panelStrings.nativePreviewFailed, blockEditorStrings.nativeSaveFailed,
     panelStrings.integrationFailed, acfStrings.acfUnavailable];
 for (const path of ['classes/LivePreview.php', 'classes/Compatibility/Acf.php']) {
     const php = await readFile(new URL(`../${path}`, import.meta.url), 'utf8');
+    const sharedConflict = php.match(/function conflictMessage\(\): string\s*\{\s*return __\(\s*'([^']+)'/);
+    if (sharedConflict) reloadDetails.push(sharedConflict[1]);
     for (const [, code, message] of php.matchAll(/new WP_Error\(\s*'(mtflpp_[^']+)',\s*__\(\s*'([^']+)'/g)) {
         if (['mtflpp_invalid_nonce', 'mtflpp_preview_conflict', 'mtflpp_source_changed', 'mtflpp_acf_unavailable'].includes(code)) {
             reloadDetails.push(message);
         }
     }
 }
-assert.equal(reloadDetails.length, 9, 'Cover every plugin-owned error that requires reloading.');
+assert.equal(reloadDetails.length, 8, 'Cover every plugin-owned error that uses the generic reload instruction.');
 for (const hasPreview of [false, true]) {
     test(`reload errors explain how to keep changes once with ${hasPreview ? 'a retained preview' : 'no preview'}`, () => {
         const h = fixture(true, { labels: panelStrings });
@@ -1280,18 +1282,31 @@ for (const hasPreview of [false, true]) {
             const content = hasPreview ? h.state.notice : h.state.empty;
             const text = `${content.heading} ${content.description}`;
             assert.ok(text.includes(message));
-            assert.equal((text.match(/Copy any changes you want to keep/g) || []).length, 1);
+            assert.equal((text.match(/Copy any unsaved changes you want to keep/g) || []).length, 1);
             assert.equal((text.match(/reload the editor/gi) || []).length, 1);
-            assert.match(text, /Copy any changes you want to keep\. Then reload the editor before saving again\./);
+            assert.match(text, /Copy any unsaved changes you want to keep, then reload the editor to resume live preview\./);
             assert.equal(content.retry, false);
             assert.equal(content.close, !hasPreview, 'Keep the existing close action for errors without a preview.');
         }
+    });
+
+    test(`stale Classic ACF rows explain how to keep changes before saving with ${hasPreview ? 'a retained preview' : 'no preview'}`, () => {
+        const h = fixture(true, { labels: { ...panelStrings, ...acfStrings } });
+        h.view.report(acfStrings.nativePreviewAcf, 'error', { hasPreview, reason: 'reload-before-save', canRetry: false });
+        const content = hasPreview ? h.state.notice : h.state.empty;
+        const text = `${content.heading} ${content.description}`;
+        assert.ok(text.includes(acfStrings.nativePreviewAcf));
+        assert.match(text, /Copy any unsaved changes you want to keep, then reload the editor before saving again\./);
+        assert.equal((text.match(/reload the editor/gi) || []).length, 1);
+        assert.equal(content.retry, false);
+        assert.equal(content.close, !hasPreview);
     });
 }
 
 test('uncertain saves do not claim failure or success, and ACF recovery identifies what WordPress already saved', () => {
     assert.equal(blockEditorStrings.nativeSaveFailed, 'We couldn’t check whether WordPress saved your latest changes.');
-    assert.equal(acfStrings.nativePreviewAcf, 'WordPress Preview saved changes in your repeating fields to the post.');
+    assert.match(acfStrings.nativePreviewAcf, /WordPress Preview saved repeating field changes/);
+    assert.match(acfStrings.nativePreviewAcf, /rows in this editor are still out of date/);
     assert.doesNotMatch(acfStrings.nativePreviewAcf, /all changes|all edits|reload/i);
 });
 

@@ -84,10 +84,10 @@ try {
         }
     }
     [$postId, $otherId] = $posts;
-    $base = $live->fingerprint($postId);
+    $base = $live->snapshotFingerprint($postId);
     $recoveryId = _wp_put_post_revision($postId, true);
     $check(is_int($recoveryId), 'Could not create the recovery fixture.');
-    $recovery = $live->fingerprint($recoveryId);
+    $recovery = $live->snapshotFingerprint($recoveryId);
     $check(get_class(\Timber\Timber::get_post($postId)) === \Timber\Post::class, 'Ordinary imports stay native.');
     $selection = [];
     foreach (['category', 'post_tag', 'mtflpp_timber_topic'] as $taxonomy) {
@@ -218,8 +218,8 @@ try {
         wp_get_object_terms($postId, 'category', ['fields' => 'ids']) === [$choices['category']['Saved']],
         'Direct reads stay saved.'
     );
-    $check($live->fingerprint($postId) === $base, 'Timber preview reads must not change the saved parent.');
-    $check($live->fingerprint($recoveryId) === $recovery, 'Timber preview reads must preserve recovery data.');
+    $check($live->snapshotFingerprint($postId) === $base, 'Timber preview reads must not change the saved parent.');
+    $check($live->snapshotFingerprint($recoveryId) === $recovery, 'Timber preview reads must preserve recovery data.');
     foreach (['category', 'post_tag', 'mtflpp_timber_topic'] as $taxonomy) {
         $check(get_term($choices[$taxonomy]['Edited'])->count === 0, 'Preview-only terms must retain zero counts.');
     }

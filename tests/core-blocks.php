@@ -81,8 +81,8 @@ try {
     $GLOBALS['post'] = $parent;
     $parentBefore = clone $parent;
     $cachedBefore = clone wp_cache_get($postId, 'posts');
-    $savedBefore = $live->fingerprint($postId);
-    $recoveryBefore = $live->fingerprint($autosaveId);
+    $savedBefore = $live->snapshotFingerprint($postId);
+    $recoveryBefore = $live->snapshotFingerprint($autosaveId);
     $ordinary = $block($postId)->render();
     $other = $block($otherId)->render();
     $check($excerpt($ordinary) === 'Saved excerpt Selected', 'Ordinary requests must retain saved excerpts.');
@@ -254,7 +254,8 @@ try {
         'Rendering must not mutate the global post, held post objects or shared cached parent data.'
     );
     $check(
-        $live->fingerprint($postId) === $savedBefore && $live->fingerprint($autosaveId) === $recoveryBefore,
+        $live->snapshotFingerprint($postId) === $savedBefore
+        && $live->snapshotFingerprint($autosaveId) === $recoveryBefore,
         'Excerpt rendering must not write the saved parent or its recovery autosave.'
     );
     $check(has_action('shutdown', [$core, 'unbindPreview']) === PHP_INT_MAX, 'Bound rendering needs shutdown cleanup.');

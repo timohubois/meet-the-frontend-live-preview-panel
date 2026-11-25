@@ -34,7 +34,10 @@ export function createBlockEditor(config) {
     const editor = () => select('core/editor');
     const ownsPost = () => Number(editor()?.getCurrentPostId()) === config.postId
         && editor()?.getCurrentPostType() === config.postType;
-    const fail = () => { failure = Object.assign(new Error(config.strings.nativeSaveFailed), { code: 'mtflpp_source_changed' }); };
+    const fail = (conflict = false) => {
+        const message = conflict ? config.strings.savedPostConflict : config.strings.nativeSaveFailed;
+        failure = Object.assign(new Error(message), { code: 'mtflpp_source_changed' });
+    };
     const token = () => Array.from(window.crypto.getRandomValues(new Uint8Array(16)),
         (byte) => byte.toString(16).padStart(2, '0')).join('');
 
@@ -173,8 +176,12 @@ export function createBlockEditor(config) {
 
     function accept(receipt, request, base) {
         if (!receipt || receipt.request !== request || receipt.before !== base || config.base !== base
-            || typeof receipt.after !== 'string' || !fingerprint.test(receipt.after) || typeof receipt.available !== 'boolean') {
+            || typeof receipt.available !== 'boolean') {
             fail();
+            return;
+        }
+        if (typeof receipt.after !== 'string' || !fingerprint.test(receipt.after)) {
+            fail(receipt.after === 'conflict');
             return;
         }
         config.base = receipt.after;
@@ -222,7 +229,8 @@ export function createBlockEditor(config) {
             const response = await next({ ...options, body });
             const cookie = document.cookie.split(';').map((part) => part.trim()).find((part) => part.startsWith(`${cookieName}=`));
             const receipt = cookie?.slice(cookieName.length + 1);
-            accept({ request, before: base, after: receipt?.startsWith(`${base}.`) ? receipt.slice(65) : '', available: config.available }, request, base);
+            const after = receipt?.startsWith(`${base}.`) ? receipt.slice(65) : '';
+            accept({ request, before: base, after: receipt === 'conflict' ? receipt : after, available: config.available }, request, base);
             if (!failure) extensions.action('nativeMetaboxSaveAcknowledged');
             return response;
         } catch (error) {

@@ -154,10 +154,10 @@ try {
         $check(in_array($choices['Saved']['id'], $trailIds($saved), true), 'Warm real saved breadcrumbs.');
     }
     $beforeIndexables = $indexables();
-    $before = $live->fingerprint($postId);
+    $before = $live->snapshotFingerprint($postId);
     $recoveryId = _wp_put_post_revision($postId, true);
     $check(is_int($recoveryId), 'Could not create recovery data.');
-    $recovery = $live->fingerprint($recoveryId);
+    $recovery = $live->snapshotFingerprint($recoveryId);
     $sourceId = $bind($postId, $primary(['category' => $choices['Edited']['id']]));
     $check(yoast_get_primary_term_id('category', $postId) === $choices['Edited']['id'], 'Primary-only edits work.');
     $check(yoast_get_primary_term_id('category', $otherId) === $choices['Saved']['id'], 'Other primaries stay saved.');
@@ -169,8 +169,8 @@ try {
     $check(str_contains($html, get_term($choices['Edited']['id'])->name), 'Native breadcrumb HTML must update.');
     $check(str_contains($html, esc_url(get_term_link($choices['Edited']['id']))), 'Native links must update.');
     $check(!str_contains($html, get_term($choices['Saved']['id'])->name), 'Old category HTML must disappear.');
-    $check($live->fingerprint($postId) === $before, 'Primary preview must not change saved metadata/relationships.');
-    $check($live->fingerprint($recoveryId) === $recovery, 'Recovery data must remain unchanged.');
+    $check($live->snapshotFingerprint($postId) === $before, 'Primary preview must preserve saved metadata and terms.');
+    $check($live->snapshotFingerprint($recoveryId) === $recovery, 'Recovery data must remain unchanged.');
     $check($indexables() === $beforeIndexables, 'Neither preparation nor native rendering may rewrite indexables.');
     $check(
         (int) get_post_meta($sourceId, '_yoast_wpseo_primary_category', true) === $choices['Edited']['id'],
@@ -295,8 +295,8 @@ try {
     );
     $check(!has_filter('get_post_metadata', [$adapter, 'readPrimaryMeta']), 'Primary hooks must release.');
     $check($indexables() === $beforeIndexables, 'Rebinding, invalid requests and history must not rewrite indexables.');
-    $check($live->fingerprint($postId) === $before, 'All selected-post saved data must remain unchanged.');
-    $check($live->fingerprint($recoveryId) === $recovery, 'Rebinding preserves recovery data.');
+    $check($live->snapshotFingerprint($postId) === $before, 'All selected-post saved data must remain unchanged.');
+    $check($live->snapshotFingerprint($recoveryId) === $recovery, 'Rebinding preserves recovery data.');
     if (YoastSEO()->helpers->indexable->should_index_indexables()) {
         $repository = YoastSEO()->classes->get(\Yoast\WP\SEO\Repositories\Indexable_Repository::class);
         $hierarchy = YoastSEO()->classes->get(\Yoast\WP\SEO\Repositories\Indexable_Hierarchy_Repository::class);
@@ -345,8 +345,8 @@ try {
             $adapter->allowIndexableSave(true, $other) && !$adapter->allowIndexableSave(false, $other),
             'Unrelated models retain their native save decision.'
         );
-        $check($live->fingerprint($postId) === $before, 'Lazy builds must not change saved metadata or relationships.');
-        $check($live->fingerprint($recoveryId) === $recovery, 'Lazy builds must preserve recovery data.');
+        $check($live->snapshotFingerprint($postId) === $before, 'Lazy builds must preserve saved metadata and terms.');
+        $check($live->snapshotFingerprint($recoveryId) === $recovery, 'Lazy builds must preserve recovery data.');
         $adapter->unbindPreview();
         $check(!has_filter('wpseo_should_save_indexable', [$adapter, 'allowIndexableSave']), 'Write guard releases.');
     }

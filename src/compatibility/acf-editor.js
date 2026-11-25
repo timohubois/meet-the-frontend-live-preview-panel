@@ -55,6 +55,6 @@ addAction('mtflpp.classicEditor.previewSetup', namespace, ({
     hooks.addFilter('nativePreviewHandoffError', namespace, (error, saved) => {
         // Row deltas still refer to the pre-Preview draft after native Preview saves structural edits.
         return error || (saved && fields.hasStructuralPaginationChanges()
-            ? Object.assign(new Error(config.strings.nativePreviewAcf), { code: 'mtflpp_source_changed' }) : undefined);
+            ? Object.assign(new Error(config.strings.nativePreviewAcf), { code: 'mtflpp_acf_rows_stale' }) : undefined);
     });
 });

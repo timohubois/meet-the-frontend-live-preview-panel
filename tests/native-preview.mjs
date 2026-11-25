@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
 import { sourceForVm, previewSourceForVm } from './helpers/modules.mjs';
 import { editorExtensionsFixture } from './helpers/editor-extensions.mjs';
+import { acfStrings } from './helpers/panel-strings.mjs';
 import test from 'node:test';
 import vm from 'node:vm';
 
@@ -50,7 +51,7 @@ async function fixture(pending) {
     };
     const config = {
         base: 'a'.repeat(64), adminCookiePath: '/',
-        strings: { nativePreviewFailed: 'Check the native Preview tab.' },
+        strings: { nativePreviewFailed: 'Check the native Preview tab.', savedPostConflict: 'The saved post changed.' },
     };
     const preview = { target: 'wp-preview-42', classList: { contains: () => false }, click: () => click() };
     const click = (disabled = false) => {
@@ -163,6 +164,7 @@ for (const value of ['conflict', 'malformed', `${'f'.repeat(64)}.${'b'.repeat(64
         assert.equal(h.config.base, 'a'.repeat(64));
         assert.equal(h.nativeEditor.previewing, false);
         assert.equal(h.outcomes[0].code, 'mtflpp_source_changed');
+        assert.equal(h.outcomes[0].message, value === 'conflict' ? h.config.strings.savedPostConflict : h.config.strings.nativePreviewFailed);
         assert.equal(h.fields.length, 0);
         assert.equal(h.cookies.size, 0);
         assert.equal(h.posts, 1);
@@ -290,19 +292,20 @@ for (const [saved, structural, blocked] of [[true, true, true], [false, true, fa
         };
         const initPreview = vm.runInNewContext(`${editorSource}\ninitLivePreview`, context);
         initPreview({
-            available: true, acfEnabled: true, strings: { nativePreviewAcf: 'Copy later edits and reload.' },
+            available: true, acfEnabled: true, strings: acfStrings,
         }, native);
         native.onPreview(undefined, saved);
         callbacks.onOpen();
         await flush();
         if (blocked) {
             assert.equal(requests, 0);
-            assert.equal(reports.at(-1).reason, 'reload');
+            assert.equal(reports.at(-1).reason, 'reload-before-save');
+            assert.equal(reports.at(-1).text, acfStrings.nativePreviewAcf);
             assert.equal(reports.at(-1).canRetry, false);
             callbacks.onClose(); callbacks.onOpen();
             await flush();
             assert.equal(requests, 0, 'closing and reopening must not apply stale structural deltas');
-            assert.equal(reports.at(-1).reason, 'reload');
+            assert.equal(reports.at(-1).reason, 'reload-before-save');
         } else assert.equal(requests, 1);
     });
 }

@@ -77,7 +77,7 @@ try {
     $autosaveId = _wp_put_post_revision($postId, true);
     $check(is_int($autosaveId), 'Could not create the recovery fixture.');
     $base = $live->fingerprint($postId);
-    $recovery = $live->fingerprint($autosaveId);
+    $recovery = $live->snapshotFingerprint($autosaveId);
     $sourceId = 0;
     $previous = null;
     foreach ([$author, $subscriber, $admin, $author, null] as $selected) {
@@ -144,14 +144,14 @@ try {
         $explicitAvatar = $block('core/avatar', $postId, ['userId' => $subscriber])->render();
         $check(str_contains($explicitAvatar, 'MTFLPP subscriber'), 'An explicit avatar user must not be overridden.');
         $check($live->fingerprint($postId) === $base, 'Author previews must never update the parent or its cache.');
-        $check($live->fingerprint($autosaveId) === $recovery, 'Author previews must not change recovery data.');
+        $check($live->snapshotFingerprint($autosaveId) === $recovery, 'Author previews must not change recovery data.');
     }
-    $sourceBase = $live->fingerprint($sourceId);
+    $sourceBase = $live->snapshotFingerprint($sourceId);
     foreach ([0, -1, 1.5, 'invalid', [$author], PHP_INT_MAX] as $invalid) {
         $response = $send($route, ['base' => $base, 'author' => $invalid]);
         $check($response->get_status() === 400, 'Invalid/nonexistent authors must be rejected.');
         $check(
-            $live->fingerprint($sourceId) === $sourceBase && $live->fingerprint($postId) === $base,
+            $live->snapshotFingerprint($sourceId) === $sourceBase && $live->fingerprint($postId) === $base,
             'Rejected authors must not alter saved or preview state.'
         );
     }

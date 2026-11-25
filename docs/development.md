@@ -136,9 +136,12 @@ still persist those options when configured to do so.
 
 The block-editor fixture checks native REST save receipts, source conflicts,
 authorization, first-save eligibility, draft/published autosaves, unchanged validation
-rejections, metadata errors after partial post updates, and isolated serialized-block
-previews. It also verifies that core oEmbed cache writes do not invalidate live previews
-or native save receipts. Client adapter tests cover pre-save draining, request correlation,
+rejections, metadata errors after partial writes, and isolated serialized-block previews.
+It verifies that Classic's native Custom Fields box and REST-only registrations do
+not change the editor baseline, and that metadata outside the check can seed the
+next snapshot without expiring the current frame or bypassing snapshot integrity
+checks.
+Client adapter tests cover pre-save draining, request correlation,
 legacy meta-box acknowledgement and failure handling, including malformed fingerprints
 and read-only errors in strict mode. The HTTP-free preview-isolation fixture checks that
 existing site policies are preserved with both core APIs and the older-core fallback.

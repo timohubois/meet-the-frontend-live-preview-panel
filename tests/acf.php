@@ -103,6 +103,14 @@ try {
                     ['key' => 'field_mtflpp_acf_test_row', 'name' => 'text', 'type' => 'text'],
                 ],
             ],
+            [
+                'key' => 'field_mtflpp_acf_group', 'name' => 'mtflpp_acf_group', 'type' => 'group',
+                'sub_fields' => [[
+                    'key' => 'field_mtflpp_acf_nested', 'name' => 'rows', 'type' => 'repeater',
+                    'pagination' => 1, 'rows_per_page' => 1,
+                    'sub_fields' => [['key' => 'field_mtflpp_acf_nested_row', 'name' => 'text', 'type' => 'text']],
+                ]],
+            ],
         ],
     ]);
     $postId = wp_insert_post([
@@ -112,6 +120,9 @@ try {
     $check(!is_wp_error($postId) && $postId > 0, 'Could not create a fixture page.');
     update_field('field_mtflpp_acf_test_text', 'Saved text', $postId);
     update_field('field_mtflpp_acf_test_rows', [['text' => 'First row'], ['text' => 'Second row']], $postId);
+    update_field('field_mtflpp_acf_group', [
+        'rows' => [['text' => 'Nested first'], ['text' => 'Nested second']],
+    ], $postId);
     update_field('field_mtflpp_acf_forward', [$related[0]], $postId);
     update_field('field_mtflpp_acf_terms', [$terms[0]], $postId);
     $relatedMeta = array_map('get_post_meta', $related);
@@ -126,12 +137,13 @@ try {
     );
     $check(is_int($recovery) && $recovery > 0, 'Could not create a native recovery autosave.');
     update_metadata('post', $recovery, 'mtflpp_acf_test_text', 'Recovery field');
-    $recoveryBase = [$live->fingerprint($recovery), wp_get_post_autosave($postId, $user)->ID];
+    $recoveryBase = [$live->snapshotFingerprint($recovery), wp_get_post_autosave($postId, $user)->ID];
     $base = $live->fingerprint($postId);
+    $parentSnapshot = $live->snapshotFingerprint($postId);
     $unchanged = static function (int $revisionId) use (
         $check,
         $live,
-        $base,
+        $parentSnapshot,
         $postId,
         $related,
         $relatedMeta,
@@ -142,7 +154,7 @@ try {
         $terms,
         $media
     ): void {
-        $check($live->fingerprint($postId) === $base, 'Preview must not change the saved page.');
+        $check($live->snapshotFingerprint($postId) === $parentSnapshot, 'Preview must not change the saved page.');
         $check(
             array_map('get_post_meta', $related) === $relatedMeta,
             'Preview must not change reverse relationship metadata.'
@@ -156,7 +168,7 @@ try {
             'Preview must not change real term relationships, even on the revision.'
         );
         $check(
-            [$live->fingerprint($recovery), wp_get_post_autosave($postId, $user)->ID] === $recoveryBase,
+            [$live->snapshotFingerprint($recovery), wp_get_post_autosave($postId, $user)->ID] === $recoveryBase,
             'Preview must not change native recovery content, metadata or identity.'
         );
     };
@@ -184,6 +196,9 @@ try {
             'field_mtflpp_acf_test_rows' => [
                 'row-0' => ['field_mtflpp_acf_test_row' => 'Unsaved first row'],
             ],
+            'field_mtflpp_acf_group' => ['field_mtflpp_acf_nested' => [
+                'row-0' => ['field_mtflpp_acf_nested_row' => 'Unsaved nested first'],
+            ]],
         ],
     ];
     $nestedResponses = [];
@@ -262,7 +277,82 @@ try {
     );
     $unchanged($revisionId);
     $assertGuardsReleased();
-    $revisionBase = $live->fingerprint($revisionId);
+    $check(
+        get_post_meta($revisionId, 'mtflpp_acf_group_rows_0_text', true) === 'Unsaved nested first'
+        && get_post_meta($revisionId, 'mtflpp_acf_group_rows_1_text', true) === 'Nested second',
+        'A nested paginated repeater must also merge against its saved storage path.'
+    );
+    $revisionBase = $live->snapshotFingerprint($revisionId);
+    $rowField = acf_get_field('field_mtflpp_acf_test_rows');
+    $frontendPagination = static function (array $field): array {
+        $field['pagination'] = 0;
+        return $field;
+    };
+    $fieldFilter = 'acf/load_field/key=' . $rowField['key'];
+    $authorized = static fn () => $live->authorizedSource($postId, $revisionId, $query['mtflpp_token']);
+    add_filter($fieldFilter, $frontendPagination);
+    try {
+        // Start with cold caches as in a frontend request with a different field definition.
+        acf_flush_field_cache($rowField);
+        clean_post_cache($postId);
+        clean_post_cache($revisionId);
+        $check(
+            empty(acf_get_field($rowField['key'])['pagination']) && $live->fingerprint($postId) !== $base,
+            'The frontend field definition must give a different editor baseline.'
+        );
+        $check(
+            $live->snapshotFingerprint($postId) === $parentSnapshot && $authorized() !== null,
+            'A frontend field definition must not invalidate an unchanged prepared snapshot.'
+        );
+        $template = get_post_meta($postId, '_wp_page_template', true);
+        update_post_meta($postId, '_wp_page_template', 'fixture-template');
+        try {
+            $check($authorized() === null, 'A native parent template change must invalidate the read token.');
+        } finally {
+            if ($template === '') {
+                delete_post_meta($postId, '_wp_page_template');
+            } else {
+                update_post_meta($postId, '_wp_page_template', $template);
+            }
+        }
+        $sourceRow = 'mtflpp_acf_test_rows_0_text';
+        update_metadata('post', $revisionId, $sourceRow, 'Tampered snapshot row');
+        try {
+            $check($authorized() === null, 'Changing a row in the owned snapshot must invalidate the read token.');
+        } finally {
+            update_metadata('post', $revisionId, $sourceRow, 'Unsaved first row');
+        }
+    } finally {
+        remove_filter($fieldFilter, $frontendPagination);
+        acf_flush_field_cache($rowField);
+    }
+    $externalRowEdits = [
+        ['mtflpp_acf_test_rows_0_text' => 'Second row', 'mtflpp_acf_test_rows_1_text' => 'First row'],
+        ['mtflpp_acf_group_rows_1_text' => 'Externally edited nested row'],
+    ];
+    foreach ($externalRowEdits as $changes) {
+        $originalRows = [];
+        foreach ($changes as $key => $value) {
+            $originalRows[$key] = get_post_meta($postId, $key, true);
+            update_post_meta($postId, $key, $value);
+        }
+        try {
+            $check($authorized() !== null, 'A parent row change must leave the already prepared snapshot readable.');
+            $response = $send($postId, $data);
+            $check(
+                $response->get_status() === 409 && $response->get_data()['code'] === 'mtflpp_preview_conflict'
+                && $live->snapshotFingerprint($revisionId) === $revisionBase,
+                'Externally reordered or edited rows must not silently receive an old paginated delta.'
+            );
+        } finally {
+            foreach ($originalRows as $key => $value) {
+                update_post_meta($postId, $key, $value);
+            }
+        }
+    }
+    update_post_meta($postId, 'mtflpp_acf_test_text', 'Externally edited ordinary ACF value');
+    $check($live->fingerprint($postId) === $base, 'An ordinary ACF value is not a paginated merge dependency.');
+    update_post_meta($postId, 'mtflpp_acf_test_text', 'Saved text');
     $invalidRequests = [
         ['_acf_nonce' => 'invalid'], ['_acf_nonce' => null],
         ['acf' => 'invalid'], ['_acf_fields' => 'invalid'],
@@ -275,7 +365,8 @@ try {
             'Invalid ACF form data or nonces must still be rejected.'
         );
         $check(
-            $live->fingerprint($postId) === $base && $live->fingerprint($revisionId) === $revisionBase,
+            $live->snapshotFingerprint($postId) === $parentSnapshot
+            && $live->snapshotFingerprint($revisionId) === $revisionBase,
             'Rejected ACF requests must not alter either the saved page or the existing preview.'
         );
     }

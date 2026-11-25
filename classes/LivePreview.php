@@ -2,6 +2,7 @@
 
 namespace MeetTheFrontendLivePreviewPanel;
 
+use MeetTheFrontendLivePreviewPanel\Compatibility\Acf;
 use WP_Error;
 use WP_Post;
 use WP_REST_Request;
@@ -101,27 +102,42 @@ final class LivePreview
         return true;
     }
 
-    /** Fingerprint saved post fields, metadata and terms for preview and save checks. */
+    public static function conflictMessage(): string
+    {
+        return __(
+            'The saved post has changed or is no longer available for live preview.',
+            'meet-the-frontend-live-preview-panel'
+        );
+    }
+
+    /** Saved post inputs for editor merges and native-save coordination. */
     public function fingerprint(int $postId): string
     {
-        $meta = get_post_meta($postId);
-        // Editor state, queue flags and RSS enclosure metadata can change without a post save.
-        unset(
-            $meta['_edit_lock'],
-            $meta['_edit_last'],
-            $meta['_encloseme'],
-            $meta['_pingme'],
-            $meta['classic-editor-remember'],
-            $meta['enclosure']
-        );
-        // Core stores rendered oEmbeds and cache timestamps separately from the saved URL.
-        foreach (array_keys($meta) as $key) {
-            if (preg_match('/^_oembed_(?:time_)?[a-f0-9]{32}$/D', (string) $key)) {
-                unset($meta[$key]);
-            }
-        }
-        ksort($meta);
+        return $this->parentFingerprint($postId, includeAcf: true);
+    }
 
+    private function parentFingerprint(int $postId, bool $includeAcf = false): string
+    {
+        $meta = get_post_meta($postId);
+        // Native Custom Fields and arbitrary REST registrations don't describe a shared set of editor inputs.
+        $state = [$meta['_thumbnail_id'] ?? [], $meta['_wp_page_template'] ?? []];
+        // ACF field settings can differ on the frontend. Only editor requests merge saved rows.
+        if ($includeAcf) {
+            $state[] = Acf::paginatedRowState($meta);
+        }
+        return $this->stateHash($postId, $state);
+    }
+
+    /** A full check of owned snapshot data, or of writes during one potentially partial native save. */
+    public function snapshotFingerprint(int $postId): string
+    {
+        $meta = get_post_meta($postId);
+        ksort($meta);
+        return $this->stateHash($postId, $meta);
+    }
+
+    private function stateHash(int $postId, array $meta): string
+    {
         $taxonomies = get_object_taxonomies(get_post_type($postId));
         $terms = $taxonomies ? wp_get_object_terms($postId, $taxonomies, [
             'fields' => 'tt_ids', 'orderby' => 'term_taxonomy_id',
@@ -177,9 +193,10 @@ final class LivePreview
         if (!$route || !in_array($request->get_route(), [$route, $route . '/autosaves'], true)) {
             return $response;
         }
+        $matches = hash_equals($this->fingerprint($postId), $base);
         $this->restSaves[$request] = [
             'postId' => $postId, 'base' => $base, 'request' => $token,
-            'matches' => hash_equals($this->fingerprint($postId), $base),
+            'beforeWrite' => $matches ? $this->snapshotFingerprint($postId) : null,
         ];
         return $response;
     }
@@ -201,10 +218,13 @@ final class LivePreview
             return $response;
         }
         $post = get_post($save['postId']);
-        $after = $save['matches'] && $post ? $this->fingerprint($post->ID) : 'conflict';
-        // A client error can happen after the post was updated, for example while saving metadata.
-        // Only unchanged failures are safe to retry with the editor's existing baseline.
-        if ($status >= 400 && $after !== $save['base']) {
+        $after = $save['beforeWrite'] !== null && $post ? $this->fingerprint($post->ID) : 'conflict';
+        // A 4xx may follow a partial write, even to metadata outside the editor's conflict scope.
+        if (
+            $status >= 400 && (
+                !$post || $after !== $save['base'] || $this->snapshotFingerprint($post->ID) !== $save['beforeWrite']
+            )
+        ) {
             return $response;
         }
         $data['_mtflpp_receipt'] = [
@@ -262,10 +282,10 @@ final class LivePreview
         return in_array($post->post_status, ['draft', 'pending', 'publish', 'private', 'future'], true);
     }
 
-    private function stateAction(int $postId, int $revisionId): string
+    private function sourceAction(int $postId, int $revisionId, string $parentState): string
     {
-        return 'mtflpp_read_' . $postId . '_' . $revisionId . '_' . $this->fingerprint($postId)
-            . ($revisionId ? $this->fingerprint($revisionId) : '');
+        return 'mtflpp_read_' . $postId . '_' . $revisionId . '_' . $parentState
+            . '_' . $this->snapshotFingerprint($revisionId);
     }
 
     /** Read display fields only after the caller has authorized a live source. */
@@ -445,17 +465,14 @@ final class LivePreview
                 ['status' => 409]
             );
         }
-        if (!$this->isAvailable($post) || !hash_equals($this->fingerprint($postId), $input['base'])) {
+        $base = $input['base'];
+        if (!$post || !$this->isAvailable($post) || !hash_equals($base, $this->fingerprint($postId))) {
             return new WP_Error(
                 'mtflpp_preview_conflict',
-                __(
-                    'The saved post has changed or is no longer available for live preview.',
-                    'meet-the-frontend-live-preview-panel'
-                ),
+                self::conflictMessage(),
                 ['status' => 409]
             );
         }
-        $base = $this->fingerprint($postId);
         $fields = $this->previewFields($post, $input);
         if (is_wp_error($fields)) {
             return $fields;
@@ -480,6 +497,7 @@ final class LivePreview
                 ['status' => 409]
             );
         }
+        $parentState = $this->parentFingerprint($postId);
         if (!hash_equals($base, $this->fingerprint($postId))) {
             return new WP_Error(
                 'mtflpp_source_changed',
@@ -487,7 +505,7 @@ final class LivePreview
                 ['status' => 409]
             );
         }
-        $action = $this->stateAction($postId, $revisionId);
+        $action = $this->sourceAction($postId, $revisionId, $parentState);
         return new WP_REST_Response([
             // Our state token authorizes this revision; native autosave parameters would select recovery data.
             'url' => FrontendPreview::previewUrl($post, [
@@ -802,10 +820,10 @@ final class LivePreview
             !is_user_logged_in() || !$postId || !get_post($postId)
             || !current_user_can('edit_post', $postId) || !$revisionId
             || !$this->ownsRevision($postId, $revisionId)
-            || !wp_verify_nonce($token, $this->stateAction($postId, $revisionId))
         ) {
             return null;
         }
-        return get_post($revisionId);
+        $action = $this->sourceAction($postId, $revisionId, $this->parentFingerprint($postId));
+        return wp_verify_nonce($token, $action) ? get_post($revisionId) : null;
     }
 }
