@@ -112,12 +112,16 @@ wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/core-blocks.php
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/compatibility.php
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/compatibility-dependencies.php
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/editor-extensions.php
+wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/post-note.php
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/timber-terms.php
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/yoast.php
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/preview-isolation.php
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/preview-source.php
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/public-redirect.php
 ```
+
+CI also runs the Post Note fixture on the opted-in `mtflpp_test_` multisite installation. It creates
+and removes a subsite to check that matching post IDs do not share preview reads across sites.
 
 The Posts page fixture checks live and saved revision sources on plain and pretty
 permalinks, including the native posts loop, queried page, title helpers, and

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { editorExtensionsFixture } from './helpers/editor-extensions.mjs';
 import { sourceForVm } from './helpers/modules.mjs';
@@ -40,11 +41,12 @@ for (const priority of [5, 20]) {
         h.hooks.addAction('mtflpp.blockEditor.previewSetup', 'vendor/custom-fields', ({ config, hooks, onDestroy }) => {
             assert.equal(config, h.config);
             hooks.addFilter('previewFormBody', 'vendor/custom-fields', (body) => {
-                body ??= new URLSearchParams();
-                body.append('vendor[value][]', 'first');
-                body.append('vendor[value][]', 'second');
-                return body;
+                const next = body === null ? new URLSearchParams() : new URLSearchParams(body);
+                for (const value of ['first', '', 'second']) next.append('vendor[value][]', value);
+                return next;
             }, priority);
+            // No contribution: returning null here would discard every preceding form entry.
+            hooks.addFilter('previewFormBody', 'vendor/inactive-field', (body) => body, 30);
             hooks.addFilter('additionalPreviewValues', 'vendor/custom-fields', (values) => ({ ...values, vendor_value: 'extra' }));
             onDestroy(() => destroyed++);
         });
@@ -52,7 +54,7 @@ for (const priority of [5, 20]) {
         const body = extensions.capture(null);
         assert.equal(body.get('acf[field_empty]'), '');
         assert.deepEqual(body.getAll('_acf_fields[group][]'), ['one', 'two']);
-        assert.deepEqual(body.getAll('vendor[value][]'), ['first', 'second']);
+        assert.deepEqual(body.getAll('vendor[value][]'), ['first', '', 'second']);
         assert.equal(extensions.filter('additionalPreviewValues', {}).vendor_value, 'extra');
         extensions.action('observePreviewInputs');
         extensions.action('nativeMetaboxSaveAcknowledged');
@@ -221,6 +223,25 @@ for (const [name, capture] of [
         extensions.destroy();
     });
 }
+
+test('the Classic post-note example omits disabled controls but submits an intentional clear', async () => {
+    const guide = await readFile(new URL('../docs/integrations.md', import.meta.url), 'utf8');
+    const example = [...guide.matchAll(/^```js\n([\s\S]*?)^```/gm)].find(([, code]) => code.includes('mtflpp.classicEditor.previewSetup'));
+    assert.ok(example, 'Expected the copyable Classic setup in the guide.');
+    const h = fixture();
+    vm.runInNewContext(example[1], { wp: { hooks: h.hooks } });
+    const input = Object.assign(new EventTarget(), { name: 'example_post_note', value: 'Saved note', disabled: true });
+    const extensions = h.create('mtflpp.classicEditor.previewSetup', { form: { querySelector: () => input } });
+    const native = new FormData(); // A disabled input is visible in the DOM, but not in native form data.
+    const capture = () => extensions.capture(new URLSearchParams({ post_title: 'Edited title' }), native);
+    assert.equal(capture().has(input.name), false);
+    input.disabled = false;
+    native.set(input.name, '');
+    assert.deepEqual(capture().getAll(input.name), ['']);
+    native.set(input.name, 'Edited note');
+    assert.equal(capture().get(input.name), 'Edited note');
+    extensions.destroy();
+});
 
 for (const copy of [false, true]) {
     test(`classic capture preserves empty/repeated core values and integration contributions: copy ${copy}`, () => {
