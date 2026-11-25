@@ -40,11 +40,12 @@ for (const priority of [5, 20]) {
         h.hooks.addAction('mtflpp.blockEditor.previewSetup', 'vendor/custom-fields', ({ config, hooks, onDestroy }) => {
             assert.equal(config, h.config);
             hooks.addFilter('previewFormBody', 'vendor/custom-fields', (body) => {
-                body ??= new URLSearchParams();
-                body.append('vendor[value][]', 'first');
-                body.append('vendor[value][]', 'second');
-                return body;
+                const next = body === null ? new URLSearchParams() : new URLSearchParams(body);
+                for (const value of ['first', '', 'second']) next.append('vendor[value][]', value);
+                return next;
             }, priority);
+            // No contribution: returning null here would discard every preceding form entry.
+            hooks.addFilter('previewFormBody', 'vendor/inactive-field', (body) => body, 30);
             hooks.addFilter('additionalPreviewValues', 'vendor/custom-fields', (values) => ({ ...values, vendor_value: 'extra' }));
             onDestroy(() => destroyed++);
         });
@@ -52,7 +53,7 @@ for (const priority of [5, 20]) {
         const body = extensions.capture(null);
         assert.equal(body.get('acf[field_empty]'), '');
         assert.deepEqual(body.getAll('_acf_fields[group][]'), ['one', 'two']);
-        assert.deepEqual(body.getAll('vendor[value][]'), ['first', 'second']);
+        assert.deepEqual(body.getAll('vendor[value][]'), ['first', '', 'second']);
         assert.equal(extensions.filter('additionalPreviewValues', {}).vendor_value, 'extra');
         extensions.action('observePreviewInputs');
         extensions.action('nativeMetaboxSaveAcknowledged');

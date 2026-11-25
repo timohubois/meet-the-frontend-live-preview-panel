@@ -112,6 +112,7 @@ wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/core-blocks.php
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/compatibility.php
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/compatibility-dependencies.php
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/editor-extensions.php
+wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/post-note.php
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/timber-terms.php
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/yoast.php
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/preview-isolation.php

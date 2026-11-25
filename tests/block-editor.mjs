@@ -162,26 +162,58 @@ test('block comparison values are frozen at capture and never sent to the endpoi
     h.native.destroy();
 });
 
-test('external snapshot contributors refresh on changes and removal without serializing core content', async () => {
-    const h = fixture({ extend(hooks) {
-        hooks.addAction('mtflpp.blockEditor.previewSetup', 'vendor/snapshot', ({ hooks }) => {
-            hooks.addFilter('additionalPreviewValues', 'vendor/snapshot', (values, state) => state.getEditedPostAttribute('vendor') === undefined
-                ? values : { ...values, vendor: state.getEditedPostAttribute('vendor') });
-        });
-    } });
-    const before = h.calls.changes;
-    h.state.vendor = 'Unsaved';
-    await h.emit();
-    assert.equal(h.calls.changes, before + 1);
-    assert.equal(h.calls.contentReads, 0);
-    await h.native.preparePreview();
-    assert.equal(h.calls.requests.at(-1).data.vendor, 'Unsaved');
-    delete h.state.vendor;
-    await h.emit();
-    assert.equal(h.calls.changes, before + 2, 'a disappearing contributed key must also refresh');
-    await h.native.preparePreview();
-    assert.equal(h.calls.requests.at(-1).data.vendor, undefined);
-});
+const noteExample = await sourceForVm(new URL('../docs/examples/post-note/preview.js', import.meta.url));
+for (const transport of ['JSON', 'peer form', 'ACF form']) {
+    test(`post-note example composes with a typed contributor over ${transport}`, async () => {
+        const h = fixture({ acfEnabled: transport === 'ACF form', extend(wpHooks) {
+            wpHooks.addAction('mtflpp.blockEditor.previewSetup', 'vendor/choice', ({ hooks }) => {
+                hooks.addFilter('additionalPreviewValues', 'vendor/choice', (values, editor) => {
+                    const choice = editor.getEditedPostAttribute('choice');
+                    return choice === undefined ? values : { ...values, vendor_choice: JSON.stringify(choice) };
+                }, 5);
+                if (transport === 'peer form') hooks.addFilter('previewFormBody', 'vendor/choice', (body) => {
+                    body ??= new URLSearchParams();
+                    body.append('vendor_list[]', 'first');
+                    body.append('vendor_list[]', '');
+                    return body;
+                });
+            });
+            vm.runInNewContext(noteExample, { wp: { hooks: wpHooks } });
+        } });
+        const before = h.calls.changes;
+        h.state.meta = { example_post_note: `Editor's C:\\draft 🧪`, unrelated: 'Do not send' };
+        await h.emit();
+        assert.equal(h.calls.changes, before + 1);
+        assert.equal(h.calls.contentReads, 0, 'observing edited meta must not serialize core content');
+        async function capture() {
+            await h.native.preparePreview();
+            const { body, data } = h.calls.requests.at(-1);
+            assert.equal(!!body, transport !== 'JSON');
+            return body ?? new Map(Object.entries(data));
+        }
+        for (const choice of [false, 'false', 0, '0', null, '', ['first', '']]) {
+            h.state.choice = choice;
+            const fields = await capture();
+            assert.equal(fields.get('example_post_note'), h.state.meta.example_post_note);
+            assert.equal(fields.get('vendor_choice'), JSON.stringify(choice));
+            assert.equal(fields.has('unrelated'), false);
+            if (transport === 'peer form') assert.deepEqual(fields.getAll('vendor_list[]'), ['first', '']);
+            if (transport === 'ACF form') assert.equal(fields.get('acf[field_test]'), 'Unsaved ACF');
+        }
+        h.state.meta.example_post_note = '';
+        await h.emit();
+        assert.equal((await capture()).get('example_post_note'), '');
+        delete h.state.meta.example_post_note;
+        await h.emit();
+        assert.equal(h.calls.changes, before + 3, 'removing a contributed key must also refresh');
+        assert.equal((await capture()).has('example_post_note'), false);
+        h.state.meta.example_post_note = null;
+        const requests = h.calls.requests.length;
+        await assert.rejects(capture(), { code: 'mtflpp_integration_failed' });
+        assert.equal(h.calls.requests.length, requests, 'an invalid note must not become an empty form value');
+        h.native.destroy();
+    });
+}
 
 test('an integration failure after an acknowledged meta-box save never rejects WordPress saving', async () => {
     let cleaned = 0;
