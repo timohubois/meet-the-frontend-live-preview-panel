@@ -1,6 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import test from 'node:test';
-import { runChromiumTests } from './helpers/chromium.mjs';
+import { runChromiumTests, testInChromium } from './helpers/chromium.mjs';
 
 function browserTests(styles) {
     const results = [];
@@ -99,7 +98,7 @@ function browserTests(styles) {
     return results;
 }
 
-test('logical panel CSS and physical preview geometry coexist in both LTR and RTL bundles', async (t) => {
+testInChromium('logical panel CSS and physical preview geometry coexist in both LTR and RTL bundles', async (t) => {
     const [ltr, rtl] = await Promise.all([
         readFile(new URL('../build/classic-editor.css', import.meta.url), 'utf8'),
         readFile(new URL('../build/classic-editor-rtl.css', import.meta.url), 'utf8'),

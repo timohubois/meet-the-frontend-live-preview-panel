@@ -6,6 +6,8 @@
     "build": "wp-scripts build src/classic-editor.js src/block-editor.js src/term-editor.js src/revision-browser.js src/preview-navigation.js",
     "start": "wp-scripts start src/classic-editor.js src/block-editor.js src/term-editor.js src/revision-browser.js src/preview-navigation.js",
     "test": "node --test tests/*.mjs",
+    "test:unit": "node --test --test-skip-pattern=\"^Chromium:\" tests/*.mjs",
+    "test:browser": "node --test --test-concurrency=1 --test-name-pattern=\"^Chromium:\" tests/*.mjs",
     "lint": "npm run lint:js && npm run lint:css",
     "lint:js": "wp-scripts lint-js src --max-warnings=0",
     "lint:css": "wp-scripts lint-style src/panel/panel.css --max-warnings=0",

@@ -1,7 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import test from 'node:test';
-import { runChromiumTests } from './helpers/chromium.mjs';
+import { runChromiumTests, testInChromium } from './helpers/chromium.mjs';
 import { sourceForVm, previewSourceForVm } from './helpers/modules.mjs';
 import { browserEditorExtensionsSource } from './helpers/editor-extensions.mjs';
 
@@ -485,7 +484,7 @@ async function browserTests(editorSource, initAcf, nativeSource, extensionSource
     return results;
 }
 
-test('native editor events and ACF compatibility boundaries in Chromium', async (t) => {
+testInChromium('native editor events and ACF compatibility boundaries', async (t) => {
     const editorSource = await previewSourceForVm(new URL('../src/screens/classic-editor.js', import.meta.url));
     const nativeSource = await sourceForVm(new URL('../src/screens/classic-native-editor.js', import.meta.url));
     const acfSource = await readFile(new URL('../src/compatibility/acf-fields.js', import.meta.url), 'utf8');

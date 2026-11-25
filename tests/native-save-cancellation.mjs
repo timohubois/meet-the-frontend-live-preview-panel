@@ -3,8 +3,7 @@ import { spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import test from 'node:test';
-import { withChromiumPage } from './helpers/chromium.mjs';
+import { withChromiumPage, testInChromium } from './helpers/chromium.mjs';
 import { sourceForVm, previewSourceForVm } from './helpers/modules.mjs';
 import { browserEditorExtensionsSource } from './helpers/editor-extensions.mjs';
 
@@ -100,7 +99,7 @@ const jquery = process.env.WORDPRESS_ROOT
 const script = `(${browserFixture.toString()})(${JSON.stringify(editorSource)}, ${JSON.stringify(nativeSource)}, ${JSON.stringify(browserEditorExtensionsSource)});`;
 const html = `<!doctype html><script src="data:text/javascript;base64,${Buffer.from(jquery).toString('base64')}"></script><body><script>${script.replace(/<\/script/gi, '<\\/script')}</script></body>`;
 
-test('native save cancellation with trusted Chromium input', { timeout: 30000 }, async (t) => withChromiumPage(html, async ({ args, url }) => {
+testInChromium('native save cancellation with trusted Chromium input', { timeout: 30000 }, async (t) => withChromiumPage(html, async ({ args, url }) => {
     const pending = new Map();
     let chrome, sessionId, nextId = 0, buffer = '', stderr = '';
     const rejectPending = (error) => {

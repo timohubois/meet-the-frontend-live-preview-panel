@@ -2,9 +2,8 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import test from 'node:test';
 import webpack from 'webpack';
-import { runChromiumTests } from './helpers/chromium.mjs';
+import { runChromiumTests, testInChromium } from './helpers/chromium.mjs';
 import { panelStrings } from './helpers/panel-strings.mjs';
 
 // Exercise panel CSS and the native overlay layers; WordPress owns actual menu rendering and positioning.
@@ -138,7 +137,7 @@ function browserTests(css) {
     return results;
 }
 
-test('menu layering, PiP bounds, preview shortcut and geometry controls in Chromium', async (t) => {
+testInChromium('menu layering, PiP bounds, preview shortcut and geometry controls', async (t) => {
     const css = await readFile(new URL('../build/classic-editor.css', import.meta.url), 'utf8');
     await runChromiumTests(t, { script: `(${browserTests.toString()})(${JSON.stringify(css)})`, count: 15 });
 });
@@ -720,7 +719,7 @@ async function nativeViewportControlTests(strings) {
     return results;
 }
 
-test('native WordPress launcher, menu and notices render and handle focus and clicks in Chromium', async (t) => {
+testInChromium('native WordPress launcher, menu and notices render and handle focus and clicks', async (t) => {
     const directory = await mkdtemp(join(tmpdir(), 'mtflpp-native-launcher-'));
     try {
         // Expose public APIs only in the fixture so native-store isolation can be checked too.

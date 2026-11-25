@@ -1,6 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import test from 'node:test';
-import { runChromiumTests } from './helpers/chromium.mjs';
+import { runChromiumTests, testInChromium } from './helpers/chromium.mjs';
 import { sourceForVm } from './helpers/modules.mjs';
 
 // Exercise real layout, hidden-element measurement and responsive admin gutters. Mock only
@@ -176,7 +175,7 @@ function browserTests({ core, css, geometry, source }) {
     return results;
 }
 
-test('responsive panel and launcher geometry in Chromium', async (t) => {
+testInChromium('responsive panel and launcher geometry', async (t) => {
     const [core, css, geometry, source] = await Promise.all([
         readFile(new URL('../node_modules/@wordpress/components/build-style/style.css', import.meta.url), 'utf8'),
         readFile(new URL('../build/classic-editor.css', import.meta.url), 'utf8'),
