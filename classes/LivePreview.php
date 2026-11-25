@@ -506,14 +506,54 @@ final class LivePreview
             );
         }
         $action = $this->sourceAction($postId, $revisionId, $parentState);
-        return new WP_REST_Response([
+        $result = [
             // Our state token authorizes this revision; native autosave parameters would select recovery data.
             'url' => FrontendPreview::previewUrl($post, [
                 'mtflpp_post' => $postId,
                 'mtflpp_revision' => $revisionId,
                 'mtflpp_token' => wp_create_nonce($action),
             ]),
-        ]);
+        ];
+        $rowText = $this->rowDisplayText($request);
+        if ($rowText) {
+            $result['rowDisplayText'] = $rowText;
+        }
+        return new WP_REST_Response($result);
+    }
+
+    /** Use only submitted body values and the native, non-shortcode WYSIWYG formatting steps. */
+    private function rowDisplayText(WP_REST_Request $request): array
+    {
+        $body = $request->get_body_params();
+        $requested = $body['mtflpp_row_text_fields'] ?? null;
+        $names = is_string($requested) ? json_decode($requested, true, 4) : null;
+        if (!is_array($names) || !array_is_list($names)) {
+            return [];
+        }
+        $result = [];
+        $seen = [];
+        foreach ($names as $name) {
+            if (!is_string($name) || isset($seen[$name]) || !preg_match('/^[\w-]+(?:\[[\w-]+\])+$/D', $name)) {
+                continue;
+            }
+            $seen[$name] = true;
+            $value = $body;
+            foreach (explode('[', str_replace(']', '', $name)) as $part) {
+                $value = is_array($value) ? ($value[$part] ?? null) : null;
+            }
+            if (!is_string($value) || $value === '') {
+                continue;
+            }
+            try {
+                $formatted = wpautop(wptexturize($value));
+                if (trim($formatted) !== trim($value)) {
+                    $result[$name] = $formatted;
+                }
+            } catch (\Throwable) {
+                // Formatting evidence is optional; a formatter must not fail a prepared preview.
+            }
+        }
+        return $result;
     }
 
     /** Validate and resolve display fields before any preview writes or integration hooks. */

@@ -33,6 +33,11 @@ export function createPreviewComparison(excludedSelectors = []) {
                         return renderedBoundary(meaningful[0].boundary, after.source?.excluded);
                     }
                 }
+                if (!transition && !edited && !move) {
+                    const region = galleryRegion(before, after);
+                    // A confirmed gallery edit with no safe target must not fall back to scrolling a slide.
+                    if (region !== undefined) return region;
+                }
                 const candidates = [
                     ...sourceChanges.map((item) => ({ ...item, source: true })),
                     ...changedCandidates(before.dom, after.dom, move),
@@ -221,13 +226,11 @@ function renderedElement(entry) {
     return findMappedElement(entry, hasRenderedBox);
 }
 
-// The seam starts at the second box, regardless of which side the empty space moved to.
-function renderedBoundary({ before, after }, excluded) {
-    for (const [first, second] of [before, after]) {
-        const a = first.node, b = second.node;
-        if (!a?.isConnected || !b?.isConnected || a.nextElementSibling !== b) return null;
-        const boxes = [];
-        for (const node of [a, b]) {
+function renderedBoundary({ before, after, index }, excluded) {
+    for (const range of [before, after]) {
+        let previousNode, previousBox;
+        for (const { node } of range) {
+            if (!node?.isConnected || (previousNode && previousNode.nextElementSibling !== node)) return null;
             const { position, marginTop, marginBottom } = node.ownerDocument.defaultView.getComputedStyle(node);
             if ((excluded && node.closest(excluded)) || !hasRenderedBox(node) || !['static', 'relative'].includes(position)
                 || node.closest('[hidden], details:not([open])')
@@ -235,13 +238,169 @@ function renderedBoundary({ before, after }, excluded) {
             const box = node.getBoundingClientRect();
             // Empty blocks can occupy space through margins alone.
             if (!box.height && !(parseFloat(marginTop) > 0 || parseFloat(marginBottom) > 0)) return null;
-            boxes.push(box);
+            if (previousBox && (previousBox.bottom > box.top
+                || Math.max(previousBox.left, box.left) >= Math.min(previousBox.right, box.right))) return null;
+            previousNode = node;
+            previousBox = box;
         }
-        const [firstBox, secondBox] = boxes;
-        if (firstBox.bottom > secondBox.top
-            || Math.max(firstBox.left, secondBox.left) >= Math.min(firstBox.right, secondBox.right)) return null;
     }
-    return after[1].node;
+    return after[index].node;
+}
+
+// Submitted IDs describe the change to look for, not the identity of a frontend URL.
+function galleryChange(before, after) {
+    if (!before || !after) return;
+    const orders = ['row-order', 'gallery-order', 'order'];
+    const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((key) =>
+        (orders.includes(before[key]?.type) || orders.includes(after[key]?.type)) && before[key]?.value !== after[key]?.value);
+    if (changed.length !== 1) return;
+    const old = before[changed[0]], next = after[changed[0]];
+    if (old?.type !== 'gallery-order' || next?.type !== 'gallery-order') return;
+    const previous = JSON.parse(old.value), current = JSON.parse(next.value);
+    if (new Set(previous).size !== previous.length || new Set(current).size !== current.length) return;
+    const positions = new Map(previous.map((id, index) => [id, index]));
+    const matches = current.map((id) => positions.get(id));
+    // With no surviving item, a nonempty replacement cannot corroborate the owning list.
+    if (previous.length && current.length && matches.every((index) => index === undefined)) return;
+    return { oldCount: previous.length, matches };
+}
+
+function galleryRegion(before, after) {
+    const change = galleryChange(before.values, after.values);
+    if (!change) return;
+    const previous = before.source ?? before.dom, next = after.source ?? after.dom;
+    const tracks = galleryTracks(previous, next, change);
+    if (!tracks?.length) return;
+    const lists = tracks.map((track) => track.after);
+    let [region] = lists;
+    while (region && !lists.every((list) => list === region || containsEntry(region, list))) region = region.parent;
+    const isPageRegion = (entry) => ['main', 'body', 'html'].includes(entry.tag) || entry.attributes.some(([key, value]) => key === 'role' && value === 'main');
+    if (!region?.parent || isPageRegion(region) || !localGalleryTracks(region, lists)) return null;
+    let target = region.node;
+    if (!target?.isConnected || lists.some(({ node }) => !target.contains(node)
+        || (next.excluded && node.closest(next.excluded)))) return null;
+    if (after.source && (!liveGalleryTracks(before.dom, tracks, 'before', 'original')
+        || !liveGalleryTracks(after.dom, tracks, 'after', 'current'))) return null;
+    // Follow a local scrollport itself, not a track inside it. Don't promote through page content.
+    const win = target.ownerDocument.defaultView;
+    for (let child = region, entry = child.parent; entry?.parent && !isPageRegion(entry); child = entry, entry = entry.parent) {
+        if (entry.children.some((sibling) => sibling !== child && hasGallerySurroundings(sibling))) break;
+        const node = entry.node;
+        if (!node?.contains(target)) continue;
+        const { overflowX, overflowY } = win.getComputedStyle(node);
+        const scrollable = /^(?:auto|scroll|hidden)$/;
+        if ((node.scrollWidth > node.clientWidth && scrollable.test(overflowX))
+            || (node.scrollHeight > node.clientHeight && scrollable.test(overflowY))) target = node;
+    }
+    return hasRenderedBox(target) && !target.closest('[hidden], details:not([open])')
+        && (!next.excluded || !target.closest(next.excluded)) ? target : null;
+}
+
+function galleryControl(entry) {
+    return /^(?:button|input|select|textarea)$/.test(entry.tag)
+        || entry.attributes.some(([name, value]) => name === 'role' && value === 'button');
+}
+
+function galleryMedia(entry) {
+    return /^(?:img|video|audio|iframe|canvas|object|embed)$/.test(entry.tag) || entry.media?.some(Boolean);
+}
+
+function hasGallerySurroundings(entry) {
+    return !galleryControl(entry) && (entry.text || galleryMedia(entry) || entry.tag === 'hr'
+        || entry.children.some(hasGallerySurroundings));
+}
+
+function localGalleryTracks(region, lists) {
+    if (lists.length === 1) return true;
+    const tracks = new Set(lists);
+    let seen = 0;
+    function visit(entry) {
+        if (tracks.has(entry)) { seen++; return true; }
+        if (galleryControl(entry)) return true;
+        if (galleryMedia(entry)) return false; // The shared wrapper also owns unrelated media.
+        // Copy before or after a gallery is fine. Content between tracks separates them.
+        return (entry.tag !== 'hr' || seen === 0 || seen === tracks.size) && entry.parts.every((part) =>
+            typeof part === 'string' ? seen === 0 || seen === tracks.size || !part.trim() : visit(part));
+    }
+    return visit(region) && seen === tracks.size;
+}
+
+function liveGalleryTracks(snapshot, tracks, trackKey, imagesKey) {
+    const lists = new Map(tracks.map((track) => [track[trackKey].node, track[imagesKey]]));
+    if (!snapshot || lists.has(null) || lists.size !== tracks.length) return false;
+    function visit(entry) {
+        const expected = lists.get(entry.node);
+        if (!expected) return entry.children.every(visit);
+        lists.delete(entry.node);
+        const marks = new Map(), sources = new Map();
+        expected.forEach((image, i) => {
+            if (image.marker) marks.set(image.marker, i);
+            sources.set(galleryImageKey(image), i);
+        });
+        const actual = [], counts = new Map();
+        function walk(item, cloneHidden = false) {
+            cloneHidden ||= item.attributes.some(([key, value]) => key === 'inert' || (key === 'aria-hidden' && value === 'true'));
+            if (item.tag !== 'img') return item.children.every((child) => walk(child, cloneHidden));
+            const index = marks.get(item.marker) ?? sources.get(galleryImageKey(item));
+            if (!expected[index] || !item.media.slice(0, 2).some((value, k) => value && value === expected[index].media[k])) return false;
+            actual.push({ index, cloneHidden });
+            counts.set(index, (counts.get(index) ?? 0) + 1);
+            return true;
+        }
+        if (!walk(entry)) return false;
+        // An inaccessible duplicate is a clone only when another occurrence remains to represent the image.
+        const order = actual.filter(({ index, cloneHidden }) => !cloneHidden || counts.get(index) === 1);
+        return order.length === expected.length && order.every(({ index }, i) => index === i);
+    }
+    return visit(snapshot) && !lists.size;
+}
+
+function galleryTracks(before, after, { oldCount, matches }) {
+    const tracks = [];
+    function sameEntry(a, b) {
+        return a.signature === b.signature && a.presentation === b.presentation;
+    }
+    function sameSubtree(a, b) {
+        return sameEntry(a, b) && a.rawText === b.rawText && a.children.length === b.children.length
+            && a.children.every((child, i) => sameSubtree(child, b.children[i]));
+    }
+    function matchesChange(a, b) {
+        // Template indentation between items can grow or shrink with the number of items.
+        if (a.children.length !== oldCount || b.children.length !== matches.length
+            || (a.rawText !== b.rawText && (a.text || b.text))) return false;
+        const original = galleryImages(a), current = galleryImages(b);
+        if (!original || !current) return false;
+        const before = original.map(galleryImageKey), after = current.map(galleryImageKey);
+        const known = new Set(before);
+        if (known.size !== before.length || new Set(after).size !== after.length
+            || (before.length === after.length && before.every((key, i) => key === after[i]))
+            || !matches.every((from, to) => from === undefined ? !known.has(after[to])
+                : before[from] === after[to] && sameSubtree(a.children[from], b.children[to]))) return false;
+        tracks.push({ before: a, after: b, original, current });
+        return true;
+    }
+    function compare(a, b) {
+        if (!sameEntry(a, b)) return false;
+        if (matchesChange(a, b)) return true;
+        return a.rawText === b.rawText && a.children.length === b.children.length
+            && a.children.every((child, i) => compare(child, b.children[i]));
+    }
+    // Pair wrappers by position only when the observable changes all agree with the submitted edit.
+    return before && after && compare(before, after) ? tracks : null;
+}
+
+function galleryImages(list) {
+    function images(entry) {
+        if (entry.tag === 'img') return [entry];
+        return entry.children.flatMap(images);
+    }
+    const members = list.children.map(images);
+    if (members.some((member) => member.length !== 1 || !member[0].media?.slice(0, 2).some(Boolean))) return null;
+    return members.map(([image]) => image);
+}
+
+function galleryImageKey(image) {
+    return JSON.stringify(image.media.slice(0, 2));
 }
 
 // The payload is data from this verified response, never inserted into the live DOM or executed.
@@ -284,8 +443,10 @@ function contentSnapshot(doc, live, excludedSelectors, root = doc.querySelector(
             : [];
         const background = node.style?.backgroundImage || node.getAttribute('data-bg') || '';
         // Include empty wrappers: layout/structure changes need not alter text or media.
-        const target = doc === live ? node : targets.get(node.getAttribute('data-mtflpp-node')) || null;
+        const marker = node.getAttribute('data-mtflpp-node');
+        const target = doc === live ? node : targets.get(marker) || null;
         const entry = snapshotEntry(node, target, JSON.stringify([node.localName, text, media, background]));
+        if (node.localName === 'img') entry.marker = marker;
         entry.text = text;
         entry.rawText = ownText.join('');
         entry.media = [...media, background];
@@ -395,19 +556,35 @@ function couldBeSeparateReplacements(before, after) {
 
 function changedCandidates(previous, next, move, cleanSource = false) {
     const identities = new Map(), keys = new Map(), presentationKeys = new Map(), exactKeys = new Map(), candidates = [];
-    let rowAnchors;
-    function matchesRow(old, dest, groups) {
-        rowAnchors ??= [uniqueRowAnchors(previous, new Set(groups.flat())), uniqueRowAnchors(next, new Set(groups.flat()))];
+    let rowAnchors, imageAnchors;
+    function matchesRow(old, dest, groups, images = []) {
+        const belongsTo = (row, entry) => row === entry || containsEntry(row, entry);
+        let imageMatch = false;
+        if (images.length) {
+            imageAnchors ??= [uniqueImageAnchors(previous, new Set(images)), uniqueImageAnchors(next, new Set(images))];
+            const liveImage = (row, entry, excluded) => entry.node?.isConnected && row.node?.contains(entry.node)
+                && entry.node.localName === 'img' && (!excluded || !entry.node.closest(excluded));
+            for (const label of images) {
+                const anchor = imageAnchors[0].get(label), target = imageAnchors[1].get(label);
+                if (!anchor || !target) continue;
+                if (!belongsTo(old, anchor) || !belongsTo(dest, target)) return false;
+                imageMatch ||= liveImage(old, anchor, previous.excluded) && liveImage(dest, target, next.excluded);
+            }
+        }
+        if (!groups.length) return imageMatch;
+        if (!rowAnchors) {
+            const labels = new Set((move.boundaryGroups ?? [move.groups]).flat(2));
+            rowAnchors = [uniqueRowAnchors(previous, labels), uniqueRowAnchors(next, labels)];
+        }
         const [oldAnchors, newAnchors] = rowAnchors;
         const matched = new Map();
-        for (const [label, anchor] of oldAnchors) {
-            const target = newAnchors.get(label);
-            if (!target) continue;
-            if ((old !== anchor.entry && !containsEntry(old, anchor.entry))
-                || (dest !== target.entry && !containsEntry(dest, target.entry))) return false;
+        for (const label of groups.flat()) {
+            const anchor = oldAnchors.get(label), target = newAnchors.get(label);
+            if (!anchor || !target) continue;
+            if (!belongsTo(old, anchor.entry) || !belongsTo(dest, target.entry)) return false;
             matched.set(label, anchor.substantive && target.substantive);
         }
-        return groups.some((group) => group.every((label) => matched.has(label))
+        return imageMatch || groups.some((group) => group.every((label) => matched.has(label))
             && group.some((label) => matched.get(label)));
     }
     function intern(value) {
@@ -484,35 +661,37 @@ function changedCandidates(previous, next, move, cleanSource = false) {
             candidates.push({ kind: 'region', after: parent, priority: 2, unresolved: true,
                 regionChange, oldRange, newRange, moved, boundary });
         }
-        function movedEntry(oldStart, oldEnd, newStart, newEnd) {
-            if (!move?.groups.length) return;
+        function rowRotation(oldStart, oldEnd, newStart, newEnd) {
+            if (!move?.groups.length && !(cleanSource && (move?.boundaryGroups || move?.images.length))) return;
             const length = Math.abs(move.offset) + 1;
             if (oldEnd - oldStart !== length || newEnd - newStart !== length) return;
-            const from = move.offset > 0 ? oldStart : oldEnd - 1;
-            const to = move.offset > 0 ? newEnd - 1 : newStart;
-            const key = contentKey(before[from]);
-            if (oldPositions.get(key) !== from || newPositions.get(key) !== to) return;
-            const shift = move.offset > 0 ? length - 1 : 1;
-            for (let i = 0; i < length; i++) {
-                if (!aligned(before[oldStart + i], after[newStart + (i + shift) % length])) return;
-            }
+            const down = move.offset > 0, from = down ? 0 : length - 1, to = down ? length - 1 : 0;
+            const oldRange = before.slice(oldStart, oldEnd), newRange = after.slice(newStart, newEnd);
+            const shift = down ? length - 1 : 1;
+            const pairs = oldRange.map((entry, index) => [entry, newRange[(index + shift) % length]]);
+            return { before: oldRange, after: newRange, from, to, pairs };
+        }
+        function movedEntry(rotation) {
+            const images = cleanSource ? move.images : [];
+            if (!move.groups.length && !images.length) return;
+            const [old, next] = rotation.pairs[rotation.from];
+            const key = contentKey(old);
+            if (oldPositions.get(key) === -1 || newPositions.get(key) === -1
+                || !rotation.pairs.every(([a, b]) => aligned(a, b))) return;
             // An unrelated list or reversed output can show the same rotation. Require a
             // unique, unchanged value from the dropped row inside both rendered sections.
-            if (matchesRow(before[from], after[to], move.groups)) return after[to];
+            if (matchesRow(old, next, move.groups, images)) return next;
         }
-        function adjacentBoundary(oldStart, oldEnd, newStart, newEnd) {
-            if (!cleanSource || !move?.boundaryGroups?.length || oldEnd - oldStart !== 2 || newEnd - newStart !== 2) return;
-            const oldPair = before.slice(oldStart, oldEnd), newPair = after.slice(newStart, newEnd);
-            const keysOf = (entry) => presentationKeys.get(entry);
-            const [a, b] = oldPair.map(keysOf);
-            if (a === b || b !== keysOf(newPair[0]) || a !== keysOf(newPair[1])) return;
-            // Presentation can distinguish different empty layouts; an ID alone cannot.
-            const from = move.offset > 0 ? 0 : 1, crossed = 1 - from;
-            const blank = oldPair[from], key = keysOf(blank);
-            if (before.filter((entry) => keysOf(entry) === key).length !== 1
-                || after.filter((entry) => keysOf(entry) === key).length !== 1
-                || !isEmptyLayout(blank) || !matchesRow(oldPair[crossed], newPair[from], move.boundaryGroups)) return;
-            return { before: oldPair, after: newPair };
+        function spacerBoundary(rotation) {
+            if (!cleanSource || !move.boundaryGroups) return;
+            if (!isEmptyLayout(rotation.before[rotation.from])
+                || !rotation.pairs.every(([a, b]) => presentationKeys.get(a) === presentationKeys.get(b))) return;
+            // The crossed rows identify the gap. Identical spacers outside this rotation
+            // do not have to be distinguishable from the one that moved.
+            const crossed = rotation.pairs.filter((_, index) => index !== rotation.from);
+            if (!crossed.every(([a, b], index) => matchesRow(a, b, move.boundaryGroups[index]))) return;
+            // The boundary starts at the second box of the pair at the destination.
+            return { before: rotation.before, after: rotation.after, index: rotation.to || 1 };
         }
         function reordered(oldStart, oldEnd, newStart, newEnd) {
             const length = oldEnd - oldStart;
@@ -566,13 +745,11 @@ function changedCandidates(previous, next, move, cleanSource = false) {
                 return;
             }
             // Compare order before choosing anchors so a move is not split into an insertion and a deletion.
-            const moved = movedEntry(oldStart, oldEnd, newStart, newEnd);
-            const boundary = adjacentBoundary(oldStart, oldEnd, newStart, newEnd);
+            const rotation = rowRotation(oldStart, oldEnd, newStart, newEnd);
+            const moved = rotation && movedEntry(rotation);
+            const boundary = rotation && spacerBoundary(rotation);
             if (moved || boundary || (local && reordered(oldStart, oldEnd, newStart, newEnd))) {
-                if (boundary) {
-                    compare(boundary.before[0], boundary.after[1]);
-                    compare(boundary.before[1], boundary.after[0]);
-                }
+                if (boundary) for (const [a, b] of rotation.pairs) compare(a, b);
                 unresolved(oldStart, oldEnd, newStart, newEnd, 'reorder', moved, boundary);
                 return;
             }
@@ -684,16 +861,16 @@ function entryText(entry, cache = new Map()) {
 
 function valuesChanged(before, after) {
     if (!before || !after) return false;
-    const differs = (from, to) => Object.entries(from).some(([key, hint]) => ['text', 'html', 'value'].includes(hint?.type)
+    const differs = (from, to) => Object.entries(from).some(([key, hint]) => ['text', 'html', 'value', 'row-image'].includes(hint?.type)
         && (!Object.hasOwn(to, key) || hint.type !== to[key]?.type || hint.value !== to[key]?.value));
     return differs(before, after) || differs(after, before);
 }
 
 function inputOrderChanged(before, after) {
     return !!before && !!after && Object.entries(after).some(([key, next]) => {
-        if (next?.type !== 'order' || !Object.hasOwn(before, key)) return false;
+        if (!['order', 'gallery-order'].includes(next?.type) || !Object.hasOwn(before, key)) return false;
         const old = before[key];
-        return old?.type === 'order' && old.members === next.members && old.value !== next.value;
+        return old?.type === next.type && old.members === next.members && old.value !== next.value;
     });
 }
 
@@ -713,19 +890,25 @@ function inputMove(before, after, allowBoundary) {
     b.splice(to, 1);
     if (!a.every((item, index) => item === b[index])) return;
 
-    const offset = to - from;
-    const groups = rowGroups(key, next.moved, a, before, after);
+    const offset = to - from, evidence = { html: new Map(), peerLabels: new Map() };
+    const groups = rowGroups(key, next.moved, a, before, after, evidence);
+    const images = rowImageLabels(old.fieldsByRow, next.fieldsByRow, next.moved, a, before, after);
     let boundaryGroups;
-    if (allowBoundary && Math.abs(offset) === 1 && !groups.length
-        && hasNoRowText(old, next.moved, before) && hasNoRowText(next, next.moved, after)) {
-        const crossed = a.splice(Math.min(from, to), 1)[0];
-        boundaryGroups = rowGroups(key, crossed, [...a, next.moved], before, after);
+    if (allowBoundary && !groups.length
+        && hasNoRowContent(old, next.moved, before, evidence.html) && hasNoRowContent(next, next.moved, after, evidence.html)) {
+        const crossed = a.slice(Math.min(from, to), Math.max(from, to));
+        boundaryGroups = [];
+        for (const row of crossed) {
+            const labels = rowGroups(key, row, [...a.filter((item) => item !== row), next.moved], before, after, evidence);
+            if (!labels.length) { boundaryGroups = undefined; break; }
+            boundaryGroups.push(labels);
+        }
     }
-    return { offset, groups, boundaryGroups };
+    return { offset, groups, images, boundaryGroups };
 }
 
-function hasNoRowText(order, row, values) {
-    const html = new Map();
+function hasNoRowContent(order, row, values, html) {
+    // An image field still represents content when the attachment has an empty alt.
     return order.fieldsByRow?.[row]?.every((name) => rowFieldText(values[name], html)?.label === '');
 }
 
@@ -735,12 +918,47 @@ function isEmptyLayout(entry) {
         && entry.children.every(isEmptyLayout);
 }
 
-function rowGroups(key, row, siblings, before, after) {
+function rowImageLabels(oldFields, newFields, row, siblings, before, after) {
+    if ([row, ...siblings].some((item) => !oldFields?.[item] || !newFields?.[item])) return [];
+    const fields = new Set(oldFields[row]), labels = new Set(), peerLabels = new Set(), peerIds = new Set();
+    for (const [order, values] of [[oldFields, before], [newFields, after]]) {
+        for (const name of siblings.flatMap((sibling) => order[sibling])) {
+            const hint = values[name];
+            if (hint?.type !== 'row-image') continue;
+            peerIds.add(hint.value);
+            peerLabels.add(hint.alt);
+        }
+    }
+    for (const name of newFields[row]) {
+        const old = before[name], next = after[name];
+        if (!fields.has(name) || old?.type !== 'row-image' || next?.type !== 'row-image'
+            || !/^[1-9]\d*$/.test(next.value) || old.value !== next.value || peerIds.has(next.value)) continue;
+        const label = next.alt;
+        if (label?.trim() && old.alt === label && !peerLabels.has(label)) labels.add(label);
+    }
+    return [...labels];
+}
+
+function uniqueImageAnchors(root, labels) {
+    const anchors = new Map();
+    function visit(entry) {
+        if (entry.tag === 'img') {
+            const label = entry.attributes.find(([name]) => name === 'alt')?.[1];
+            if (labels.has(label)) anchors.set(label, anchors.has(label) ? null : entry);
+        }
+        entry.children.forEach(visit);
+    }
+    if (root) visit(root);
+    return anchors;
+}
+
+function rowGroups(key, row, siblings, before, after, { html, peerLabels }) {
     const { fieldsByRow } = after[key], oldFields = before[key].fieldsByRow;
     if ([row, ...siblings].some((item) => !oldFields?.[item] || !fieldsByRow?.[item])) return [];
-    const groups = [], html = new Map(), previousNames = new Set(oldFields[row]);
+    const groups = [], previousNames = new Set(oldFields[row]);
     let peers;
     function submittedLabels(names, values) {
+        if (peerLabels.has(names)) return peerLabels.get(names);
         const labels = new Set();
         function collect(entry, cache) {
             // A sibling can supply an exact element's text, even from inside a longer HTML field.
@@ -748,11 +966,15 @@ function rowGroups(key, row, siblings, before, after) {
             for (const child of entry.children) collect(child, cache);
         }
         for (const name of names) {
-            const field = rowFieldText(values[name], html);
-            if (!field) return null; // An unreadable sibling field cannot establish uniqueness.
-            if (field.entry) collect(field.entry, field.cache);
-            else labels.add(field.label);
+            if (values[name]?.type === 'row-image') continue;
+            const fields = rowFieldVariants(values[name], html);
+            if (!fields.length) return null; // An unreadable sibling field cannot establish uniqueness.
+            for (const field of fields) {
+                if (field.entry) collect(field.entry, field.cache);
+                else labels.add(field.label);
+            }
         }
+        peerLabels.set(names, labels);
         return labels;
     }
     function shared(label, blocks) {
@@ -763,23 +985,32 @@ function rowGroups(key, row, siblings, before, after) {
     for (const name of fieldsByRow[row]) {
         const hint = after[name], previous = before[name];
         if (!previousNames.has(name) || !hint || previous?.type !== hint.type || previous?.value !== hint.value) continue;
-        const field = rowFieldText(hint, html);
-        if (!field?.label) continue;
-        const { entry, cache, label } = field;
-        if (!entry) {
-            if (!shared(label, [])) groups.push([label]);
-            continue;
+        // An alternate spelling is evidence only when the native formatter returned it in both requests.
+        for (const { entry, cache, label } of rowFieldVariants(hint, html, previous.formatted === hint.formatted)) {
+            if (!label) continue;
+            if (!entry) {
+                if (!shared(label, [])) groups.push([label]);
+                continue;
+            }
+            const blocks = rowTextBlocks(entry, cache).map((block) => normalizedText(entryText(block, cache)));
+            const anchors = uniqueRowAnchors(entry, new Set([label, ...blocks]), cache);
+            // Rendering all the blocks as one label doesn't make them unique to this row.
+            if (anchors.get(label)?.substantive && !shared(label, blocks.join(' ') === label ? blocks : [])) groups.push([label]);
+            // Match authored blocks together without requiring an action-only paragraph.
+            const witnesses = [...new Set(blocks.filter((text) => anchors.has(text)))];
+            if (witnesses.length > 1 && witnesses.some((text) => anchors.get(text).substantive)
+                && !shared(label, witnesses)) groups.push(witnesses);
         }
-        const blocks = rowTextBlocks(entry, cache).map((block) => normalizedText(entryText(block, cache)));
-        const anchors = uniqueRowAnchors(entry, new Set([label, ...blocks]), cache);
-        // Rendering all the blocks as one label doesn't make them unique to this row.
-        if (anchors.get(label)?.substantive && !shared(label, blocks.join(' ') === label ? blocks : [])) groups.push([label]);
-        // Match authored blocks together without requiring an action-only paragraph.
-        const witnesses = [...new Set(blocks.filter((text) => anchors.has(text)))];
-        if (witnesses.length > 1 && witnesses.some((text) => anchors.get(text).substantive)
-            && !shared(label, witnesses)) groups.push(witnesses);
     }
     return groups;
+}
+
+function rowFieldVariants(hint, html, includeFormatted = true) {
+    const raw = rowFieldText(hint, html);
+    if (!raw) return [];
+    const formatted = includeFormatted && hint.type === 'html' && typeof hint.formatted === 'string'
+        ? rowFieldText({ type: 'html', value: hint.formatted }, html) : null;
+    return formatted ? [raw, formatted] : [raw];
 }
 
 function rowFieldText(hint, html) {
