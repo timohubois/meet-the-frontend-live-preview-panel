@@ -151,20 +151,20 @@ final class Panel
             'takingOver' => __('Switching…', 'meet-the-frontend-live-preview-panel'),
             'switchingPreview' => __('Switching preview…', 'meet-the-frontend-live-preview-panel'),
             'waiting' => __(
-                'Waiting for the other tab to finish updating.',
+                'Waiting for the other preview to finish updating.',
                 'meet-the-frontend-live-preview-panel'
             ),
             'handedOff' => __('Preview is paused here', 'meet-the-frontend-live-preview-panel'),
             'handedOffHelp' => __(
-                'The preview is updating in another tab. Starting it here pauses updates there.',
+                'Live preview is active elsewhere. If you use it here, the other preview will stop updating.',
                 'meet-the-frontend-live-preview-panel'
             ),
             'takeoverTimeout' => __('The other preview is still busy', 'meet-the-frontend-live-preview-panel'),
             'takeoverTimeoutHelp' => __(
-                'Try again, or close the preview in the other tab.',
+                'Try again, or close the other preview.',
                 'meet-the-frontend-live-preview-panel'
             ),
-            'tabEdits' => __('Each tab keeps its own edits.', 'meet-the-frontend-live-preview-panel'),
+            'tabEdits' => __('Your edits stay where you made them.', 'meet-the-frontend-live-preview-panel'),
             'bootFailed' => __(
                 'Couldn’t start live preview. Use WordPress Preview, or copy any changes you want to keep and reload the editor.', // phpcs:ignore Generic.Files.LineLength.TooLong -- Keep the translatable message intact.
                 'meet-the-frontend-live-preview-panel'
@@ -174,18 +174,18 @@ final class Panel
                 'Copy any unsaved changes you want to keep, then reload the editor to resume live preview.',
                 'meet-the-frontend-live-preview-panel'
             ),
-            'conflict' => __('Preview is running in another tab', 'meet-the-frontend-live-preview-panel'),
+            'conflict' => __('Live preview is already in use', 'meet-the-frontend-live-preview-panel'),
             'conflictHelp' => __(
-                'Starting the preview here pauses updates in the other tab.',
+                'If you use the preview here, the other preview will stop updating.',
                 'meet-the-frontend-live-preview-panel'
             ),
             'closeOther' => __('Close the other preview first', 'meet-the-frontend-live-preview-panel'),
             'closeOtherHelp' => __(
-                'Close the preview in the other tab, then start it here.',
+                'Close the other preview, then start it here.',
                 'meet-the-frontend-live-preview-panel'
             ),
             'manualSwitchHint' => __(
-                'This browser can’t switch the preview between tabs for you.',
+                'This browser can’t switch previews automatically.',
                 'meet-the-frontend-live-preview-panel'
             ),
             'unavailableTitle' => __('Live preview isn’t available yet', 'meet-the-frontend-live-preview-panel'),
