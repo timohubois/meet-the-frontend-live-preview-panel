@@ -112,7 +112,7 @@ jobs:
         run: npm run test:browser
 
   integration:
-    name: WordPress ${{ matrix.wordpress }} / Timber ${{ matrix.timber }}
+    name: WordPress ${{ matrix.wordpress }} / ${{ matrix.scf && 'Secure Custom Fields' || format('Timber {0}', matrix.timber) }}
     needs: javascript
     runs-on: ubuntu-24.04
     strategy:
@@ -120,9 +120,14 @@ jobs:
       matrix:
         wordpress: ['6.9', 'latest']
         timber: ['none', '^2.0']
+        scf: [false]
         include:
           - wordpress: '6.9'
             timber: '^1.24'
+            scf: false
+          - wordpress: 'latest'
+            timber: 'none'
+            scf: true
     env:
       WORDPRESS_VERSION: ${{ matrix.wordpress }}
       TIMBER_CONSTRAINT: ${{ matrix.timber }}
@@ -207,17 +212,41 @@ jobs:
                 WP_CLI::error("Timber availability does not match the test matrix.");
             }
           '
-          echo '::notice::ACF Pro is not installed in this matrix. Its optional fixture is skipped, not verified.'
-      - name: Run WordPress integration tests (ACF Pro checks skipped)
+      - name: Install and verify Secure Custom Fields
+        if: matrix.scf
+        run: |
+          wp --path="$RUNNER_TEMP/site" plugin install secure-custom-fields --activate
+          wp --path="$RUNNER_TEMP/site" plugin is-active secure-custom-fields
+          wp --path="$RUNNER_TEMP/site" eval '
+            if (
+                !function_exists("acf_add_local_field_group") || !function_exists("acf_update_field_group")
+                || !function_exists("acf_get_field_type") || !acf_get_field_type("repeater")
+            ) {
+                WP_CLI::error("Secure Custom Fields field APIs and Repeater must be available.");
+            }
+            WP_CLI::success("Secure Custom Fields " . acf_get_setting("version") . " is active.");
+          '
+      - name: Run Secure Custom Fields integration tests
+        if: matrix.scf
+        run: |
+          for fixture in tests/acf.php tests/acf-choices.php tests/term-acf.php; do
+            echo "::group::$fixture"
+            wp --path="$RUNNER_TEMP/site" eval-file "$GITHUB_WORKSPACE/$fixture"
+            echo '::endgroup::'
+          done
+      - name: Run WordPress integration tests
+        if: ${{ !matrix.scf }}
         env:
           MTFLPP_TEST_UNINSTALL: '1'
         run: |
+          echo '::notice::No custom-field plugin is installed. The custom-field fixtures skip in this job.'
           for fixture in tests/*.php; do
             echo "::group::$fixture"
             wp --path="$RUNNER_TEMP/site" eval-file "$GITHUB_WORKSPACE/$fixture"
             echo '::endgroup::'
           done
       - name: Check multisite preview isolation, migration and uninstall safety
+        if: ${{ !matrix.scf }}
         env:
           MTFLPP_TEST_UNINSTALL: '1'
         run: |

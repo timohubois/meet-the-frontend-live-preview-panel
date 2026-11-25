@@ -1,6 +1,6 @@
 <?php
 
-/** Run with `wp eval-file tests/acf.php` on a single site; skips without ACF Pro. */
+/** Run with `wp eval-file tests/acf.php` on a single site with ACF Pro or SCF. */
 
 use MeetTheFrontendLivePreviewPanel\Compatibility\Acf;
 use MeetTheFrontendLivePreviewPanel\LivePreview;
@@ -12,7 +12,7 @@ if (
     !function_exists('acf_add_local_field_group') || !function_exists('acf_get_field_type')
     || !acf_get_field_type('repeater')
 ) {
-    WP_CLI::log('Skipping ACF preview checks: ACF Pro with repeater support is not active.');
+    WP_CLI::log('Skipping custom field preview checks: ACF-compatible repeater support is not active.');
     return;
 }
 require_once ABSPATH . 'wp-admin/includes/user.php';
@@ -175,11 +175,23 @@ try {
     $taxonomyUpdate = [acf_get_field_type('taxonomy'), 'update_value'];
     $nativeTaxonomyPriority = has_filter('acf/update_value/type=taxonomy', $taxonomyUpdate);
     $setting = acf_get_setting('enable_bidirection');
-    $assertGuardsReleased = static function () use ($check, $taxonomyUpdate, $nativeTaxonomyPriority, $setting): void {
+    // SCF registers a backwards-compatibility filter before any preview runs.
+    $writeGuardHooks = static fn (): array => [
+        $GLOBALS['wp_filter']['acf/bidirectional/can_update_target']->callbacks ?? [],
+        $GLOBALS['wp_filter']['acf/connect_attachment_to_post']->callbacks ?? [],
+    ];
+    $originalHooks = $writeGuardHooks();
+    $assertGuardsReleased = static function () use (
+        $check,
+        $taxonomyUpdate,
+        $nativeTaxonomyPriority,
+        $setting,
+        $writeGuardHooks,
+        $originalHooks
+    ): void {
         $check(
             acf_get_setting('enable_bidirection') === $setting
-            && !has_filter('acf/bidirectional/can_update_target')
-            && !has_filter('acf/connect_attachment_to_post')
+            && $writeGuardHooks() === $originalHooks
             && has_filter('acf/update_value/type=taxonomy', $taxonomyUpdate) === $nativeTaxonomyPriority,
             'Preview completion must release its write guards and restore the native taxonomy writer.'
         );

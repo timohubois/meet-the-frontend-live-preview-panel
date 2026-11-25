@@ -170,9 +170,10 @@ unrelated post contexts and Query Loops, original permalinks, cache/global isola
 permissions and renderer lifecycle. The revisions fixture also checks explicit and
 generated historical block excerpts and rebinding to current saved data without writes.
 
-The optional ACF fixture checks shared live-field saves, paginated repeater merging,
-native post-meta block saving/rendering and source isolation. It exits successfully with a skip message when ACF Pro with
-repeater support is absent:
+The optional custom-field fixture checks shared live-field saves, paginated repeater
+merging, native post-meta block saving/rendering and source isolation. It runs with
+ACF Pro or Secure Custom Fields (SCF), and skips when compatible repeater support
+is absent:
 
 ```sh
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/acf.php
@@ -285,9 +286,10 @@ publish releases or listing updates pin their actions to exact commits.
   installing WordPress or Timber. The PHP 8.3 fixtures run on disposable WordPress
   6.9 and latest installations, both without Timber and with Timber 2.x, plus
   WordPress 6.9 with Timber 1.x. Timber jobs verify the dependency is loaded so
-  integration assertions cannot silently skip. ACF Pro is not installed: the
-  optional fixture is reported as skipped, not verified. ACF checks still require a
-  separate test site with ACF Pro.
+  integration assertions cannot silently skip. An additional job activates Secure
+  Custom Fields on the latest WordPress without Timber, verifies the field APIs
+  and Repeater support, and runs the post, choice and term fixtures. This covers
+  SCF, not ACF Pro; ACF Pro still requires a separate test site.
 - **Deploy and Release Plugin** runs on numeric tags such as `1.0.0`, without a `v`
   prefix. The tag, plugin header version and `readme.txt` stable tag must match.
   It waits for the checks, builds again in the deploy job, deploys via
