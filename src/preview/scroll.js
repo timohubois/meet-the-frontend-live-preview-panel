@@ -17,7 +17,7 @@ export function createPreviewScroll() {
                 if (element?.ownerDocument === doc && canFollow()) {
                     // Give normal frontend initialization one rendering opportunity before inspecting
                     // native hiding. This is bounded, not a readiness guarantee for lazy widgets.
-                    await presentationFrame(frameWindow);
+                    const painted = await presentationFrame(frameWindow);
                     if (version !== restoration || element.ownerDocument !== doc || !canFollow()) return;
                     if (revealAncestors(element, () => version === restoration && canFollow())) {
                         // Flush immediate owner updates (including beforematch microtasks), not arbitrary
@@ -27,7 +27,7 @@ export function createPreviewScroll() {
                     if (version !== restoration || !canFollow()) return;
                     const target = element.ownerDocument === doc ? visibleTarget(element) : null;
                     if (target) {
-                        followChange(target, canvasTarget);
+                        followChange(target, canvasTarget, painted);
                         // A broad ancestor is a fallback for the initial follow, not a breakpoint anchor.
                         if (element.contains(target)) followed = target;
                     }
@@ -115,14 +115,14 @@ function canvasFragment(presentation, canvasTarget) {
 
 function presentationFrame(win) {
     return new Promise((resolve) => {
-        const finish = () => {
+        const finish = (painted) => {
             win.clearTimeout(timeout);
             win.cancelAnimationFrame(frame);
-            resolve();
+            resolve(painted);
         };
-        // Background documents need a bound too: requestAnimationFrame may be suspended.
-        const timeout = win.setTimeout(finish, 100);
-        let frame = win.requestAnimationFrame(() => { frame = win.requestAnimationFrame(finish); });
+        // A suspended frame cannot advance a smooth scroll either. Keep the single reveal, but make it instant.
+        const timeout = win.setTimeout(() => finish(false), 100);
+        let frame = win.requestAnimationFrame(() => { frame = win.requestAnimationFrame(() => finish(true)); });
     });
 }
 
@@ -160,7 +160,7 @@ function revealAncestors(element, canFollow) {
 }
 
 // Resolve only the identified element's presentation, never choose between unrelated changes.
-function visibleTarget(element) {
+export function visibleTarget(element) {
     if (!element?.isConnected) return null;
     const initial = targetBounds(element, true);
     if (initial?.clipped) return element;
@@ -328,10 +328,12 @@ function isVisible(node, options = { visibilityProperty: true }) {
         && node.ownerDocument.defaultView.getComputedStyle(node).visibility === 'visible';
 }
 
-function followChange(target, canvasTarget) {
+function followChange(target, canvasTarget, painted) {
+    const win = target.ownerDocument.defaultView;
+    const behavior = painted && !win.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'smooth' : 'instant';
     const presentation = viewportTarget(target, canvasTarget, true);
     if (!presentation?.inViewport) {
-        revealChange(target);
+        revealChange(target, { behavior });
         return;
     }
     const { rects, extent, header = 0 } = presentation;
@@ -342,23 +344,18 @@ function followChange(target, canvasTarget) {
     if (rects.some((rect) => rect.right - rect.left >= requiredWidth - 1
         && rect.bottom - rect.top >= requiredHeight - 1)) {
         // In cropped zoom modes the page can already show the edit while the panel still clips it.
-        if (canvasTarget) canvasFragment(presentation, canvasTarget)?.reveal(followMotion(target.ownerDocument.defaultView));
+        if (canvasTarget) canvasFragment(presentation, canvasTarget)?.reveal(behavior);
         return;
     }
-    revealChange(target, { nearest: true, header });
-}
-
-function followMotion(win) {
-    return win.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth';
+    revealChange(target, { behavior, nearest: true, header });
 }
 
 // Decide clearance up front: at most one native scroll, with no delayed adjustment or scroll listeners.
-function revealChange(target, { behavior, header = visibleHeaderBottom(target), nearest = false } = {}) {
+function revealChange(target, { behavior, header = visibleHeaderBottom(target), nearest = false }) {
     const doc = target.ownerDocument;
     const win = doc.defaultView;
-    const motion = behavior ?? followMotion(win);
     if (nearest && !header) {
-        target.scrollIntoView({ behavior: motion, block: 'nearest', inline: 'nearest' });
+        target.scrollIntoView({ behavior, block: 'nearest', inline: 'nearest' });
         return;
     }
     const margin = win.getComputedStyle(target).scrollMarginTop;
@@ -398,7 +395,7 @@ function revealChange(target, { behavior, header = visibleHeaderBottom(target), 
                 root.style.setProperty('scroll-padding-bottom', `${paddingBottom + bias}px`, 'important');
             }
         }
-        target.scrollIntoView({ behavior: motion, block, inline: 'nearest' });
+        target.scrollIntoView({ behavior, block, inline: 'nearest' });
     } finally {
         if (originalRoot !== undefined) restoreInlineStyle(root, originalRoot);
         if (originalTarget !== undefined) restoreInlineStyle(target, originalTarget);

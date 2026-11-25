@@ -1,9 +1,5 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import webpack from 'webpack';
-import { runChromiumTests, testInChromium } from './helpers/chromium.mjs';
+import { readFile } from 'node:fs/promises';
+import { browserBundle, runChromiumTests, testInChromium } from './helpers/chromium.mjs';
 import { panelStrings } from './helpers/panel-strings.mjs';
 
 // Exercise panel CSS and the native overlay layers; WordPress owns actual menu rendering and positioning.
@@ -720,37 +716,15 @@ async function nativeViewportControlTests(strings) {
 }
 
 testInChromium('native WordPress launcher, menu and notices render and handle focus and clicks', async (t) => {
-    const directory = await mkdtemp(join(tmpdir(), 'mtflpp-native-launcher-'));
-    try {
-        // Expose public APIs only in the fixture so native-store isolation can be checked too.
-        await writeFile(join(directory, 'entry.js'), `
-            export { createPreviewControls, createPreviewLauncher } from ${JSON.stringify(fileURLToPath(new URL('../src/panel/controls.js', import.meta.url)))};
-            export { createPreviewViewport } from ${JSON.stringify(fileURLToPath(new URL('../src/panel/viewport.js', import.meta.url)))};
-            export { dispatch, select } from '@wordpress/data';
-            export { store as noticesStore } from '@wordpress/notices';
-            export { ThemeProvider } from '@wordpress/theme';
-        `);
-        await new Promise((resolve, reject) => webpack({
-            mode: 'production', devtool: false,
-            entry: join(directory, 'entry.js'),
-            resolve: { modules: [fileURLToPath(new URL('../node_modules', import.meta.url)), 'node_modules'] },
-            output: { path: directory, filename: 'controls.js', library: { name: 'previewControls', type: 'window' } },
-            optimization: { minimize: false }, performance: false,
-        }, (error, stats) => {
-            if (error) return reject(error);
-            if (stats.hasErrors()) return reject(new Error(stats.toString({ all: false, errors: true })));
-            resolve();
-        }));
-        const css = await readFile(new URL('../build/classic-editor.css', import.meta.url), 'utf8');
-        const core = await readFile(new URL('../node_modules/@wordpress/components/build-style/style.css', import.meta.url), 'utf8');
-        const tokens = await readFile(new URL('../node_modules/@wordpress/theme/prebuilt/css/design-tokens.css', import.meta.url), 'utf8');
-        const bundle = pathToFileURL(join(directory, 'controls.js')).href;
-        await runChromiumTests(t, {
-            script: `(async () => {
-                window.wp = { theme: { ThemeProvider: window.previewControls.ThemeProvider } };
-                return [...(${nativeLauncherTests.toString()})(), ...await (${nativePreferenceTests.toString()})(${JSON.stringify(panelStrings)}), ...await (${nativeNoticeTests.toString()})(${JSON.stringify(panelStrings)}), ...await (${nativeViewportControlTests.toString()})(${JSON.stringify(panelStrings)})];
-            })()`, count: 21, virtualTimeBudget: 20000,
-            head: `<style>${tokens}\n${core}\n${css}</style><script src="${bundle}"></script>`,
-        });
-    } finally { await rm(directory, { recursive: true, force: true }); }
+    const bundle = await browserBundle(t, new URL('./browser/panel-menu.js', import.meta.url), 'previewControls');
+    const css = await readFile(new URL('../build/classic-editor.css', import.meta.url), 'utf8');
+    const core = await readFile(new URL('../node_modules/@wordpress/components/build-style/style.css', import.meta.url), 'utf8');
+    const tokens = await readFile(new URL('../node_modules/@wordpress/theme/prebuilt/css/design-tokens.css', import.meta.url), 'utf8');
+    await runChromiumTests(t, {
+        script: `(async () => {
+            window.wp = { theme: { ThemeProvider: window.previewControls.ThemeProvider } };
+            return [...(${nativeLauncherTests.toString()})(), ...await (${nativePreferenceTests.toString()})(${JSON.stringify(panelStrings)}), ...await (${nativeNoticeTests.toString()})(${JSON.stringify(panelStrings)}), ...await (${nativeViewportControlTests.toString()})(${JSON.stringify(panelStrings)})];
+        })()`, count: 21, virtualTimeBudget: 20000,
+        head: `<style>${tokens}\n${core}\n${css}</style><script src="${bundle}"></script>`,
+    });
 });

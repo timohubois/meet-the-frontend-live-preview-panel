@@ -83,7 +83,7 @@ function fixture({ visible = true, selected = revision(11), isolated = false, ex
             },
             keepInView: (target, options) => viewportChanges.push({ target, ...options }),
         }) },
-        '../preview/comparison.js': { createPreviewComparison: (selectors) => {
+        './comparison.js': { createPreviewComparison: (selectors) => {
             comparisonSelectors = selectors;
             const values = new WeakMap();
             return {

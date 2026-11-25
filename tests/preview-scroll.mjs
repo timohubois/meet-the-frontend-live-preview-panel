@@ -1,10 +1,7 @@
-import { readFile } from 'node:fs/promises';
-import { runChromiumTests, testInChromium } from './helpers/chromium.mjs';
+import { browserBundle, runChromiumTests, testInChromium } from './helpers/chromium.mjs';
 
-async function browserTests(source) {
-    const { createPreviewScroll, createPreviewComparison, visibleTarget } = new Function(
-        `${source.replace('export function', 'function')}\nreturn { createPreviewScroll, createPreviewComparison, visibleTarget };`,
-    )();
+async function browserTests() {
+    const { createPreviewScroll, createPreviewComparison, visibleTarget } = window.previewScroll;
     const results = [];
     // Model the PHP configuration; editor-extensions.php separately verifies the complete shipped policy.
     const defaults = ['script', 'style', 'noscript', 'template', 'link', 'meta', 'nav',
@@ -917,6 +914,33 @@ async function browserTests(source) {
                     'Use the submitted blocks together, even when the template adds other content.');
             });
         }
+        const richHeading = '<h2 style="visibility:visible">Section A</h2>';
+        const compact = `<div style="visibility:hidden">${richHeading}</div>`;
+        const serialized = '<div style="visibility: hidden;">\n<h2 style="visibility: visible;">Section A</h2>\n</div>';
+        const originalTitle = compact.replace('Section A', "What's new?"), serializedTitle = serialized.replace('Section A', "What's new?");
+        const nativeTitle = (html) => html.replace("What's", 'What’s');
+        for (const [scenario, original, submitted, rendered, identifies, oldNative, newNative] of [
+            ['editor indentation and style serialization', compact, serialized, compact, true],
+            ['reserialized native typography', originalTitle, serializedTitle, nativeTitle(originalTitle), true,
+                nativeTitle(originalTitle), nativeTitle(serializedTitle)],
+            ['changed native typography', originalTitle, serializedTitle, nativeTitle(originalTitle), false,
+                nativeTitle(originalTitle).replace('new?', 'next?'), nativeTitle(serializedTitle)],
+            ['changed declaration', compact, serialized.replace('visibility: visible;', 'color: red;'), compact, false],
+            ['changed element', compact, serialized.replaceAll('h2', 'h3'), compact, false],
+            ['changed inline whitespace', '<h2><em>Section </em>\n<b>A</b></h2>', '<h2><em>Section </em><b>A</b></h2>', richHeading, false],
+            ['changed preformatted whitespace', '<pre>Section\n<br>A</pre>', '<pre>Section<br>A</pre>', richHeading, false],
+            ['hidden heading', compact, serialized, '<h2 style="visibility:hidden">Section A</h2>', false],
+        ]) {
+            await check(`${mode}: rich-text row after ${scenario}`, async (frame, doc) => {
+                const row = `<section id="moved">${rendered}</section>`, peer = section('Section B');
+                const before = await doc(row + peer, options), after = await doc(peer + row, options);
+                const old = rowOrder(['A', 'B']), next = rowOrder(['B', 'A'], 'A');
+                old['title:A'] = { type: 'html', value: original, formatted: oldNative };
+                next['title:A'] = { type: 'html', value: submitted, formatted: newNative };
+                equal(follow(frame, before, after, old, next), identifies ? after.querySelector('#moved') : null,
+                    'Editor serialization can preserve a row witness; changed markup or hidden text cannot.');
+            });
+        }
         await check(`${mode}: a link-only rich-text paragraph is not required evidence for the move`, async (frame, doc) => {
             const text = '<h2>Unique heading</h2><p>Body paragraph.</p><p><a href="#details">Read the case study</a></p>';
             const moved = `<section id="formatted">${text}<span>Template label</span></section>`;
@@ -1202,6 +1226,22 @@ async function browserTests(source) {
                 equal(target, pinned ? null : after.querySelector('#A'), 'Only an actual change in the position of the row should follow.');
                 await frame.scrolling.restore(after, target);
                 equal(after.defaultView.scrollY === 73, pinned, 'Keep the reader’s offset if CSS kept the row in place.');
+            });
+        }
+        for (const [scenario, markup, expected] of [
+            ['visible heading inside a hidden wrapper', '<div style="visibility:hidden"><h2 style="visibility:visible">Section A</h2></div>', true],
+            ['heading inherits hidden visibility', '<div style="visibility:hidden"><h2>Section A</h2></div>', false],
+            ['visible text inside a hidden inline wrapper', '<h2>Section <span style="visibility:hidden"><b style="visibility:visible">A</b></span></h2>', true],
+            ['part of the heading is hidden', '<h2>Section <span style="visibility:hidden">A</span></h2>', false],
+            ['visible heading inside a display:none wrapper', '<div style="display:none"><h2 style="visibility:visible">Section A</h2></div>', false],
+        ]) {
+            await check(`${mode}: moved row with ${scenario}`, async (frame, doc) => {
+                const row = `<section id="row-A">${markup}</section>`, peer = section('Section B');
+                const before = await doc(row + peer, options), after = await doc(peer + row, options);
+                frame.capture(before, rowOrder(['A', 'B']));
+                frame.capture(after, rowOrder(['B', 'A'], 'A'));
+                equal(frame.comparison.findChange(before, after), expected ? after.querySelector('#row-A') : null,
+                    'Only visible text or text in a native disclosure can identify the row.');
             });
         }
         await check(`${mode}: moving a named row inside native disclosures can still reveal it`, async (frame, doc) => {
@@ -2306,16 +2346,20 @@ async function browserTests(source) {
             }
         });
     }
-    await check('following requests smooth scrolling even when the theme does not', async (frame, doc) => {
-        const after = await doc(content(), { reducedMotion: false });
-        after.documentElement.style.scrollBehavior = 'auto';
-        const target = after.querySelector('#edited');
-        let behavior;
-        const scroll = target.scrollIntoView;
-        target.scrollIntoView = function (options) { behavior = options.behavior; return scroll.call(this, options); };
-        await frame.scrolling.restore(after, target);
-        equal(behavior, 'smooth', 'Request native smooth following rather than inheriting the theme setting.');
-    });
+    for (const painting of [true, false]) {
+        await check(`following without a reduced-motion preference (painting=${painting})`, async (frame, doc) => {
+            const after = await doc(content(), { reducedMotion: false });
+            after.documentElement.style.scrollBehavior = 'auto';
+            // Drive the existing presentation wait independently of headless Chromium's virtual-time clock.
+            after.defaultView.requestAnimationFrame = (callback) => painting ? after.defaultView.setTimeout(callback, 0) : 0;
+            const target = after.querySelector('#edited'), calls = [];
+            const scroll = target.scrollIntoView;
+            target.scrollIntoView = function (options) { calls.push(options.behavior); return scroll.call(this, options); };
+            await frame.scrolling.restore(after, target);
+            equal(calls.join(), painting ? 'smooth' : 'instant', 'Request one native scroll that the frame can complete.');
+            if (!painting) equal(after.defaultView.scrollY > 0, true, 'Reveal the target without waiting for an animation.');
+        });
+    }
     await check('reduced-motion following does not inherit author smooth scrolling', async (frame, doc) => {
         const after = await doc(content(), { reducedMotion: true });
         after.documentElement.style.scrollBehavior = 'smooth';
@@ -2331,8 +2375,8 @@ async function browserTests(source) {
 }
 
 testInChromium('preview scrolling matches changed sections conservatively', async (t) => {
-    const comparison = await readFile(new URL('../src/preview/comparison.js', import.meta.url), 'utf8');
-    const scrolling = await readFile(new URL('../src/preview/scroll.js', import.meta.url), 'utf8');
-    const source = `${comparison.replace('export function', 'function')}\n${scrolling.replace(/^import .*;\n/, '')}`;
-    await runChromiumTests(t, { script: `(${browserTests.toString()})(${JSON.stringify(source)})`, count: 563, virtualTimeBudget: 30000 });
+    const bundle = await browserBundle(t, new URL('./browser/preview-scroll.js', import.meta.url), 'previewScroll');
+    await runChromiumTests(t, {
+        head: `<script src="${bundle}"></script>`, script: `(${browserTests.toString()})()`, count: 590, virtualTimeBudget: 30000,
+    });
 });

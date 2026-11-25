@@ -93,7 +93,7 @@ try {
     $edit = "<b>Editor's</b> C:\\draft";
     $cases = [
         [[KEY => 'New'], 'NEW'], [[KEY => ''], ''], [[], 'Saved note'],
-        [[KEY => $edit], "EDITOR'S C:\\DRAFT"],
+        [[KEY => $edit, 'excerpt' => 'Preview excerpt'], "EDITOR'S C:\\DRAFT"],
     ];
     foreach ($cases as [$input, $expected]) {
         $response = $prepare($input);
@@ -115,8 +115,9 @@ try {
     $show($response->get_data()['url']);
     $block = parse_blocks('<!-- wp:paragraph {"metadata":{"bindings":{"content":{"source":"core/post-meta",'
         . '"args":{"key":"example_post_note"}}}}} --><p></p><!-- /wp:paragraph -->')[0];
-    $render = static fn (int $id) => wp_strip_all_tags((new WP_Block($block, ['postId' => $id, 'postType' => 'post']))
-        ->render());
+    $render = static fn (int $id, ?array $parsed = null) => wp_strip_all_tags(
+        (new WP_Block($parsed ?? $block, ['postId' => $id, 'postType' => 'post']))->render()
+    );
     $check($render($postId) === $expected && $render($otherId) === 'Default note', 'Scope the bound Paragraph.');
     if (is_multisite()) {
         $peer = wp_insert_site([
@@ -124,18 +125,45 @@ try {
             'title' => 'Post note fixture', 'user_id' => $user,
         ]);
         $check(is_int($peer) && $peer > 0, 'Could not create the fixture subsite.');
+        // Bind document-only reads (including password handling) on the authorized site.
+        $previousQuery = $GLOBALS['wp_query'];
+        try {
+            $GLOBALS['wp_query'] = new WP_Query(['p' => $postId, 'preview' => true]);
+            $frontend->checkPreviewTarget();
+        } finally {
+            $GLOBALS['wp_query'] = $previousQuery;
+        }
+        $requiresPassword = static function (int $id): bool {
+            $post = clone get_post($id);
+            $post->post_password = 'fixture-password';
+            return post_password_required($post);
+        };
+        $check(!$requiresPassword($postId), 'The matching preview document must bind its password exception.');
+        $excerpt = parse_blocks('<!-- wp:post-excerpt /-->')[0];
         switch_to_blog($peer);
         try {
             $id = wp_insert_post([
-                'import_id' => $postId, 'post_title' => 'Peer post', 'post_status' => 'publish',
+                'import_id' => $postId, 'post_title' => 'Peer post', 'post_excerpt' => 'Peer excerpt',
+                'post_status' => 'publish',
             ], true);
             $check($id === $postId, 'Use matching numeric post IDs on the two sites.');
             update_post_meta($id, KEY, 'PEER NOTE');
             $check($render($id) === 'PEER NOTE', 'A switched site must read its own saved note.');
+            update_post_meta($id, '_thumbnail_id', 42);
+            $check(get_post_thumbnail_id($id) === 42, 'A switched site must keep its own featured image.');
+            $check(
+                apply_filters('the_preview', clone get_post($id))->post_title === 'Peer post',
+                'A switched site must keep its own post fields.'
+            );
+            $check(trim($render($id, $excerpt)) === 'Peer excerpt', 'Core blocks must render the switched post.');
+            $check($requiresPassword($id), 'The preview must not unlock a protected post on the switched site.');
         } finally {
             restore_current_blog();
         }
-        $check($render($postId) === $expected, 'Restoring the preview site must restore the live read.');
+        $check(
+            $render($postId) === $expected && trim($render($postId, $excerpt)) === 'Preview excerpt',
+            'Restoring the preview site must restore its live reads.'
+        );
     }
     // The parent-key read is still bound to the live revision; it cannot stand in for the saved baseline.
     add_filter('add_post_metadata', $blockWrite, 10, 3);

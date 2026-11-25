@@ -16,17 +16,15 @@ export async function sourceForVm(url) {
 
 // Execute the same shared iframe implementation in VM and data-URL browser fixtures.
 export async function previewSourceForVm(url) {
-    const comparison = await sourceForVm(new URL('../../src/preview/comparison.js', import.meta.url));
-    const frame = (await sourceForVm(new URL('../../src/preview/frame.js', import.meta.url))).replace(
-        /^const \{\s*createPreviewComparison\s*\} = imports\["\.\/comparison\.js"\];$/m,
-        `const createPreviewComparison = imports["../preview/comparison.js"]?.createPreviewComparison
-            || (() => { ${comparison}\nreturn createPreviewComparison; })();`,
-    );
+    const frame = await sourceForVm(new URL('../../src/preview/frame.js', import.meta.url));
     let source = await sourceForVm(url);
     if (url.pathname.endsWith('/screens/classic-editor.js')) {
         const session = await sourceForVm(new URL('../../src/preview/live-preview.js', import.meta.url));
         source = source.replace(/^const \{\s*createLivePreview\s*\} = imports\["\.\.\/preview\/live-preview\.js"\];$/m, session);
     }
     source = source.replace(/^const \{\s*createPreviewFrame\s*\} = imports\["\.\.\/preview\/frame\.js"\];$/m, '');
-    return `${frame}\n${source}`;
+    // Editor fixtures exercise the frame lifecycle, not DOM comparison. Revision tests inject their own observer.
+    return `const createPreviewFrame = ((imports) => { ${frame}\nreturn createPreviewFrame; })({
+        './comparison.js': imports['./comparison.js'] ?? { createPreviewComparison: () => ({ capture() {}, findChange: () => null }) },
+    });\n${source}`;
 }

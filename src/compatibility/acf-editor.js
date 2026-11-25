@@ -4,6 +4,9 @@ import { createBlockEditorAcf } from './acf-block-editor.js';
 
 const namespace = 'meet-the-frontend-live-preview-panel/acf';
 
+addAction('mtflpp.blockEditor.previewSetup', namespace, setupBlockEditorAcf);
+addAction('mtflpp.classicEditor.previewSetup', namespace, setupClassicEditorAcf);
+
 // Disabled integrations are inert; an enabled integration with missing APIs must not discard fields.
 function checkAcf(config) {
     if (!config.acfEnabled) return false;
@@ -14,7 +17,7 @@ function checkAcf(config) {
     return true;
 }
 
-addAction('mtflpp.blockEditor.previewSetup', namespace, ({ config, changed, hooks, onDestroy }) => {
+function setupBlockEditorAcf({ config, changed, hooks, onDestroy }) {
     if (!checkAcf(config)) return;
     const fields = createBlockEditorAcf(changed);
     onDestroy(() => fields.destroy());
@@ -22,15 +25,15 @@ addAction('mtflpp.blockEditor.previewSetup', namespace, ({ config, changed, hook
     hooks.addAction('nativeMetaboxSaveAcknowledged', namespace, () => fields.saved());
     hooks.addFilter('previewPauseReason', namespace, (reason) => reason || (fields.ready ? '' : config.strings.acfRefreshing));
     hooks.addFilter('previewFormBody', namespace, (body) => {
-        body ??= new URLSearchParams();
-        for (const [name, value] of fields.capture()) body.append(name, value);
+        for (const [name, value] of fields.capture()) {
+            body ??= new URLSearchParams();
+            body.append(name, value);
+        }
         return body;
     });
-});
+}
 
-addAction('mtflpp.classicEditor.previewSetup', namespace, ({
-    config, form, changed, watchEditor, cancelNativeSave, hooks, onDestroy,
-}) => {
+function setupClassicEditorAcf({ config, form, changed, watchEditor, cancelNativeSave, hooks, onDestroy }) {
     if (!checkAcf(config)) return;
     const fields = initAcf(form, changed, watchEditor, cancelNativeSave);
     onDestroy(() => fields.destroy());
@@ -57,4 +60,4 @@ addAction('mtflpp.classicEditor.previewSetup', namespace, ({
         return error || (saved && fields.hasStructuralPaginationChanges()
             ? Object.assign(new Error(config.strings.nativePreviewAcf), { code: 'mtflpp_acf_rows_stale' }) : undefined);
     });
-});
+}

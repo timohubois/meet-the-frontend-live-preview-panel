@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -822,7 +822,9 @@ testInChromium('followed changes stay in the panel across breakpoints in all zoo
 });
 
 testInChromium('trusted input verifies independent scrolling and DPR-corrected physical pixel geometry', { timeout: 30000 }, async (t) => {
-    const modules = new Map(await Promise.all(['panel/viewport.js', 'preview/frame.js', 'preview/comparison.js', 'preview/scroll.js'].map(async (path) =>
+    const previews = await readdir(new URL('../src/preview/', import.meta.url));
+    const paths = ['panel/viewport.js', ...previews.filter((name) => name.endsWith('.js')).map((name) => `preview/${name}`)];
+    const modules = new Map(await Promise.all(paths.map(async (path) =>
         [`/src/${path}`, await readFile(new URL(`../src/${path}`, import.meta.url), 'utf8')])));
     const css = await readFile(new URL('../src/panel/panel.css', import.meta.url), 'utf8');
     const page = '<!doctype html><meta name="meet-the-frontend-live-preview-panel" content="trusted-scroll"><style>html,body{margin:0}html{overscroll-behavior:auto!important}main{height:300vh}</style><main>Scrollable page</main>';
