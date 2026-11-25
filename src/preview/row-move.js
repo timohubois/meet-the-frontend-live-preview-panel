@@ -1,4 +1,4 @@
-import { childFlowText, containsEntry, contentSnapshot, entryText, normalizedText, subtreeSnapshot } from './snapshot.js';
+import { childFlowText, containsEntry, contentSnapshot, entryText, isFlowBoundary, normalizedText, subtreeSnapshot } from './snapshot.js';
 
 const CONFIRMED = 'confirmed';
 const DO_NOT_INFER = 'do-not-infer';
@@ -86,7 +86,7 @@ function fieldLinkKeys(previous, hint, html) {
         const href = entry.node.getAttribute('href'), key = linkKey(href, field.label);
         if (key) return { href, key };
     }
-    const [link, formatted] = rowFieldVariants(hint, html, previous.formatted === hint.formatted).map(soleLink);
+    const [link, formatted] = rowFieldVariants(hint, html, sameRowHtml(previous.formatted, hint.formatted, html)).map(soleLink);
     if (!link || soleLink(rowFieldText(previous, html))?.key !== link.key) return;
     const { href } = link;
     if (!href.trim() || href.trim() === '#') return;
@@ -173,9 +173,10 @@ function rowGroups(key, row, siblings, before, after, { html, peerLabels }) {
     }
     for (const name of fieldsByRow[row]) {
         const hint = after[name], previous = before[name];
-        if (!previousNames.has(name) || !hint || previous?.type !== hint.type || previous?.value !== hint.value) continue;
+        if (!previousNames.has(name) || !sameRowField(previous, hint, html)) continue;
         // An alternate spelling is evidence only when the native formatter returned it in both requests.
-        for (const { entry, cache, label } of rowFieldVariants(hint, html, previous.formatted === hint.formatted)) {
+        const nativeMatch = sameRowHtml(previous.formatted, hint.formatted, html);
+        for (const { entry, cache, label } of rowFieldVariants(hint, html, nativeMatch)) {
             if (!label) continue;
             if (!entry) {
                 if (!shared(label, [])) groups.push([label]);
@@ -194,6 +195,33 @@ function rowGroups(key, row, siblings, before, after, { html, peerLabels }) {
     return groups;
 }
 
+function sameRowField(previous, next, html) {
+    if (!previous || !next || previous.type !== next.type) return false;
+    return next.type === 'html' ? sameRowHtml(previous.value, next.value, html) : previous.value === next.value;
+}
+
+function sameRowHtml(before, after, html) {
+    if (before === after) return true;
+    if (typeof before !== 'string' || typeof after !== 'string') return false;
+    return comparableRowHtml(before, html)?.isEqualNode(comparableRowHtml(after, html)) ?? false;
+}
+
+// A rich-text editor can reserialize the field on the first drag. Compare its inert markup,
+// not just its label: changed tags, attributes and whitespace within inline copy still matter.
+function comparableRowHtml(value, html) {
+    const field = rowFieldText({ type: 'html', value }, html);
+    if (!field) return null;
+    const root = field.document.documentElement.cloneNode(true);
+    for (const node of root.querySelectorAll('*')) {
+        if (node.style?.length) node.setAttribute('style', node.style.cssText);
+        if (!isFlowBoundary(node.localName) || node.parentElement.closest('pre, textarea')) continue;
+        for (const sibling of [node.previousSibling, node.nextSibling]) {
+            if (sibling?.nodeType === 3 && /^[\t\r\n ]*\n[\t\r\n ]*$/.test(sibling.data)) sibling.remove();
+        }
+    }
+    return root;
+}
+
 function rowFieldVariants(hint, html, includeFormatted = true) {
     const raw = rowFieldText(hint, html);
     if (!raw) return [];
@@ -210,7 +238,7 @@ function rowFieldText(hint, html) {
         try {
             const doc = new DOMParser().parseFromString(hint.value, 'text/html');
             const entry = contentSnapshot(doc, doc, [], doc.body), cache = new Map();
-            html.set(hint.value, { entry, cache, label: normalizedText(entryText(entry, cache)) });
+            html.set(hint.value, { document: doc, entry, cache, label: normalizedText(entryText(entry, cache)) });
         } catch { html.set(hint.value, null); } // Unreadable formatted fields are optional evidence.
     }
     return html.get(hint.value);

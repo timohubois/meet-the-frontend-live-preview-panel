@@ -124,9 +124,12 @@ export function entryText(entry, cache = new Map()) {
 }
 
 // Block boundaries separate words even without serialized whitespace; inline formatting does not.
+export function isFlowBoundary(tag) {
+    return /^(?:p|div|section|article|main|aside|header|footer|nav|h[1-6]|li|[ou]l|d[ldt]|blockquote|pre|table|tr|t[dh]|caption|figure|figcaption|br|hr)$/.test(tag);
+}
+
 export function childFlowText(tag, text) {
-    return /^(?:p|div|section|article|main|aside|header|footer|nav|h[1-6]|li|[ou]l|d[ldt]|blockquote|pre|table|tr|t[dh]|caption|figure|figcaption|br|hr)$/.test(tag)
-        ? ` ${text} ` : text;
+    return isFlowBoundary(tag) ? ` ${text} ` : text;
 }
 
 export function containsEntry(parent, child) {
