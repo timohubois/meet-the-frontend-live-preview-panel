@@ -41,8 +41,9 @@ For a submitted note, the PHP adapter checks the post, field permission and inpu
 post field's registered sanitizer. It uses `update_metadata('post', $sourceId, ...)` on the owned revision:
 **do not use `update_post_meta()` here**, as it redirects revisions to their parent. Before returning a
 preview URL, the adapter verifies the edited value (an empty string when cleared). If the note was
-omitted, it checks that the saved note was copied, distinguishing a missing row from an empty one.
-Only the authorized live preview changes reads for this post and key; term and historical previews are unchanged.
+omitted, it checks that the saved rows were copied. When neither the post nor the revision has a note,
+WordPress supplies the post field's default. The live read is limited to the selected site, post and key;
+term and historical previews are unchanged.
 
 ### PHP hook context
 
@@ -238,7 +239,8 @@ and keep intentionally empty entries. A no-op returns its input, **not** a fresh
 `null`.
 
 If an existing Classic Editor meta box already saves `example_post_note`, it can reuse the example's PHP
-preview adapter. Register its script as a Classic entry dependency and append the native input:
+preview adapter. Register its script as a Classic entry dependency. Read the native form data so a
+disabled input is omitted and an intentionally empty value is still submitted:
 
 ```js
 wp.hooks.addAction('mtflpp.classicEditor.previewSetup', 'example/post-note', ({ form, hooks, changed, onDestroy }) => {
@@ -246,8 +248,9 @@ wp.hooks.addAction('mtflpp.classicEditor.previewSetup', 'example/post-note', ({ 
     if (!input) return;
     input.addEventListener('input', changed);
     onDestroy(() => input.removeEventListener('input', changed));
-    hooks.addFilter('previewFormBody', 'example/post-note', (body) => {
-        body.append('example_post_note', input.value);
+    hooks.addFilter('previewFormBody', 'example/post-note', (body, nativeValues) => {
+        const note = nativeValues.get('example_post_note');
+        if (typeof note === 'string') body.append('example_post_note', note);
         return body;
     });
 });

@@ -1,19 +1,27 @@
 <?php
 
-/** Exercise the actual two-file integration example on a disposable single-site installation. */
+/** Exercise the actual two-file integration example on a disposable WordPress installation. */
 
+use LivePreviewExample\PostNote\LiveNote;
 use MeetTheFrontendLivePreviewPanel\FrontendPreview;
 use MeetTheFrontendLivePreviewPanel\LivePreview;
 
 use const LivePreviewExample\PostNote\KEY;
 
-if (!defined('WP_CLI') || !WP_CLI || !class_exists(LivePreview::class) || is_multisite()) {
-    throw new RuntimeException('Run through WP-CLI with the panel active on a disposable single site.');
+if (!defined('WP_CLI') || !WP_CLI || !class_exists(LivePreview::class)) {
+    throw new RuntimeException('Run through WP-CLI with the panel active on a disposable installation.');
+}
+if (is_multisite()) {
+    global $wpdb;
+    if ($wpdb->base_prefix !== 'mtflpp_test_' || getenv('MTFLPP_TEST_UNINSTALL') !== '1') {
+        throw new RuntimeException('Create a fixture subsite only on the opted-in disposable test network.');
+    }
+    require_once ABSPATH . 'wp-admin/includes/ms.php';
 }
 require_once ABSPATH . 'wp-admin/includes/user.php';
-if (!class_exists(\LivePreviewExample\PostNote\LiveNote::class)) {
+if (!class_exists(LiveNote::class)) {
     require dirname(__DIR__) . '/docs/examples/post-note/post-note.php';
-    \LivePreviewExample\PostNote\register_field(); // WP-CLI has already run init.
+    (new LiveNote())->registerField(); // WP-CLI ran init before loading the example.
 }
 $check = static function (bool $ok, string $message): void {
     if (!$ok) {
@@ -25,23 +33,25 @@ $frontend = new FrontendPreview(dirname(__DIR__) . '/meet-the-frontend-live-prev
 $originalUser = get_current_user_id();
 // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Restore the CLI request after frontend reads.
 $originalGet = $_GET;
-$user = 0;
+$user = $peer = 0;
 $posts = [];
 $sanitizeHook = 'sanitize_post_meta_' . KEY . '_for_post';
+$field = get_registered_meta_keys('post', 'post')[KEY];
 try {
+    register_post_meta('post', KEY, ['default' => 'Default note'] + $field);
     $user = wp_insert_user([
         'user_login' => 'mtflpp_note_' . wp_generate_password(12, false, false),
         'user_pass' => wp_generate_password(), 'role' => 'author',
     ]);
     $check(is_int($user), 'Could not create the fixture author.');
     wp_set_current_user($user);
-    foreach (['Saved note', 'Unrelated note'] as $note) {
-        $id = wp_insert_post(['post_status' => 'publish', 'post_title' => $note, 'post_author' => $user], true);
+    foreach (['Saved note', 'No stored note'] as $title) {
+        $id = wp_insert_post(['post_status' => 'publish', 'post_title' => $title, 'post_author' => $user], true);
         $check(is_int($id) && $id > 0, 'Could not create the fixture post.');
         $posts[] = $id;
-        update_post_meta($id, KEY, $note);
     }
     [$postId, $otherId] = $posts;
+    update_post_meta($postId, KEY, 'Saved note');
     $recoveryId = _wp_put_post_revision($postId, true);
     $check(is_int($recoveryId) && $recoveryId > 0, 'Could not create the fixture recovery autosave.');
     $recovery = $live->snapshotFingerprint($recoveryId);
@@ -107,7 +117,26 @@ try {
         . '"args":{"key":"example_post_note"}}}}} --><p></p><!-- /wp:paragraph -->')[0];
     $render = static fn (int $id) => wp_strip_all_tags((new WP_Block($block, ['postId' => $id, 'postType' => 'post']))
         ->render());
-    $check($render($postId) === $expected && $render($otherId) === 'Unrelated note', 'Scope the bound Paragraph.');
+    $check($render($postId) === $expected && $render($otherId) === 'Default note', 'Scope the bound Paragraph.');
+    if (is_multisite()) {
+        $peer = wp_insert_site([
+            'domain' => wp_parse_url(home_url(), PHP_URL_HOST), 'path' => '/mtflpp-post-note-' . $user . '/',
+            'title' => 'Post note fixture', 'user_id' => $user,
+        ]);
+        $check(is_int($peer) && $peer > 0, 'Could not create the fixture subsite.');
+        switch_to_blog($peer);
+        try {
+            $id = wp_insert_post([
+                'import_id' => $postId, 'post_title' => 'Peer post', 'post_status' => 'publish',
+            ], true);
+            $check($id === $postId, 'Use matching numeric post IDs on the two sites.');
+            update_post_meta($id, KEY, 'PEER NOTE');
+            $check($render($id) === 'PEER NOTE', 'A switched site must read its own saved note.');
+        } finally {
+            restore_current_blog();
+        }
+        $check($render($postId) === $expected, 'Restoring the preview site must restore the live read.');
+    }
     // The parent-key read is still bound to the live revision; it cannot stand in for the saved baseline.
     add_filter('add_post_metadata', $blockWrite, 10, 3);
     try {
@@ -119,25 +148,41 @@ try {
     } finally {
         remove_filter('add_post_metadata', $blockWrite, 10);
     }
-    $other = $send('/meet-the-frontend-live-preview-panel/v1/posts/' . $otherId . '/preview', [
-        'base' => $live->fingerprint($otherId), KEY => 'Other draft',
-    ]);
-    $check($other->get_status() === 200, 'Expected a live preview for the second post.');
-    $show($other->get_data()['url']);
-    $check($render($postId) === 'Saved note' && $render($otherId) === 'OTHER DRAFT', 'Replace the previous live read.');
+    $otherRoute = '/meet-the-frontend-live-preview-panel/v1/posts/' . $otherId . '/preview';
+    $otherBase = $live->fingerprint($otherId);
+    $defaultCases = [
+        [[], 'Default note', false],
+        [[KEY => ''], '', true],
+    ];
+    foreach ($defaultCases as [$input, $text, $exists]) {
+        $other = $send($otherRoute, ['base' => $otherBase] + $input);
+        $check($other->get_status() === 200, 'Expected a live preview for the second post.');
+        $show($other->get_data()['url']);
+        $check($render($otherId) === $text, 'Use the post default only when no note was stored.');
+        $check(metadata_exists('post', $otherId, KEY) === $exists, 'A cleared note exists; an omitted one does not.');
+    }
+    $check($render($postId) === 'Saved note', 'Replace the previous live read.');
     $show($frontend->savedPreviewUrl(get_post($otherId), $otherId));
-    $check($render($otherId) === 'Unrelated note', 'A current-saved preview must release the live read.');
+    $check($render($otherId) === 'Default note', 'A current-saved preview must release the live read.');
     $response = $send('/wp/v2/posts/' . $postId, ['meta' => [KEY => $edit]]);
     $check($response->get_status() === 200 && $render($postId) === $expected, 'Native Save must match the preview.');
     WP_CLI::success('Post note example: live edits, clearing, omission, scoped rendering and native Save passed.');
 } finally {
     remove_filter($sanitizeHook, 'strtoupper', 20);
+    register_post_meta('post', KEY, $field);
     $_GET = $originalGet;
     foreach ($posts as $id) {
         wp_delete_post($id, true);
     }
+    if (is_int($peer) && $peer > 0) {
+        wp_delete_site($peer);
+    }
     wp_set_current_user($originalUser);
     if (is_int($user) && $user) {
-        wp_delete_user($user);
+        if (is_multisite()) {
+            wpmu_delete_user($user);
+        } else {
+            wp_delete_user($user);
+        }
     }
 }

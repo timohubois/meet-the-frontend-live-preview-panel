@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { editorExtensionsFixture } from './helpers/editor-extensions.mjs';
 import { sourceForVm } from './helpers/modules.mjs';
@@ -222,6 +223,25 @@ for (const [name, capture] of [
         extensions.destroy();
     });
 }
+
+test('the Classic post-note example omits disabled controls but submits an intentional clear', async () => {
+    const guide = await readFile(new URL('../docs/integrations.md', import.meta.url), 'utf8');
+    const example = [...guide.matchAll(/^```js\n([\s\S]*?)^```/gm)].find(([, code]) => code.includes('mtflpp.classicEditor.previewSetup'));
+    assert.ok(example, 'Expected the copyable Classic setup in the guide.');
+    const h = fixture();
+    vm.runInNewContext(example[1], { wp: { hooks: h.hooks } });
+    const input = Object.assign(new EventTarget(), { name: 'example_post_note', value: 'Saved note', disabled: true });
+    const extensions = h.create('mtflpp.classicEditor.previewSetup', { form: { querySelector: () => input } });
+    const native = new FormData(); // A disabled input is visible in the DOM, but not in native form data.
+    const capture = () => extensions.capture(new URLSearchParams({ post_title: 'Edited title' }), native);
+    assert.equal(capture().has(input.name), false);
+    input.disabled = false;
+    native.set(input.name, '');
+    assert.deepEqual(capture().getAll(input.name), ['']);
+    native.set(input.name, 'Edited note');
+    assert.equal(capture().get(input.name), 'Edited note');
+    extensions.destroy();
+});
 
 for (const copy of [false, true]) {
     test(`classic capture preserves empty/repeated core values and integration contributions: copy ${copy}`, () => {
