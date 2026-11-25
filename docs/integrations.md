@@ -37,8 +37,8 @@ Context is separate from the filter's returned value. Mutating a callback's cont
 does not replace core's post or source identity. Integrations still run as trusted PHP
 code, not inside a security sandbox. Original editor input remains untrusted.
 This context does not restructure native form fields or browser configuration.
-The request's existing `base` key remains its saved-state fingerprint, not a context
-envelope.
+The request's `base` key is an opaque fingerprint of the saved editor state, not a
+context envelope or a hash of every value stored on the post.
 
 ### PHP configuration and assets
 

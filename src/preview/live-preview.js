@@ -71,6 +71,7 @@ export function createLivePreview(config, nativeEditor, { inlineLauncher, native
     function failureReason(error) {
         const code = error?.code;
         if (code === 'mtflpp_post_locked') return 'post-locked';
+        if (code === 'mtflpp_acf_rows_stale') return 'reload-before-save';
         if ([
             'mtflpp_invalid_nonce', 'rest_cookie_invalid_nonce', 'mtflpp_preview_conflict',
             'mtflpp_source_changed', 'mtflpp_acf_unavailable', 'mtflpp_integration_failed',

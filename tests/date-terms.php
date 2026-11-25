@@ -135,7 +135,7 @@ try {
     $bind($postId);
     $recoveryId = _wp_put_post_revision($postId, true);
     $check(is_int($recoveryId), 'Could not create a recovery fixture.');
-    $recovery = $live->fingerprint($recoveryId);
+    $recovery = $live->snapshotFingerprint($recoveryId);
     $scheduled = wp_next_scheduled('publish_future_post', [$scheduledId]);
     $counts = array_map(static fn (array $item): int => get_term($item[0], $item[1])->count, $terms);
     foreach ($posts as $id) {
@@ -302,7 +302,7 @@ try {
         get_the_terms($postId, 'category')[0]->term_id === $choices['category']['Saved'],
         'Omitted terms must reseed saved assignments.'
     );
-    $sourceBase = $live->fingerprint($sourceId);
+    $sourceBase = $live->snapshotFingerprint($sourceId);
     $invalidInputs = [
         ['date' => 'not-a-date'], ['date' => []], ['date' => '2024-13-15T10:00:00'],
         ['date' => '2024-02-30T10:00:00'],
@@ -318,7 +318,7 @@ try {
         ]);
         $check($response->get_status() === 400, 'Invalid input must be rejected: ' . wp_json_encode($input));
         $check(
-            $live->fingerprint($sourceId) === $sourceBase && $live->fingerprint($postId) === $base,
+            $live->snapshotFingerprint($sourceId) === $sourceBase && $live->fingerprint($postId) === $base,
             'Rejected inputs must not change any source.'
         );
     }
@@ -342,7 +342,10 @@ try {
     } finally {
         remove_filter('map_meta_cap', $denyTerm, 10);
     }
-    $check($live->fingerprint($recoveryId) === $recovery, 'Date/term previews must preserve recovery autosaves.');
+    $check(
+        $live->snapshotFingerprint($recoveryId) === $recovery,
+        'Date/term previews must preserve recovery autosaves.'
+    );
     foreach ($terms as $i => [$termId, $taxonomy]) {
         $check(get_term($termId, $taxonomy)->count === $counts[$i], 'Preview selections must not change term counts.');
     }

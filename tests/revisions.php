@@ -321,14 +321,16 @@ try {
         $denied($savedQuery);
     }
     wp_set_current_user($admin);
-    $stateAction = new ReflectionMethod(LivePreview::class, 'stateAction');
+    $sourceAction = new ReflectionMethod(LivePreview::class, 'sourceAction');
+    $parentState = (new ReflectionMethod(LivePreview::class, 'parentFingerprint'))->invoke($livePreview, $postId);
+    $token = static fn (int $id) => wp_create_nonce($sourceAction->invoke($livePreview, $postId, $id, $parentState));
     $internalQuery = [
         'mtflpp_post' => (string) $postId, 'mtflpp_revision' => (string) $foreignInternalId,
-        'mtflpp_token' => wp_create_nonce($stateAction->invoke($livePreview, $postId, $foreignInternalId)),
+        'mtflpp_token' => $token($foreignInternalId),
     ];
     $denied($internalQuery);
     $internalQuery['mtflpp_revision'] = (string) $internalId;
-    $internalQuery['mtflpp_token'] = wp_create_nonce($stateAction->invoke($livePreview, $postId, $internalId));
+    $internalQuery['mtflpp_token'] = $token($internalId);
     $_GET = $internalQuery;
     $preview->authorizePreview();
     $check($preview->readPost(clone $post)->post_title === 'Internal live preview', 'Live preview regressed.');

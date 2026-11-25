@@ -131,15 +131,19 @@ export function createPreviewPanel(strings, {
             const heading = reason === 'unavailable' ? strings.unavailableTitle : strings.browserTitle;
             return { heading, description: text, note: '' };
         }
+        const reloadHelp = {
+            reload: strings.reviewBeforeReload,
+            'reload-before-save': strings.nativePreviewAcfReload,
+        }[reason];
         if (!hasPreview) {
             let description = text;
             if (text === strings.failed) description = canRetry ? strings.failedHelp : '';
-            if (reason === 'reload') description += ` ${strings.reviewBeforeReload}`;
+            if (reloadHelp) description += ` ${reloadHelp}`;
             return { heading: strings.failed, description, note: '' };
         }
         return {
             heading: text === strings.failed ? strings.refreshFailed : text,
-            description: reason === 'reload' ? strings.reviewBeforeReload : strings.previousPreview,
+            description: reloadHelp || strings.previousPreview,
             note: '',
         };
     }
@@ -206,7 +210,7 @@ export function createPreviewPanel(strings, {
             status: noticeSeverity(problem),
             dismissible: !problem,
             retry: problem && (takeOverAction || (canRetry && ['error', 'conflict'].includes(state))),
-            close: problem && state === 'error' && !canRetry && reason !== 'reload',
+            close: problem && state === 'error' && !canRetry && !['reload', 'reload-before-save'].includes(reason),
             disabled: state === 'handover',
             action: retryLabel(),
         };

@@ -57,7 +57,11 @@ final class Acf
             'meet-the-frontend-live-preview-panel'
         );
         $config['strings']['nativePreviewAcf'] = __(
-            'WordPress Preview saved changes in your repeating fields to the post.',
+            'WordPress Preview saved repeating field changes, but the rows in this editor are still out of date.',
+            'meet-the-frontend-live-preview-panel'
+        );
+        $config['strings']['nativePreviewAcfReload'] = __(
+            'Copy any unsaved changes you want to keep, then reload the editor before saving again.',
             'meet-the-frontend-live-preview-panel'
         );
         $config['strings']['acfUnavailable'] = __(
@@ -81,6 +85,49 @@ final class Acf
     public function isAvailable(): bool
     {
         return function_exists('acf');
+    }
+
+    /** Saved inputs to ACF's position-based paginated merges, including nested storage paths. */
+    public static function paginatedRowState(array $meta): array
+    {
+        if (!function_exists('acf_get_field_type') || !acf_get_field_type('repeater')) {
+            return [];
+        }
+        $repeaters = [];
+        // ACF saves _<storage path> => field key, even when a repeater sits inside another field.
+        foreach ($meta as $key => $values) {
+            $reference = $values[0] ?? null;
+            if (
+                !str_starts_with((string) $key, '_') || !is_string($reference) || !str_starts_with($reference, 'field_')
+            ) {
+                continue;
+            }
+            $field = acf_get_field($reference);
+            if (($field['type'] ?? '') === 'repeater' && !empty($field['pagination']) && !empty($field['sub_fields'])) {
+                $repeaters[substr($key, 1)] = true;
+            }
+        }
+        if (!$repeaters) {
+            return [];
+        }
+        $rows = [];
+        foreach ($meta as $key => $values) {
+            $name = str_starts_with((string) $key, '_') ? substr($key, 1) : (string) $key;
+            if (isset($repeaters[$name])) {
+                $rows[$key] = $values;
+                continue;
+            }
+            // Match only indexed descendants of a paginated field, not every ACF value on the post.
+            preg_match_all('/_[0-9]+(?=_)/', $name, $indices, PREG_OFFSET_CAPTURE);
+            foreach ($indices[0] as [, $offset]) {
+                if (isset($repeaters[substr($name, 0, $offset)])) {
+                    $rows[$key] = $values;
+                    break;
+                }
+            }
+        }
+        ksort($rows);
+        return $rows;
     }
 
     public static function supportsChoiceSaveVeto(): bool

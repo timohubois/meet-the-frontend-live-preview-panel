@@ -169,8 +169,9 @@ final class Panel
                 'Couldn’t start live preview. Use WordPress Preview, or copy any changes you want to keep and reload the editor.', // phpcs:ignore Generic.Files.LineLength.TooLong -- Keep the translatable message intact.
                 'meet-the-frontend-live-preview-panel'
             ),
+            'savedPostConflict' => LivePreview::conflictMessage(),
             'reviewBeforeReload' => __(
-                'Copy any changes you want to keep. Then reload the editor before saving again.',
+                'Copy any unsaved changes you want to keep, then reload the editor to resume live preview.',
                 'meet-the-frontend-live-preview-panel'
             ),
             'conflict' => __('Preview is running in another tab', 'meet-the-frontend-live-preview-panel'),

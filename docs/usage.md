@@ -25,8 +25,9 @@ pause during this action and resume if browser, WordPress or ACF validation reje
 it. Classic saves use WordPress's normal editor reload. Block Editor saves and
 autosaves keep the editor open, wait for any legacy meta-box saves, then resume
 previewing against the acknowledged saved state. An explicitly closed panel stays
-closed. If the saved state cannot be confirmed, preserve your edits and reload;
-the panel never guesses a new baseline or prevents WordPress from saving.
+closed. If the saved state has changed or cannot be confirmed, copy any unsaved
+edits you want to keep, then reload the editor to resume live preview. The panel
+keeps the last frame and does not prevent WordPress from saving.
 
 - **Preview options** uses native WordPress controls, with **Preview window** for display actions and **Settings** for remembering and scrolling options. **Move preview to** saves a preferred bottom-left, bottom-center or bottom-right preset, even when layout remembering is off. Dragging freely clears the active dock selection without erasing the preferred preset. Resizing keeps the selected dock. **Reset preview window** restores the default 480 × 393 px panel, compact, bottom-right and saves that preset without changing whether layouts are remembered. **Use full screen** and **Keep on top** (Picture-in-Picture) appear where available. The remembering, scrolling and reset actions include short, visible explanations. There is no separate new-tab action; WordPress’s normal Preview button is unchanged.
 - **Keep on top** appears only in browsers that support Document Picture-in-Picture, not just video PiP. Its tooltip explains: “Open the preview in a separate Picture-in-Picture window.” Its icon-only shortcut sits inside the preview's bottom-right corner, fading in only when the pointer is near the button, or appearing immediately on keyboard focus. It stays visible on devices without hover, and reduced-motion settings disable the fade. The pop-out uses the browser's native **Back to tab** and close controls to return inline. **Update preview** stays visible in the pop-out header, including its loading indicator. Its **⋮** menu can close the live preview entirely. A normal WordPress page reload closes PiP; use the same **Keep on top** action to open it again. There is no PiP persistence or reload-specific behavior.
@@ -124,13 +125,19 @@ live updates.
 WordPress's normal server autosave continues independently, including its usual
 updates to your own drafts. Native REST saves carry request-specific fingerprint
 receipts. A rejected REST save permits continued previewing only when a matching
-receipt confirms that the saved fingerprint stayed unchanged: even a 4xx can follow
-a partial post update. Failed saves never advance the baseline. Classic Preview
-and block-editor legacy meta-box saves use a short-lived
-acknowledgement cookie containing fingerprints, not editor content; it is cleared
-on completion and expires after one minute. Changes limited to comment counts
-or RSS enclosure metadata do not trigger live preview conflicts. This includes
-manual changes to the enclosure metadata.
+receipt confirms the request didn't change saved data: even a 4xx can follow a
+partial write. Failed saves never advance the baseline. Classic Preview and block-editor
+legacy meta-box saves use a short-lived acknowledgement cookie containing fingerprints,
+not editor content; it is cleared on completion and expires after one minute.
+
+Conflict checks track saved post fields, term assignments, the featured image and
+the page template. The editor also checks the saved rows that ACF paginated repeater
+edits merge into, so an old row edit can't apply to a different row after an external
+change. A change limited to saved ACF rows leaves an already prepared frame readable.
+The panel does not detect concurrent changes to raw Custom Fields or arbitrary
+REST metadata. Those fields still save normally in WordPress. Metadata alone outside
+the conflict check doesn't pause the panel: each new snapshot starts with current
+saved metadata and overlays supported unsaved edits.
 
 - **Block Editor ACF fields:** native form serialization preserves ACF's field keys, empty values, signed field lists and paginated row changes. The optional ACF PRO datastore is respected when already enabled; the plugin never enables it or changes Gutenberg's edited metadata to prepare a preview. After a native meta-box save, previewing pauses with its last frame until ACF replaces its paginated rows. If ACF's reload fails, the panel remains paused and asks you to reload; it never resets row markers or guesses that a delay was sufficient. Live preview storage is not recovery storage: legacy meta boxes are not sent by Gutenberg's native autosave, and ACF datastore recovery behavior remains ACF's responsibility.
 - **Classic live ACF fields:** support depends on compatible field and revision APIs; not every field type has been verified. Paginated repeaters use ACF's native row merging to preserve unloaded saved rows and edits retained across pages. If native Preview saves draft repeater additions, deletions or reordering, the panel retains its last frame but requires an editor reload: ACF's remaining row changes still refer to the old saved order. Copy any later edits before reloading, and reload before saving again.

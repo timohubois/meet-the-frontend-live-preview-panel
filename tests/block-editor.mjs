@@ -40,7 +40,7 @@ function fixture({ ready = true, loaded = true, available = true, route = '/wp/v
         postId: 123, postType: 'post', postRoute: route, restRoot: 'http://site.test/wp-json/',
         postFormUrl: 'http://site.test/wp-admin/post.php',
         endpoint: 'http://site.test/wp-json/meet-the-frontend-live-preview-panel/v1/posts/123/preview',
-        base: 'a'.repeat(64), available, acfEnabled, taxonomies, yoastPrimaryTaxonomies, adminCookiePath: '/wp-admin/', strings: { loading: 'Loading preview…', nativeSaveFailed: 'Reload editor', postOnly: 'Return to post', acfRefreshing: 'Waiting for ACF fields', integrationFailed: 'Integration failed', acfUnavailable: 'ACF unavailable' },
+        base: 'a'.repeat(64), available, acfEnabled, taxonomies, yoastPrimaryTaxonomies, adminCookiePath: '/wp-admin/', strings: { loading: 'Loading preview…', nativeSaveFailed: 'Save not confirmed', savedPostConflict: 'The saved post changed', postOnly: 'Return to post', acfRefreshing: 'Waiting for ACF fields', integrationFailed: 'Integration failed', acfUnavailable: 'ACF unavailable' },
     };
     let notifyRevisionDom;
     const editorRoot = { getElementsByClassName(name) {
@@ -530,6 +530,17 @@ for (const bad of ['missing', 'request', 'before', 'after', 'available']) {
         assert.equal(h.calls.resumes.at(-1)?.code, 'mtflpp_source_changed');
     });
 }
+
+test('a confirmed conflict reports that the saved post changed, without withholding the native save result', async () => {
+    const h = fixture();
+    const result = await h.request({ path: h.config.postRoute, method: 'PUT' }, async (options) => ({
+        id: 123, _mtflpp_receipt: h.receipt(options, 'conflict'),
+    }));
+    await flush();
+    assert.deepEqual(JSON.parse(JSON.stringify(result)), { id: 123 });
+    assert.equal(h.config.base, 'a'.repeat(64));
+    assert.equal(h.calls.resumes.at(-1)?.message, h.config.strings.savedPostConflict);
+});
 
 for (const parse of [true, false]) {
     test(`array-valued fingerprints fail closed without changing the native response: parse=${parse}`, async () => {

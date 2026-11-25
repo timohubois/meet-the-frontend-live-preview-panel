@@ -38,9 +38,10 @@ try {
     ], true);
     $check(!is_wp_error($postId), 'Could not create a fixture post.');
     $base = $live->fingerprint($postId);
+    $parentSnapshot = $live->snapshotFingerprint($postId);
     $recoveryId = _wp_put_post_revision($postId, true);
     $check(is_int($recoveryId), 'Could not create a recovery fixture.');
-    $recovery = $live->fingerprint($recoveryId);
+    $recovery = $live->snapshotFingerprint($recoveryId);
     $route = '/meet-the-frontend-live-preview-panel/v1/posts/' . $postId . '/preview';
     $prepare = static function (array $input = []) use ($route, $base): WP_REST_Response {
         $request = new WP_REST_Request('POST', $route);
@@ -94,8 +95,11 @@ try {
                 get_post_meta($sourceId, LivePreview::TERMS_META, true)['category'] === [$termId],
                 'Assignments must be persisted without touching saved relationships.'
             );
-            $check($live->fingerprint($postId) === $base, 'Failure and retry must preserve the saved parent.');
-            $check($live->fingerprint($recoveryId) === $recovery, 'Failure and retry must preserve recovery data.');
+            $check(
+                $live->snapshotFingerprint($postId) === $parentSnapshot
+                && $live->snapshotFingerprint($recoveryId) === $recovery,
+                'Failure and retry must preserve the saved parent and recovery data.'
+            );
         }
     }
     // A false update result can also mean unchanged. Seed the same author before core attempts its update.
@@ -158,8 +162,8 @@ try {
         remove_action('save_post_revision', $corrupt, PHP_INT_MAX);
     }
     $check($prepare($input)->get_status() === 200, 'A retry must replace a corrupt source.');
-    $check($live->fingerprint($postId) === $base, 'Saved data must remain unchanged throughout.');
-    $check($live->fingerprint($recoveryId) === $recovery, 'Recovery data must remain unchanged throughout.');
+    $check($live->snapshotFingerprint($postId) === $parentSnapshot, 'Saved data must remain unchanged throughout.');
+    $check($live->snapshotFingerprint($recoveryId) === $recovery, 'Recovery data must remain unchanged throughout.');
     wp_update_post(['ID' => $postId, 'post_author' => 0]);
     $check((int) get_post($postId)->post_author === 0, 'The orphaned-author fixture must have author zero.');
     $blockZero = static fn ($value, int $id, string $key) =>
