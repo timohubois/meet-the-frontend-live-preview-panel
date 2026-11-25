@@ -19,18 +19,18 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Set up PHP
-        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
           extensions: dom, mysqli
           tools: composer:v2
           coverage: none
       - name: Cache Composer dependencies
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache@v6
         with:
           path: vendor
           key: ${{ runner.os }}-php-8.3-composer-${{ hashFiles('composer.lock') }}
@@ -46,11 +46,11 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Set up Node.js
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: npm
@@ -79,11 +79,11 @@ jobs:
         wordpress: ['6.9', 'latest']
     steps:
       - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Set up Node.js
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: npm
@@ -139,11 +139,11 @@ jobs:
           --health-interval=10s --health-timeout=5s --health-retries=10
     steps:
       - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Set up PHP
-        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
           extensions: dom, mbstring, mysqli
@@ -233,7 +233,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Download built assets
@@ -246,7 +246,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/meet-the-frontend-live-preview-panel"
           rsync -a --exclude-from=.distignore ./ "$RUNNER_TEMP/meet-the-frontend-live-preview-panel/"
       - name: WordPress Plugin Check
-        uses: wordpress/plugin-check-action@10857da14b6c2246d15402b3e69f777edcf8c12e # v1.1.9
+        uses: wordpress/plugin-check-action@v1
         with:
           build-dir: ${{ runner.temp }}/meet-the-frontend-live-preview-panel
           slug: meet-the-frontend-live-preview-panel

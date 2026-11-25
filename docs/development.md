@@ -273,7 +273,9 @@ approval, SVN access and deployment credentials are in place. Version metadata a
 does not trigger deployment; pushing a release tag does.
 
 The workflows use the same 10up WordPress.org deployment and GitHub release actions
-as the other plugins, with an explicit asset build before packaging:
+as the other plugins, with an explicit asset build before packaging. Commit Checks
+uses floating major action tags for minor and patch updates. The workflows that
+publish releases or listing updates pin their actions to exact commits.
 
 - **Commit Checks** runs on pull requests and pushes to `main` and is reused for
   release tags. New PR updates cancel superseded checks on that PR. PHP lint runs
