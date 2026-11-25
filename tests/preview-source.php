@@ -205,7 +205,7 @@ try {
 
     $check(has_action('wp_head', 'wp_post_preview_js') === 1, 'WordPress registers its native preview tab naming.');
     $makePreview(false)->authorizePreview();
-    $check(has_action('wp_head', 'wp_post_preview_js') === 1, 'Leave the naming script on ordinary WordPress previews.');
+    $check(has_action('wp_head', 'wp_post_preview_js') === 1, 'Keep tab naming on ordinary WordPress previews.');
 
     foreach ([false, true] as $requested) {
         foreach ([false, true] as $target) {

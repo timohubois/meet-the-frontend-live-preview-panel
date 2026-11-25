@@ -3,7 +3,7 @@ Contributors: timohubois
 Tags: preview, editor
 Requires at least: 6.9
 Tested up to: 7.1
-Stable tag: 1.3.0
+Stable tag: 1.3.1
 Requires PHP: 8.3
 License: GPLv3 or later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
@@ -112,6 +112,14 @@ Report issues or contribute on [GitHub](https://github.com/timohubois/meet-the-f
 8. Keep the preview in a separate Picture-in-Picture window where supported.
 
 == Changelog ==
+
+= 1.3.1 =
+* Keep WordPress's native Preview in a separate tab in both the Classic and Block Editors.
+* Follow more changes in the live preview, including ACF Flexible Content row moves and gallery edits.
+* Preview the page assigned to display your latest posts, including from its revision history.
+* Fix Classic revision preview startup and pause live updates while browsing Visual Revisions.
+* Avoid false preview conflicts after comment moderation, embed cache updates, or unrelated metadata changes.
+* Improve Timber 1 and 2 compatibility for post and term previews.
 
 = 1.3.0 =
 * Open the floating live preview from the Block Editor's View menu. On narrow screens, use the floating launcher.
