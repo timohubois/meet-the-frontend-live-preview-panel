@@ -1,6 +1,6 @@
 === Meet the Frontend – Live Preview Panel ===
 Contributors: timohubois
-Tags: preview, editor
+Tags: preview, live preview, block editor
 Requires at least: 6.9
 Tested up to: 7.1
 Stable tag: 1.3.1
@@ -8,7 +8,7 @@ Requires PHP: 8.3
 License: GPLv3 or later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
-Preview unsaved changes on your frontend in a floating panel for posts, pages, supported custom post types and taxonomy terms.
+Preview unsaved changes on your site in a floating panel without leaving the block or classic editor.
 
 == Description ==
 
