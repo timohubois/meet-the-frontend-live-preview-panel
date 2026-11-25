@@ -16,7 +16,8 @@ const deferred = () => {
 
 function fixture({ ready = true, loaded = true, available = true, route = '/wp/v2/posts/123', acfEnabled = false, taxonomies = {}, yoastPrimaryTaxonomies = [], extend, browserAcf = true, revisions = false } = {}) {
     const calls = { pauses: [], pauseStates: [], suspensions: [], resumes: [], titles: [], changes: 0, requests: [], contentReads: 0 };
-    const acfFields = { ready: true, saved: 0, destroyed: false, waitAfterSave: false };
+    const acfFields = { ready: true, saved: 0, destroyed: false, waitAfterSave: false,
+        entries: new URLSearchParams({ 'acf[field_test]': 'Unsaved ACF', _acf_nonce: 'acf-nonce' }) };
     let acfChanged;
     const state = { id: ready ? 123 : 0, loaded, type: 'post', saving: false, previewing: false, author: 7, title: 'Title', content: '<!-- wp:paragraph --><p>Unsaved</p><!-- /wp:paragraph -->', excerpt: 'Excerpt', blocks: [], savedContent: 'Saved content' };
     state.yoastPostId = 123;
@@ -80,7 +81,7 @@ function fixture({ ready = true, loaded = true, available = true, route = '/wp/v
             return {
                 get ready() { return acfFields.ready; }, observe() {},
                 saved() { acfFields.saved++; acfFields.ready = !acfFields.waitAfterSave; },
-                capture: () => new URLSearchParams({ 'acf[field_test]': 'Unsaved ACF', _acf_nonce: 'acf-nonce' }),
+                capture: () => acfFields.entries,
                 destroy: () => { acfFields.destroyed = true; },
             };
         },
@@ -159,6 +160,24 @@ test('block comparison values are frozen at capture and never sent to the endpoi
     assert.equal(Object.hasOwn(result.comparisonValues, '_acf_nonce'), false);
     assert.equal(h.calls.requests[0].body.has('comparisonValues'), false);
     assert.equal(h.calls.requests[0].body.get('content'), expected);
+    h.native.destroy();
+});
+
+test('an empty ACF capture preserves another integration’s JSON scalar types', async () => {
+    const h = fixture({ acfEnabled: true, extend(wpHooks) {
+        wpHooks.addAction('mtflpp.blockEditor.previewSetup', 'vendor/values', ({ hooks }) => {
+            hooks.addFilter('additionalPreviewValues', 'vendor/values', (values) => ({
+                ...values, vendor_enabled: false, vendor_count: 0, vendor_note: null,
+            }));
+        });
+    } });
+    h.acfFields.entries = new URLSearchParams();
+    await h.native.preparePreview();
+    const { data, body } = h.calls.requests.at(-1);
+    assert.equal(body, undefined);
+    assert.equal(data.vendor_enabled, false);
+    assert.equal(data.vendor_count, 0);
+    assert.equal(data.vendor_note, null);
     h.native.destroy();
 });
 
