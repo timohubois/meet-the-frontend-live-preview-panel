@@ -731,7 +731,7 @@ async function browserTests(source) {
         }
         for (const scenario of captured ? ['up', 'down two', 'video poster', 'missing label', 'shared submitted label',
             'shared attachment ID', 'duplicate rendered label', 'changed attachment', 'changed label', 'conflicting text',
-            'relocated image', 'runtime-only move', 'not a spacer'] : ['up']) {
+            'relocated image', 'rewritten live alt', 'runtime-only move', 'not a spacer'] : ['up']) {
             await check(`${mode}: an image can identify a moved row (${scenario})`, async (frame, doc) => {
                 const label = 'Attachment A';
                 const image = `<img alt="${label}" data-src="/custom-derivative.webp">`;
@@ -746,6 +746,7 @@ async function browserTests(source) {
                 const before = await doc(markup(oldOrder), options);
                 const after = await doc(markup(scenario === 'runtime-only move' ? oldOrder : nextOrder), { ...options, script: {
                     'relocated image': "document.querySelector('#outside').append(document.querySelector('#media-row img'))",
+                    'rewritten live alt': "document.querySelector('#media-row img').alt = 'Different attachment'",
                     'runtime-only move': "const row = document.querySelector('#media-row'); row.previousElementSibling.before(row);",
                 }[scenario] });
                 const title = (row) => row === 'A' ? (scenario === 'conflicting text' ? label : '') : `Section ${row}`;
@@ -772,7 +773,7 @@ async function browserTests(source) {
         }
         for (const scenario of captured ? [
             'down', 'up', 'margin-only spacer', 'different-sized blank sibling', 'identical blank outside swap', 'duplicate rendered witness', 'duplicate submitted witness',
-            'reversed source', 'reversed live order', 'reversed visual order', 'no live box', 'live exclusion', 'more than one swap',
+            'reversed source', 'reversed live order', 'reversed visual order', 'rewritten live heading', 'no live box', 'live exclusion', 'more than one swap',
             'unrelated source styling', 'nonempty moved row', 'image-only row', 'wrong move distance',
         ] : ['down']) {
             await check(`${mode}: an adjacent empty-row boundary (${scenario})`, async (frame, doc) => {
@@ -795,6 +796,7 @@ async function browserTests(source) {
                 const initialize = {
                     'reversed live order': "document.querySelector('#crossed').before(document.querySelector('#blank'))",
                     'reversed visual order': "document.querySelector('#blank').style.transform = 'translateY(-240px)'",
+                    'rewritten live heading': "document.querySelector('#crossed h2').textContent = 'Other section'",
                     'no live box': "document.querySelector('#blank').style.display = 'none'",
                     'live exclusion': "document.querySelector('#blank').setAttribute('role', 'navigation')",
                 };
@@ -1035,6 +1037,223 @@ async function browserTests(source) {
                 }
                 equal(follow(frame, before, after, old, next), sameRow ? null : after.querySelector('#card'),
                     'Check the entire witness against each submitted sibling, even when its text comes from separate fields.');
+            });
+        }
+        for (const scenario of ['unique link', 'editor wrapped link', 'shared in earlier submission', 'shared in later submission', 'duplicate in preview',
+            'different destination', 'different label', 'part of a longer field', 'placeholder', 'relocated link']) {
+            await check(`${mode}: follow a link-only rich-text row (${scenario})`, async (frame, doc) => {
+                const link = (href, label = 'Test it yourself') => `<a class="button" href="${href}">${label}</a>`;
+                const href = scenario === 'placeholder' ? '#' : '/check?site=example&amp;view=full';
+                const authored = link(href), rendered = link(scenario === 'different destination' ? '/other' : href,
+                    scenario === 'different label' ? 'Other action' : 'Test <em>it</em> yourself');
+                const linkRow = (id, action) => `<section id="${id}"><div><p>${action}</p></div></section>`;
+                const other = link('/other-check', 'Test <em>it</em> yourself');
+                const rows = { A: linkRow('moved', rendered), B: linkRow('neighbor', other), C: section('Second neighbor') };
+                const markup = (order) => `<div style="height:900px"></div>${order.map((row) => rows[row]).join('')}`
+                    + `<aside id="outside">${scenario === 'duplicate in preview' ? authored : ''}</aside><div style="height:900px"></div>`;
+                const from = ['A', 'B', 'C'], to = ['B', 'C', 'A'];
+                const before = await doc(markup(from), options), after = await doc(markup(to), { ...options,
+                    script: scenario === 'relocated link' ? "document.querySelector('#outside').append(document.querySelector('#moved a'));" : '' });
+                const old = rowOrder(from), next = rowOrder(to, 'A');
+                const rest = scenario === 'part of a longer field' ? '<p>More text</p>' : '';
+                old['title:A'] = next['title:A'] = { type: 'html', value: authored + rest, formatted: `<p>${authored}</p>${rest}` };
+                if (scenario === 'editor wrapped link') old['title:A'] = { type: 'html', value: `<p>${authored}</p>` };
+                old['title:B'] = next['title:B'] = { type: 'html', value: other };
+                const peer = { type: 'html', value: `<p>Other copy with ${authored}</p>` };
+                if (scenario === 'shared in earlier submission') old['title:B'] = peer;
+                if (scenario === 'shared in later submission') next['title:B'] = peer;
+                before.defaultView.scrollTo(0, 100);
+                frame.scrolling.remember(before);
+                const target = follow(frame, before, after, old, next);
+                const expected = ['unique link', 'editor wrapped link'].includes(scenario) ? after.querySelector('#moved') : null;
+                equal(target, expected, 'Only the unchanged, unique label and destination identify the moved section.');
+                await frame.scrolling.restore(after, target);
+                equal(after.defaultView.scrollY === 100, !expected, 'Reveal that section or keep the previous position.');
+            });
+        }
+        for (const scenario of captured ? ['three identical links', 'up past two rows', 'opaque widget', 'unrendered setting', 'cross an unlabelled row', 'two rows',
+            'opaque neighbors', 'only stationary witness', 'wrong collection', 'shifted slots', 'reversed peer', 'conflicting field', 'changed subtree',
+            'changed presentation', 'duplicate section', 'runtime reorder', 'relocated witness', 'rewritten live links', 'hidden section'] : ['three identical links']) {
+            await check(`${mode}: identify the move from the rendered collection (${scenario})`, async (frame, doc) => {
+                const button = '<a href="/speed">Test it yourself</a>', field = [button, button, button].join('\n\n');
+                const widget = ['opaque widget', 'unrendered setting'].includes(scenario);
+                const content = widget ? '<canvas width="300" height="200"></canvas>' : `<div>${`<p>${button}</p>`.repeat(3)}</div>`;
+                const order = scenario === 'two rows' ? ['A', 'B'] : ['A', 'B', 'C', 'D'];
+                const moved = scenario === 'two rows' ? ['B', 'A'] : ['B', 'C', 'A', 'D'];
+                const [from, to] = scenario === 'up past two rows' ? [moved, order] : [order, moved];
+                const rows = { A: `<section id="moved">${content}</section>`, B: section('Section B'), C: section('Section C'), D: section('Section D') };
+                if (scenario === 'duplicate section') rows.D = `<section>${content}</section>`;
+                if (scenario === 'hidden section') rows.A = `<section hidden>${content}</section>`;
+                if (scenario === 'cross an unlabelled row') rows.C = '<div style="height:40px"></div>';
+                if (scenario === 'opaque neighbors') for (const row of ['B', 'C', 'D']) rows[row] = `<div data-preset="${row}"></div>`;
+                if (scenario === 'reversed peer') [rows.B, rows.D] = [rows.D, rows.B];
+                const markup = (items, changed) => `<div style="height:900px">${scenario === 'conflicting field' ? 'Label elsewhere' : ''}</div><div id="rows">`
+                    + (scenario === 'shifted slots' ? '<hr>' : '') + items.map((row) => {
+                        if (changed && row === 'C' && scenario === 'changed subtree') return section('Section C', 'Different content');
+                        if (changed && row === 'C' && scenario === 'changed presentation') return rows.C.replace('<section', '<section class="updated"');
+                        return rows[row];
+                    }).join('') + '</div><div style="height:900px"></div>';
+                const before = await doc(markup(from, false), options), after = await doc(markup(to, true), { ...options,
+                    script: {
+                        'runtime reorder': "document.querySelector('#rows').prepend(document.querySelector('#moved'))",
+                        'relocated witness': "document.querySelector('#moved').append(document.querySelector('#rows h2'))",
+                        'rewritten live links': "document.querySelectorAll('#moved a').forEach(a => a.href = '/different-story')",
+                    }[scenario] });
+                const old = rowOrder(from), next = rowOrder(to, 'A');
+                for (const values of [old, next]) {
+                    values['title:A'] = { type: 'html', value: widget ? '' : field };
+                    if (scenario === 'unrendered setting') values['title:A'] = { type: 'text', value: 'Ocean preset' };
+                    if (scenario === 'conflicting field') values['title:A'] = { type: 'text', value: 'Label elsewhere' };
+                    if (scenario === 'cross an unlabelled row') values['title:C'].value = '';
+                    if (scenario === 'only stationary witness') values['title:B'].value = values['title:C'].value = '';
+                    if (scenario === 'wrong collection') for (const row of ['B', 'C', 'D']) values[`title:${row}`].value = `Unrelated ${row}`;
+                }
+                before.defaultView.scrollTo(0, 100);
+                frame.scrolling.remember(before);
+                const expected = captured && ['three identical links', 'up past two rows', 'opaque widget', 'unrendered setting', 'cross an unlabelled row', 'two rows'].includes(scenario);
+                const target = follow(frame, before, after, old, next);
+                equal(target, expected ? after.querySelector('#moved') : null, 'Require one identifiable section in the same verified collection move.');
+                await frame.scrolling.restore(after, target);
+                equal(after.defaultView.scrollY === 100, !expected, 'Do not guess a destination from the slot number alone.');
+            });
+        }
+        if (captured) for (const [side, named, change] of [
+            ['after', false, 'rewrite'], ['before', false, 'rewrite'], ['after', true, 'rewrite'],
+            ['after', false, 'swap unlabelled rows'], ['before', false, 'swap unlabelled rows'],
+            ['after', true, 'hide original'], ['after', false, 'hide original'],
+        ]) {
+            await check(`${mode}: a reused heading is not a row witness (${change}, ${side}, moved row named=${named})`, async (frame, doc) => {
+                const from = ['A', 'B', 'C'], to = ['B', 'C', 'A'];
+                const titles = { A: 'Forecast widget', B: 'River report', C: 'Harbor report' };
+                const markup = (order) => `<div style="height:900px"></div><div>${order.map((id) => section(titles[id])).join('')}</div>`;
+                const value = (id) => (!named && id === 'A') || (change === 'swap unlabelled rows' && id === 'C') ? '' : titles[id];
+                const before = await doc(markup(from), options), after = await doc(markup(to), options);
+                frame.capture(before, rowOrder(from, undefined, value));
+                // A renderer can rewrite the same headings, even in the old frame after capture.
+                const live = side === 'after' ? after : before, order = side === 'after' ? from : to;
+                const shown = change === 'swap unlabelled rows' ? (side === 'after' ? ['B', 'A', 'C'] : ['C', 'B', 'A']) : order;
+                live.querySelectorAll('section h2').forEach((heading, i) => {
+                    if (change === 'hide original') {
+                        const replacement = live.createElement('h2');
+                        heading.hidden = true;
+                        heading.after(replacement);
+                        heading = replacement;
+                    }
+                    heading.textContent = titles[shown[i]];
+                });
+                frame.capture(after, rowOrder(to, 'A', value));
+                before.defaultView.scrollTo(0, 73);
+                frame.scrolling.remember(before);
+                const target = frame.comparison.findChange(before, after);
+                equal(target, null, 'The captured move must not nominate a section displaying a different story.');
+                await frame.scrolling.restore(after, target);
+                equal(after.defaultView.scrollY, 73, 'Keep the reader in place when the live witness changed.');
+            });
+        }
+        if (captured) for (const [html, expected] of [
+            ['<div>Riv<em>er</em> report</div><div>to<span>day</span><aside aria-live="polite">Loading</aside></div>', true],
+            ['River reporttoday', false],
+        ]) {
+            await check(`${mode}: rewritten peer markup retains its label=${expected}`, async (frame, doc) => {
+                const sections = { A: '<section id="moved"><canvas></canvas></section>',
+                    B: '<section><div id="label"><p>River report</p><p>today</p></div></section>' };
+                const markup = (order) => `<div style="height:900px"></div><div>${order.map((id) => sections[id]).join('')}</div>`;
+                const from = ['A', 'B'], to = ['B', 'A'], title = (id) => id === 'B' ? 'River report today' : '';
+                const before = await doc(markup(from), options), after = await doc(markup(to), options);
+                after.querySelector('#label').innerHTML = html;
+                equal(follow(frame, before, after, rowOrder(from, undefined, title), rowOrder(to, 'A', title)),
+                    expected ? after.querySelector('#moved') : null, 'Keep HTML word boundaries and ignore excluded live descendants.');
+            });
+        }
+        await check(`${mode}: a textarea can supply the other row’s link`, async (frame, doc) => {
+            const link = '<a href="/guide">Get help</a>', rows = { A: section('Forecast widget'), B: `<section>${link}</section>` };
+            const from = ['A', 'B'], to = ['B', 'A'];
+            // This template renders its rows in reverse order and only B outputs the link.
+            const markup = (order) => `<div style="height:900px"></div><div>${order.slice().reverse().map((id) => rows[id]).join('')}</div>`;
+            const before = await doc(markup(from), options), after = await doc(markup(to), options);
+            const old = rowOrder(from), next = rowOrder(to, 'A');
+            for (const values of [old, next]) {
+                values['title:A'] = { type: 'html', value: link };
+                values['title:B'] = { type: 'text', value: `Details: ${link}` };
+            }
+            equal(follow(frame, before, after, old, next), null, 'Shared markup cannot identify A, even when only one link is rendered.');
+        });
+        if (captured) for (const sameLabel of [false, true]) {
+            await check(`${mode}: a replaced link is stale, not missing evidence (same label=${sameLabel})`, async (frame, doc) => {
+                const link = '<a href="/forecast">Forecast</a>', a = `<section>${link}</section>`, b = section('Section B');
+                const before = await doc(`<div>${a}${b}</div>`, options), after = await doc(`<div>${b}${a}</div>`, options);
+                after.querySelector('a').outerHTML = sameLabel ? link : '<a href="/harbor">Harbor</a>';
+                const old = rowOrder(['A', 'B']), next = rowOrder(['B', 'A'], 'A');
+                old['title:A'] = next['title:A'] = { type: 'html', value: link };
+                equal(follow(frame, before, after, old, next), null, 'A neighbor must not override the loss of the mapped link.');
+            });
+        }
+        for (const named of captured ? [false, true] : [true]) for (const pinned of [true, false]) {
+            await check(`${mode}: a CSS ${pinned ? 'pinned' : 'reversed'} row move (named=${named})`, async (frame, doc) => {
+                const from = ['A', 'B', 'C'], to = ['B', 'C', 'A'];
+                const markup = (order) => `<div style="height:800px"></div><div style="display:flex;flex-direction:column-reverse">`
+                    + order.map((id) => `<section id="${id}" style="height:160px;order:${pinned ? from.indexOf(id) : 0}">Section ${id}</section>`).join('')
+                    + '</div><div style="height:800px"></div>';
+                const before = await doc(markup(from), options), after = await doc(markup(to), options);
+                const title = (id) => !named && id === 'A' ? '' : `Section ${id}`;
+                before.defaultView.scrollTo(0, 73);
+                frame.scrolling.remember(before);
+                const target = follow(frame, before, after, rowOrder(from, undefined, title), rowOrder(to, 'A', title));
+                equal(target, pinned ? null : after.querySelector('#A'), 'Only an actual change in the position of the row should follow.');
+                await frame.scrolling.restore(after, target);
+                equal(after.defaultView.scrollY === 73, pinned, 'Keep the reader’s offset if CSS kept the row in place.');
+            });
+        }
+        await check(`${mode}: moving a named row inside native disclosures can still reveal it`, async (frame, doc) => {
+            const a = section('Section A'), b = section('Section B');
+            const markup = (rows) => `<details><summary>Reports</summary><div hidden="until-found">${rows}</div></details>`;
+            const before = await doc(markup(a + b), options), after = await doc(markup(b + a), options);
+            frame.capture(before, rowOrder(['A', 'B']));
+            frame.capture(after, rowOrder(['B', 'A'], 'A'));
+            const target = frame.comparison.findChange(before, after);
+            equal(target, after.querySelector('section:last-child'), 'A discoverable heading can still identify its row.');
+            await frame.scrolling.restore(after, target);
+            equal(after.querySelector('details').open && !after.querySelector('[hidden]'), true, 'Leave activation to native disclosure presentation.');
+        });
+        const speedLink = { type: 'html', value: '<a href="/speed">Test it yourself</a>' };
+        const guideLink = { type: 'html', value: '<a href="/guide">Read the guide</a>' };
+        const formattedLink = { type: 'html', value: `<a href="/guide">What's next?</a>`, formatted: '<p><a href="/guide">What’s next?</a></p>' };
+        const photo = { type: 'row-image', value: '42', alt: 'Mountain' };
+        const heading = '<h2>Overview</h2>', photoHtml = '<img alt="Mountain">';
+        for (const [scenario, fields, peers, content, neighbor, expected] of [
+            ['repeated headline and unique link', ['Overview', speedLink], ['Overview'], heading + speedLink.value, heading, true],
+            ['shared first link and unique second link', [guideLink, speedLink], [guideLink], speedLink.value, guideLink.value, true],
+            ['peer shares only the formatted spelling', [formattedLink, speedLink], [{ type: 'html', value: formattedLink.formatted }],
+                speedLink.value, formattedLink.value, true],
+            ['unrendered first link and unique second link', [guideLink, speedLink], [], speedLink.value, heading, true],
+            ['unique text and duplicated rendered link', ['Overview', speedLink], [], heading + speedLink.value, speedLink.value, true],
+            ['rewritten heading and intact link', ['Overview', speedLink], [], heading + speedLink.value, '<p>Other</p>', true],
+            ['unique text and conflicting link', ['Overview', speedLink], [], heading, speedLink.value, false],
+            ['two links point to different sections', [speedLink, guideLink], [], speedLink.value, guideLink.value, false],
+            ['image agrees with link', [photo, speedLink], [], photoHtml + speedLink.value, heading, true],
+            ['image conflicts with link', [photo, speedLink], [], speedLink.value, photoHtml, !captured],
+            ['unmatched link cannot distinguish identical image content', [photo, speedLink], [], photoHtml, '<img alt="Valley">', false],
+        ]) {
+            await check(`${mode}: mixed row fields (${scenario})`, async (frame, doc) => {
+                const moved = `<section id="moved">${content}</section>`, other = `<section>${neighbor}</section>`;
+                const markup = (rows) => `<div style="height:900px"></div>${rows}<div style="height:900px"></div>`;
+                const init = scenario === 'rewritten heading and intact link' ? { ...options,
+                    script: "document.querySelector('#moved h2').textContent = 'Client heading'" } : options;
+                const before = await doc(markup(moved + other), init), after = await doc(markup(other + moved), init);
+                const old = rowOrder(['A', 'B']), next = rowOrder(['B', 'A'], 'A');
+                for (const values of [old, next]) for (const [row, hints] of [['A', fields], ['B', peers]]) {
+                    values.rows.fieldsByRow[row] = hints.map((hint, i) => {
+                        const name = `field:${row}:${i}`;
+                        values[name] = typeof hint === 'string' ? { type: 'text', value: hint } : hint;
+                        return name;
+                    });
+                }
+                before.defaultView.scrollTo(0, 100);
+                frame.scrolling.remember(before);
+                const target = follow(frame, before, after, old, next);
+                equal(target, expected ? after.querySelector('#moved') : null, 'Missing or repeated evidence is not a conflict; contradictory matches are.');
+                await frame.scrolling.restore(after, target);
+                equal(after.defaultView.scrollY === 100, !expected, 'Follow the moved section or preserve the previous position.');
             });
         }
         const actions = '<p><a href="#details">Learn more</a></p><p><a href="#contact">Contact us</a></p>', captions = 'Learn more Contact us';
@@ -2115,5 +2334,5 @@ testInChromium('preview scrolling matches changed sections conservatively', asyn
     const comparison = await readFile(new URL('../src/preview/comparison.js', import.meta.url), 'utf8');
     const scrolling = await readFile(new URL('../src/preview/scroll.js', import.meta.url), 'utf8');
     const source = `${comparison.replace('export function', 'function')}\n${scrolling.replace(/^import .*;\n/, '')}`;
-    await runChromiumTests(t, { script: `(${browserTests.toString()})(${JSON.stringify(source)})`, count: 478, virtualTimeBudget: 30000 });
+    await runChromiumTests(t, { script: `(${browserTests.toString()})(${JSON.stringify(source)})`, count: 563, virtualTimeBudget: 30000 });
 });
