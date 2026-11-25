@@ -151,14 +151,15 @@ function selectChange(eligible, reorder) {
 function identifyRegion(changes, { rowMove, excluded, canFollowLiveReorder, canFollowLiveMove }) {
     if (rowMove) {
         const move = changes.find((item) => item.moved && (item.source || canFollowLiveMove));
-        const target = move?.moved.node;
+        const [origin, destination] = move?.moved ?? [];
+        const target = destination?.node;
         if (!target?.isConnected || !move.after.node?.contains(target)) return null;
         const onlyMove = changes.every((change) => change === move
             || (move.source && !change.source && (change.moved || change.regionChange === 'reorder')));
-        if (!onlyMove) return null;
+        if (!onlyMove || sameRowPosition(origin.node, target)) return null;
         if (target.ownerDocument.defaultView.getComputedStyle(target).display !== 'contents') return target;
         // A moved row needs a position inside that row, not an excluded or relocated child.
-        return findMappedElement(move.moved, (node) => target.contains(node)
+        return findMappedElement(destination, (node) => target.contains(node)
             && (!excluded || !node.closest(excluded)) && hasRenderedBox(node));
     }
     const region = changes.find((item) => item.unresolved && (item.regionChange === 'replacement'
@@ -224,6 +225,21 @@ function hasRenderedBox(node) {
 
 function renderedElement(entry) {
     return findMappedElement(entry, hasRenderedBox);
+}
+
+function sameRowPosition(before, after) {
+    // Only comparable boxes can disprove a move. Native disclosures and display:contents can be boxless.
+    if (!before?.getClientRects().length || !after.getClientRects().length) return false;
+    const a = before.getBoundingClientRect(), b = after.getBoundingClientRect();
+    const from = before.ownerDocument.defaultView, to = after.ownerDocument.defaultView;
+    return Math.abs((a.top + from.scrollY) - (b.top + to.scrollY)) < 1
+        && Math.abs((a.left + from.scrollX) - (b.left + to.scrollX)) < 1;
+}
+
+function liveSiblingOrder({ node, children }, excluded) {
+    if (!node?.isConnected || (excluded && node.closest(excluded))) return false;
+    const live = [...node.children].filter((child) => !excluded || !child.matches(excluded));
+    return children.length === live.length && children.every((entry, i) => entry.node === live[i]);
 }
 
 function renderedBoundary({ before, after, index }, excluded) {
@@ -425,15 +441,31 @@ function contentSnapshot(doc, live, excludedSelectors, root = doc.querySelector(
         try { root.matches(selector); return true; }
         catch { return false; }
     }).join(', ');
-    const entries = new Map();
-    const targets = new Map();
+    let targets;
     if (doc !== live) {
+        targets = new Map();
         for (const node of live.querySelectorAll('[data-mtflpp-node]')) {
             const key = node.getAttribute('data-mtflpp-node');
             // Cloned markers are ambiguous; never silently choose the first matching widget.
             targets.set(key, targets.has(key) ? null : node);
         }
     }
+    let snapshot = subtreeSnapshot(root, excluded, targets);
+    if (!snapshot) return null;
+    // Ancestor attributes can control layout; their unrelated siblings/text are not preview content.
+    const target = snapshot.node;
+    for (let node = root.parentElement; node; node = node.parentElement) {
+        const parent = snapshotEntry(node, target, node.localName);
+        parent.children = [snapshot];
+        parent.parts = [snapshot];
+        snapshot = parent;
+    }
+    snapshot.excluded = excluded;
+    return snapshot;
+}
+
+function subtreeSnapshot(root, excluded, targets) {
+    const entries = new Map();
     for (const node of [root, ...root.querySelectorAll('*')]) {
         if (excluded && node.closest(excluded)) continue;
         const ownText = [...node.childNodes].filter((child) => child.nodeType === 3).map((child) => child.textContent);
@@ -444,7 +476,7 @@ function contentSnapshot(doc, live, excludedSelectors, root = doc.querySelector(
         const background = node.style?.backgroundImage || node.getAttribute('data-bg') || '';
         // Include empty wrappers: layout/structure changes need not alter text or media.
         const marker = node.getAttribute('data-mtflpp-node');
-        const target = doc === live ? node : targets.get(marker) || null;
+        const target = targets ? targets.get(marker) || null : node;
         const entry = snapshotEntry(node, target, JSON.stringify([node.localName, text, media, background]));
         if (node.localName === 'img') entry.marker = marker;
         entry.text = text;
@@ -459,18 +491,7 @@ function contentSnapshot(doc, live, excludedSelectors, root = doc.querySelector(
         entry.parts = [...node.childNodes].map((child) => child.nodeType === 3 ? child.textContent : entries.get(child))
             .filter((part) => part !== undefined);
     }
-    let snapshot = entries.get(root);
-    if (!snapshot) return null;
-    // Ancestor attributes can control layout; their unrelated siblings/text are not preview content.
-    const target = snapshot.node;
-    for (let node = root.parentElement; node; node = node.parentElement) {
-        const parent = snapshotEntry(node, target, node.localName);
-        parent.children = [snapshot];
-        parent.parts = [snapshot];
-        snapshot = parent;
-    }
-    snapshot.excluded = excluded;
-    return snapshot;
+    return entries.get(root);
 }
 
 function presentationAttributes(node) {
@@ -556,36 +577,61 @@ function couldBeSeparateReplacements(before, after) {
 
 function changedCandidates(previous, next, move, cleanSource = false) {
     const identities = new Map(), keys = new Map(), presentationKeys = new Map(), exactKeys = new Map(), candidates = [];
-    let rowAnchors, imageAnchors;
-    function matchesRow(old, dest, groups, images = []) {
+    // An image alt needs captured source; a literal authored link can also match two DOM snapshots.
+    const elements = move?.elements.filter(({ tag }) => cleanSource || tag === 'a') ?? [];
+    let rowAnchors, elementAnchors, peerGroups, peerAnchors;
+    function textAnchors(groups) {
+        const labels = new Set(groups.flat(2));
+        return [uniqueRowAnchors(previous, labels), uniqueRowAnchors(next, labels)];
+    }
+    function inLiveRow(row, node, excluded) {
+        if (!node?.isConnected || !row.node?.contains(node) || (excluded && node.closest(excluded))) return false;
+        for (let current = node; current; current = current.parentElement) if (hidesRowEvidence(current)) return false;
+        return true;
+    }
+    function liveTextMatches(row, { node }, label, excluded) {
+        return inLiveRow(row, node, excluded) && normalizedText(liveEntryText(node, excluded, { rowLabel: true })) === label;
+    }
+    // True confirms a row. False is conflicting or incomplete evidence; no match is inconclusive.
+    function matchesRow(old, dest, groups, { elementHints = [], requireLink = false, peer = false } = {}) {
         const belongsTo = (row, entry) => row === entry || containsEntry(row, entry);
-        let imageMatch = false;
-        if (images.length) {
-            imageAnchors ??= [uniqueImageAnchors(previous, new Set(images)), uniqueImageAnchors(next, new Set(images))];
-            const liveImage = (row, entry, excluded) => entry.node?.isConnected && row.node?.contains(entry.node)
-                && entry.node.localName === 'img' && (!excluded || !entry.node.closest(excluded));
-            for (const label of images) {
-                const anchor = imageAnchors[0].get(label), target = imageAnchors[1].get(label);
+        let elementMatch;
+        if (elementHints.length) {
+            elementAnchors ??= elementHints.map((hint) => ({
+                keys: hint.keys, before: uniqueElementAnchors(previous, hint), after: uniqueElementAnchors(next, hint),
+            }));
+            const liveAnchor = (row, { node, tag }, key, excluded) => inLiveRow(row, node, excluded) && node.localName === tag
+                && (tag === 'img' ? node.getAttribute('alt') === key
+                    : linkKey(node.getAttribute('href'), liveEntryText(node, excluded, { rowLabel: true })) === key);
+            for (const { keys, before, after } of elementAnchors) for (const key of keys) {
+                const anchor = before.get(key), target = after.get(key);
                 if (!anchor || !target) continue;
                 if (!belongsTo(old, anchor) || !belongsTo(dest, target)) return false;
-                imageMatch ||= liveImage(old, anchor, previous.excluded) && liveImage(dest, target, next.excluded);
+                if (!requireLink || anchor.tag === 'a') {
+                    elementMatch ||= liveAnchor(old, anchor, key, previous.excluded) && liveAnchor(dest, target, key, next.excluded);
+                }
             }
         }
-        if (!groups.length) return imageMatch;
-        if (!rowAnchors) {
-            const labels = new Set((move.boundaryGroups ?? [move.groups]).flat(2));
-            rowAnchors = [uniqueRowAnchors(previous, labels), uniqueRowAnchors(next, labels)];
-        }
-        const [oldAnchors, newAnchors] = rowAnchors;
+        if (requireLink && !elementMatch) return false;
+        if (!groups.length) return elementMatch;
+        const [oldAnchors, newAnchors] = peer ? peerAnchors : (rowAnchors ??= textAnchors(move.boundaryGroups ?? [move.groups]));
         const matched = new Map();
-        for (const label of groups.flat()) {
+        let staleLabel = false;
+        for (const label of new Set(groups.flat())) {
             const anchor = oldAnchors.get(label), target = newAnchors.get(label);
             if (!anchor || !target) continue;
             if (!belongsTo(old, anchor.entry) || !belongsTo(dest, target.entry)) return false;
+            // Renderers can keep the mapped element but replace the story inside it.
+            if (!liveTextMatches(old, anchor.entry, label, previous.excluded) || !liveTextMatches(dest, target.entry, label, next.excluded)) {
+                if (peer) return false; // That peer no longer corroborates the inferred collection order.
+                staleLabel = true;
+                continue; // Another field can still identify the moved row directly.
+            }
             matched.set(label, anchor.substantive && target.substantive);
         }
-        return imageMatch || groups.some((group) => group.every((label) => matched.has(label))
-            && group.some((label) => matched.get(label)));
+        if (elementMatch || groups.some((group) => group.every((label) => matched.has(label))
+            && group.some((label) => matched.get(label)))) return true;
+        if (staleLabel || matched.size || elementMatch === false) return false;
     }
     function intern(value) {
         const signature = JSON.stringify(value);
@@ -601,6 +647,13 @@ function changedCandidates(previous, next, move, cleanSource = false) {
         exactKeys.set(entry, intern([key, entry.presentation, entry.references,
             entry.children.map((child) => exactKeys.get(child))]));
         return key;
+    }
+    function matchesLiveSubtree(entry, excluded) {
+        // Inference has no field witness of its own. Recheck just this row: either frame may have hydrated since capture.
+        if (!inLiveRow(entry, entry.node, excluded)) return false;
+        const live = subtreeSnapshot(entry.node, excluded);
+        identify(live);
+        return presentationKeys.get(live) === presentationKeys.get(entry) && normalizedText(entryText(live)) === normalizedText(entryText(entry));
     }
     identify(previous);
     identify(next);
@@ -662,7 +715,7 @@ function changedCandidates(previous, next, move, cleanSource = false) {
                 regionChange, oldRange, newRange, moved, boundary });
         }
         function rowRotation(oldStart, oldEnd, newStart, newEnd) {
-            if (!move?.groups.length && !(cleanSource && (move?.boundaryGroups || move?.images.length))) return;
+            if (!move?.groups.length && !elements.length && !(cleanSource && move?.peerGroups)) return;
             const length = Math.abs(move.offset) + 1;
             if (oldEnd - oldStart !== length || newEnd - newStart !== length) return;
             const down = move.offset > 0, from = down ? 0 : length - 1, to = down ? length - 1 : 0;
@@ -671,16 +724,41 @@ function changedCandidates(previous, next, move, cleanSource = false) {
             const pairs = oldRange.map((entry, index) => [entry, newRange[(index + shift) % length]]);
             return { before: oldRange, after: newRange, from, to, pairs };
         }
-        function movedEntry(rotation) {
-            const images = cleanSource ? move.images : [];
-            if (!move.groups.length && !images.length) return;
-            const [old, next] = rotation.pairs[rotation.from];
-            const key = contentKey(old);
-            if (oldPositions.get(key) === -1 || newPositions.get(key) === -1
-                || !rotation.pairs.every(([a, b]) => aligned(a, b))) return;
-            // An unrelated list or reversed output can show the same rotation. Require a
-            // unique, unchanged value from the dropped row inside both rendered sections.
-            if (matchesRow(old, next, move.groups, images)) return next;
+        function identifiesMovedRow(rotation) {
+            if (!rotation.pairs.every(([a, b]) => aligned(a, b))) return;
+            if (move.groups.length || elements.length) {
+                const [old, dest] = rotation.pairs[rotation.from], key = contentKey(old);
+                // Content keys omit hrefs. Only a confirmed link match can distinguish otherwise identical rows here.
+                const requireLink = oldPositions.get(key) === -1 || newPositions.get(key) === -1;
+                const match = matchesRow(old, dest, move.groups, { elementHints: elements, requireLink });
+                if (match !== undefined) return match;
+            }
+            return collectionConfirmsMove(rotation);
+        }
+        function collectionConfirmsMove(rotation) {
+            if (!cleanSource || !move.peerGroups || before.length !== move.count || after.length !== before.length) return;
+            const from = move.from, to = from + move.offset, start = Math.min(from, to);
+            const old = before[from], dest = after[to];
+            if (rotation.before[rotation.from] !== old || rotation.after[rotation.to] !== dest || isEmptyLayout(old)) return;
+
+            // Without a field witness in the moved section, verify the entire one-row-per-sibling mapping.
+            // Ignore response-local IDs, but not changes to the content or presentation of any section.
+            const key = presentationKeys.get(old);
+            const destinations = before.map((_, i) => rotation.pairs[i - start]?.[1] ?? after[i]);
+            if (!before.every((a, i) => (i === from || presentationKeys.get(a) !== key)
+                && presentationKeys.get(a) === presentationKeys.get(destinations[i]))) return;
+            if (!liveSiblingOrder(oldParent, previous.excluded) || !liveSiblingOrder(parent, next.excluded)) return;
+
+            peerGroups ??= move.peerGroups();
+            peerAnchors ??= textAnchors(peerGroups);
+            let confirmed = false;
+            for (const [i, groups] of peerGroups.entries()) {
+                if (i === from || !groups.length) continue;
+                const match = matchesRow(before[i], destinations[i], groups, { peer: true });
+                if (match === false) return;
+                if (rotation.pairs[i - start] && match) confirmed = true;
+            }
+            return confirmed && matchesLiveSubtree(old, previous.excluded) && matchesLiveSubtree(dest, next.excluded);
         }
         function spacerBoundary(rotation) {
             if (!cleanSource || !move.boundaryGroups) return;
@@ -746,7 +824,7 @@ function changedCandidates(previous, next, move, cleanSource = false) {
             }
             // Compare order before choosing anchors so a move is not split into an insertion and a deletion.
             const rotation = rowRotation(oldStart, oldEnd, newStart, newEnd);
-            const moved = rotation && movedEntry(rotation);
+            const moved = rotation && identifiesMovedRow(rotation) && rotation.pairs[rotation.from];
             const boundary = rotation && spacerBoundary(rotation);
             if (moved || boundary || (local && reordered(oldStart, oldEnd, newStart, newEnd))) {
                 if (boundary) for (const [a, b] of rotation.pairs) compare(a, b);
@@ -808,22 +886,34 @@ function renderedFlowText(entry, cache, excluded) {
         const omitted = [];
         // Validate the same included text as the snapshot. If excluded text changed too,
         // native innerText cannot tell us which part supplied the rendered difference.
-        const text = node?.isConnected && liveEntryText(node, excluded, omitted) === rawEntryText(entry) && renderedElement(entry)
+        const text = node?.isConnected && liveEntryText(node, excluded, { omitted }) === rawEntryText(entry) && renderedElement(entry)
             ? node.innerText : undefined;
         cache.set(entry, typeof text === 'string' ? { text, omitted: JSON.stringify(omitted) } : undefined);
     }
     return cache.get(entry);
 }
 
-function liveEntryText(node, excluded, omitted) {
-    if (!excluded || !node.querySelector(excluded)) return node.textContent;
-    return [...node.childNodes].map((child) => {
+// Native disclosures remain discoverable. A stale label hidden by the theme cannot identify a visible row.
+function hidesRowEvidence(node) {
+    const style = node.ownerDocument.defaultView.getComputedStyle(node);
+    return style.visibility !== 'visible' || style.opacity === '0' || (node.getAttribute('hidden')?.toLowerCase() !== 'until-found'
+        && (node.hasAttribute('hidden') || style.display === 'none' || style.contentVisibility === 'hidden'));
+}
+
+function liveEntryText(node, excluded, { omitted, rowLabel }) {
+    if (!rowLabel && (!excluded || !node.querySelector(excluded))) return node.textContent;
+    function read(child) {
         if (child.nodeType === 3) return child.textContent;
         if (child.nodeType !== 1) return '';
-        if (!child.matches(excluded)) return liveEntryText(child, excluded, omitted);
-        omitted.push(child.textContent);
-        return '';
-    }).join('');
+        if (excluded && child.matches(excluded)) {
+            omitted?.push(child.textContent);
+            return '';
+        }
+        if (rowLabel && hidesRowEvidence(child)) return '';
+        const text = [...child.childNodes].map(read).join('');
+        return rowLabel ? childFlowText(child.localName, text) : text;
+    }
+    return [...node.childNodes].map(read).join('');
 }
 
 function rawEntryText(entry) {
@@ -850,13 +940,15 @@ function entryText(entry, cache = new Map()) {
     if (!entry) return '';
     if (!cache.has(entry)) cache.set(entry, (entry.parts || []).map((part) => {
         if (typeof part === 'string') return part;
-        const text = entryText(part, cache);
-        // HTML block boundaries separate words even when serialized without whitespace.
-        // Inline elements remain contiguous, including words split by formatting.
-        return /^(?:p|div|section|article|main|aside|header|footer|nav|h[1-6]|li|[ou]l|d[ldt]|blockquote|pre|table|tr|t[dh]|caption|figure|figcaption|br|hr)$/.test(part.tag)
-            ? ` ${text} ` : text;
+        return childFlowText(part.tag, entryText(part, cache));
     }).join(''));
     return cache.get(entry);
+}
+
+// Block boundaries separate words even without serialized whitespace; inline formatting does not.
+function childFlowText(tag, text) {
+    return /^(?:p|div|section|article|main|aside|header|footer|nav|h[1-6]|li|[ou]l|d[ldt]|blockquote|pre|table|tr|t[dh]|caption|figure|figcaption|br|hr)$/.test(tag)
+        ? ` ${text} ` : text;
 }
 
 function valuesChanged(before, after) {
@@ -875,7 +967,7 @@ function inputOrderChanged(before, after) {
 }
 
 // An order hint can name a moved item, but its claim must agree with both submitted snapshots.
-function inputMove(before, after, allowBoundary) {
+function inputMove(before, after, orderOnly) {
     if (!before || !after) return;
     const changes = Object.entries(after).filter(([key, next]) => next?.type === 'row-order'
         && before[key]?.type === 'row-order' && before[key].value !== next.value);
@@ -886,25 +978,26 @@ function inputMove(before, after, allowBoundary) {
     const a = JSON.parse(old.value), b = JSON.parse(next.value);
     const from = a.indexOf(next.moved), to = b.indexOf(next.moved);
     if (from === -1 || to === -1 || from === to || a.length !== b.length) return;
-    a.splice(from, 1);
+    const siblings = a.filter((_, i) => i !== from);
     b.splice(to, 1);
-    if (!a.every((item, index) => item === b[index])) return;
+    if (!siblings.every((item, i) => item === b[i])) return;
 
-    const offset = to - from, evidence = { html: new Map(), peerLabels: new Map() };
-    const groups = rowGroups(key, next.moved, a, before, after, evidence);
-    const images = rowImageLabels(old.fieldsByRow, next.fieldsByRow, next.moved, a, before, after);
+    const evidence = { html: new Map(), peerLabels: new Map() };
+    const groups = rowGroups(key, next.moved, siblings, before, after, evidence);
+    const elements = [
+        rowImageEvidence(old.fieldsByRow, next.fieldsByRow, next.moved, siblings, before, after),
+        rowLinkEvidence(old.fieldsByRow, next.fieldsByRow, next.moved, siblings, before, after, evidence.html),
+    ].filter(Boolean);
+    const groupsFor = (row) => rowGroups(key, row, a.filter((item) => item !== row), before, after, evidence);
+    // Most moves have a direct witness. Only inspect the whole collection for an otherwise unexplained source rotation.
+    const peerGroups = orderOnly ? () => a.map((row) => row === next.moved ? [] : groupsFor(row)) : undefined;
     let boundaryGroups;
-    if (allowBoundary && !groups.length
+    if (orderOnly && !groups.length
         && hasNoRowContent(old, next.moved, before, evidence.html) && hasNoRowContent(next, next.moved, after, evidence.html)) {
-        const crossed = a.slice(Math.min(from, to), Math.max(from, to));
-        boundaryGroups = [];
-        for (const row of crossed) {
-            const labels = rowGroups(key, row, [...a.filter((item) => item !== row), next.moved], before, after, evidence);
-            if (!labels.length) { boundaryGroups = undefined; break; }
-            boundaryGroups.push(labels);
-        }
+        const crossed = siblings.slice(Math.min(from, to), Math.max(from, to)).map(groupsFor);
+        if (crossed.every((labels) => labels.length)) boundaryGroups = crossed;
     }
-    return { offset, groups, images, boundaryGroups };
+    return { from, offset: to - from, count: a.length, groups, elements, peerGroups, boundaryGroups };
 }
 
 function hasNoRowContent(order, row, values, html) {
@@ -918,8 +1011,8 @@ function isEmptyLayout(entry) {
         && entry.children.every(isEmptyLayout);
 }
 
-function rowImageLabels(oldFields, newFields, row, siblings, before, after) {
-    if ([row, ...siblings].some((item) => !oldFields?.[item] || !newFields?.[item])) return [];
+function rowImageEvidence(oldFields, newFields, row, siblings, before, after) {
+    if ([row, ...siblings].some((item) => !oldFields?.[item] || !newFields?.[item])) return;
     const fields = new Set(oldFields[row]), labels = new Set(), peerLabels = new Set(), peerIds = new Set();
     for (const [order, values] of [[oldFields, before], [newFields, after]]) {
         for (const name of siblings.flatMap((sibling) => order[sibling])) {
@@ -936,15 +1029,73 @@ function rowImageLabels(oldFields, newFields, row, siblings, before, after) {
         const label = next.alt;
         if (label?.trim() && old.alt === label && !peerLabels.has(label)) labels.add(label);
     }
-    return [...labels];
+    if (labels.size) return { tag: 'img', keys: labels };
 }
 
-function uniqueImageAnchors(root, labels) {
-    const anchors = new Map();
+function linkKey(href, text) {
+    const label = normalizedText(text);
+    if (href && label) return JSON.stringify([href, label]);
+}
+
+function fieldLinkKeys(previous, hint, html) {
+    if (previous?.type !== 'html' || hint?.type !== 'html') return;
+
+    // Accept the entire field, never an incidental CTA taken from a longer passage.
+    function soleLink(field) {
+        let entry = field?.entry;
+        while (entry && entry.tag !== 'a' && !entry.text && entry.children.length === 1) entry = entry.children[0];
+        if (entry?.tag !== 'a') return;
+        const href = entry.node.getAttribute('href'), key = linkKey(href, field.label);
+        if (key) return { href, key };
+    }
+    const [link, formatted] = rowFieldVariants(hint, html, previous.formatted === hint.formatted).map(soleLink);
+    if (!link || soleLink(rowFieldText(previous, html))?.key !== link.key) return;
+    const { href } = link;
+    if (!href.trim() || href.trim() === '#') return;
+    // Use a base only to validate relative destinations; compare the literal attribute, never fetch it.
+    try { if (!['http:', 'https:', 'mailto:', 'tel:'].includes(new URL(href, 'https://example.invalid/').protocol)) return; }
+    catch { return; }
+    return formatted?.href === href && formatted.key !== link.key ? [link.key, formatted.key] : [link.key];
+}
+
+function rowLinkEvidence(oldFields, newFields, row, siblings, before, after, html) {
+    if ([row, ...siblings].some((item) => !oldFields?.[item] || !newFields?.[item])) return;
+    const previousNames = new Set(oldFields[row]);
+    const fields = newFields[row].filter((name) => previousNames.has(name))
+        .map((name) => fieldLinkKeys(before[name], after[name], html)).filter(Boolean);
+    if (!fields.length) return;
+
+    const evidence = { tag: 'a', keys: new Set(fields.flat()) };
+    for (const [order, values] of [[oldFields, before], [newFields, after]]) {
+        for (const name of siblings.flatMap((sibling) => order[sibling])) {
+            let hint = values[name];
+            if (hint?.type === 'row-image') continue;
+            // A plain textarea may render HTML. It can rule out a shared link, never identify the moved row as one.
+            if (hint?.type === 'text') {
+                if (!/<a\b/i.test(hint.value)) continue;
+                hint = { type: 'html', value: hint.value };
+            }
+            const peer = rowFieldVariants(hint, html);
+            if (!peer.length) return;
+            for (const { entry } of peer) {
+                for (const key of uniqueElementAnchors(entry, evidence).keys()) evidence.keys.delete(key);
+            }
+            if (!evidence.keys.size) return;
+        }
+    }
+    // A sibling sharing either spelling rules out that field, not a different link from the moved row.
+    const unshared = fields.filter((keys) => keys.every((key) => evidence.keys.has(key)));
+    if (unshared.length) return { tag: 'a', keys: new Set(unshared.flat()) };
+}
+
+function uniqueElementAnchors(root, { tag, keys }) {
+    const anchors = new Map(), text = new Map();
     function visit(entry) {
-        if (entry.tag === 'img') {
-            const label = entry.attributes.find(([name]) => name === 'alt')?.[1];
-            if (labels.has(label)) anchors.set(label, anchors.has(label) ? null : entry);
+        if (entry.tag === tag) {
+            const attribute = tag === 'img' ? 'alt' : 'href';
+            const value = entry.attributes.find(([name]) => name === attribute)?.[1];
+            const key = tag === 'img' ? value : linkKey(value, entryText(entry, text));
+            if (keys.has(key)) anchors.set(key, anchors.has(key) ? null : entry);
         }
         entry.children.forEach(visit);
     }
