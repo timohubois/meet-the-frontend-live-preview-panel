@@ -3,7 +3,7 @@ Contributors: timohubois
 Tags: preview, live preview, block editor
 Requires at least: 6.9
 Tested up to: 7.1
-Stable tag: 1.3.1
+Stable tag: 1.3.2
 Requires PHP: 8.3
 License: GPLv3 or later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
@@ -112,6 +112,12 @@ Report issues or contribute on [GitHub](https://github.com/timohubois/meet-the-f
 8. Keep the preview in a separate Picture-in-Picture window where supported.
 
 == Changelog ==
+
+= 1.3.2 =
+* Follow moved ACF Flexible Content rows more reliably, including on the first drag. Keep the preview in place when it can't verify where the row moved.
+* Keep preview values on the correct site in WordPress Multisite, even when posts on two sites share an ID.
+* Preserve values sent by other block editor integrations when ACF has no fields to include in the preview.
+* Clarify what happens when you switch between live previews.
 
 = 1.3.1 =
 * Keep WordPress's native Preview in a separate tab in both the Classic and Block Editors.
