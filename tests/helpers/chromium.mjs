@@ -3,7 +3,13 @@ import { spawnSync } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import test from 'node:test';
 import { pathToFileURL } from 'node:url';
+
+// Keep the Chromium tests selectable even when they share a file with unit tests.
+export function testInChromium(name, ...args) {
+    return test(`Chromium: ${name}`, ...args);
+}
 
 // Share local pages and isolated profiles, not the suites' different input drivers.
 export async function withChromiumPage(html, run) {

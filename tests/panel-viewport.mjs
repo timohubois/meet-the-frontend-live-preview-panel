@@ -6,7 +6,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
 import { createPreviewViewport } from '../src/panel/viewport.js';
 import { sourceForVm } from './helpers/modules.mjs';
-import { runChromiumTests, withChromiumPage } from './helpers/chromium.mjs';
+import { runChromiumTests, withChromiumPage, testInChromium } from './helpers/chromium.mjs';
 
 function fixture(saved = {}, width = 480, height = 248, motion = false, scrollbar = 0, dpr = 1, onChange) {
     const observers = [], frames = new Map();
@@ -711,7 +711,7 @@ async function browserTests({ source, css }) {
     return results;
 }
 
-test('Chromium verifies fixed geometry, zoom and independent scrolling in all 80 viewport/presentation variants', async (t) => {
+testInChromium('fixed geometry, zoom and independent scrolling in all 80 viewport/presentation variants', async (t) => {
     const source = await sourceForVm(new URL('../src/panel/viewport.js', import.meta.url));
     const css = await readFile(new URL('../src/panel/panel.css', import.meta.url), 'utf8');
     await runChromiumTests(t, { script: `(${browserTests.toString()})(${JSON.stringify({ source, css })})`, count: 80 });
@@ -812,7 +812,7 @@ async function browserBreakpointTests({ viewportSource, scrollSource, css }) {
     return results;
 }
 
-test('Chromium keeps followed changes in the panel across breakpoints in all zoom modes', async (t) => {
+testInChromium('followed changes stay in the panel across breakpoints in all zoom modes', async (t) => {
     const [viewportSource, scrollSource, css] = await Promise.all([
         sourceForVm(new URL('../src/panel/viewport.js', import.meta.url)),
         sourceForVm(new URL('../src/preview/scroll.js', import.meta.url)),
@@ -821,7 +821,7 @@ test('Chromium keeps followed changes in the panel across breakpoints in all zoo
     await runChromiumTests(t, { script: `(${browserBreakpointTests.toString()})(${JSON.stringify({ viewportSource, scrollSource, css })})`, count: 9 });
 });
 
-test('trusted Chromium verifies independent scrolling and DPR-corrected physical pixel geometry', { timeout: 30000 }, async (t) => {
+testInChromium('trusted input verifies independent scrolling and DPR-corrected physical pixel geometry', { timeout: 30000 }, async (t) => {
     const modules = new Map(await Promise.all(['panel/viewport.js', 'preview/frame.js', 'preview/comparison.js', 'preview/scroll.js'].map(async (path) =>
         [`/src/${path}`, await readFile(new URL(`../src/${path}`, import.meta.url), 'utf8')])));
     const css = await readFile(new URL('../src/panel/panel.css', import.meta.url), 'utf8');

@@ -1,6 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import test from 'node:test';
-import { runChromiumTests } from './helpers/chromium.mjs';
+import { runChromiumTests, testInChromium } from './helpers/chromium.mjs';
 
 async function browserTests(source) {
     const { createPreviewScroll, createPreviewComparison, visibleTarget } = new Function(
@@ -2112,7 +2111,7 @@ async function browserTests(source) {
     return results;
 }
 
-test('preview scrolling matches changed sections conservatively in Chromium', async (t) => {
+testInChromium('preview scrolling matches changed sections conservatively', async (t) => {
     const comparison = await readFile(new URL('../src/preview/comparison.js', import.meta.url), 'utf8');
     const scrolling = await readFile(new URL('../src/preview/scroll.js', import.meta.url), 'utf8');
     const source = `${comparison.replace('export function', 'function')}\n${scrolling.replace(/^import .*;\n/, '')}`;

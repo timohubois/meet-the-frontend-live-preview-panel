@@ -75,18 +75,16 @@ CI runs both on single-site and network-activated Multisite installations.
 
 ## Tests
 
-Node.js 24.5+ is needed only for development, not on the WordPress site. The ownership tests use native Web Locks and BroadcastChannel. After installing the development dependencies, run the JavaScript regression tests with:
+Node.js 24.5+ is needed only for development, not on the WordPress site. The ownership tests use native Web Locks and BroadcastChannel. After installing the development dependencies and building the assets, run the JavaScript regression tests with `npm test`.
+
+`npm run test:unit` runs without Chromium. `npm run test:browser` runs only the
+Chromium tests, one test file at a time (`CHROMIUM_BIN` can override the browser
+path). Register tests that launch Chromium with `testInChromium` so both commands
+select the right tests. To use real WordPress jQuery, Quicktags and component CSS,
+point `WORDPRESS_ROOT` at an unpacked WordPress core directory:
 
 ```sh
-node --test tests/*.mjs
-```
-
-The browser-based tests also require Chromium (`CHROMIUM_BIN` can override its
-path). To exercise the event tests with real WordPress jQuery and Quicktags code,
-point `WORDPRESS_ROOT` at a local WordPress core directory:
-
-```sh
-WORDPRESS_ROOT=/path/to/wordpress node --test tests/editor-events.mjs
+WORDPRESS_ROOT=/path/to/wordpress npm run test:browser
 ```
 
 The PHP integration check requires PHP's DOM extension and a disposable single-site
@@ -172,9 +170,10 @@ unrelated post contexts and Query Loops, original permalinks, cache/global isola
 permissions and renderer lifecycle. The revisions fixture also checks explicit and
 generated historical block excerpts and rebinding to current saved data without writes.
 
-The optional ACF fixture checks shared live-field saves, paginated repeater merging,
-native post-meta block saving/rendering and source isolation. It exits successfully with a skip message when ACF Pro with
-repeater support is absent:
+The optional custom-field fixture checks shared live-field saves, paginated repeater
+merging, native post-meta block saving/rendering and source isolation. It runs with
+ACF Pro or Secure Custom Fields (SCF), and skips when compatible repeater support
+is absent:
 
 ```sh
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/acf.php
@@ -275,18 +274,22 @@ approval, SVN access and deployment credentials are in place. Version metadata a
 does not trigger deployment; pushing a release tag does.
 
 The workflows use the same 10up WordPress.org deployment and GitHub release actions
-as the other plugins, with an explicit asset build before packaging:
+as the other plugins, with an explicit asset build before packaging. Commit Checks
+uses floating major action tags for minor and patch updates. The workflows that
+publish releases or listing updates pin their actions to exact commits.
 
-- **Commit Checks** runs on branch pushes and pull requests and is reused for release
-  tags. PHP lint runs separately. The integration matrix uses PHP 8.3 and Node.js 24
-  on WordPress 6.9 and the latest stable WordPress, each without Timber and with an
-  isolated Timber 2.x dependency. Every matrix job builds the assets, runs JavaScript
-  tests using the runner's Chrome and that WordPress version's jQuery/Quicktags, and
-  runs the PHP fixtures in a disposable single-site installation. Timber jobs verify
-  that the dependency is loaded so its real integration assertions cannot silently
-  skip. ACF Pro is not installed: the workflow explicitly reports its optional fixture
-  as skipped, not verified. ACF checks still require a separate test site with ACF Pro.
-  A separate job checks the built distribution with WordPress Plugin Check.
+- **Commit Checks** runs on pull requests and pushes to `main` and is reused for
+  release tags. New PR updates cancel superseded checks on that PR. PHP lint runs
+  separately. The JavaScript job lints, builds and runs unit tests once on Node.js 24.
+  The browser, PHP integration and WordPress Plugin Check jobs use that same build.
+  Chrome runs against the unpacked assets from WordPress 6.9 and latest, without
+  installing WordPress or Timber. The PHP 8.3 fixtures run on disposable WordPress
+  6.9 and latest installations, both without Timber and with Timber 2.x, plus
+  WordPress 6.9 with Timber 1.x. Timber jobs verify the dependency is loaded so
+  integration assertions cannot silently skip. An additional job activates Secure
+  Custom Fields on the latest WordPress without Timber, verifies the field APIs
+  and Repeater support, and runs the post, choice and term fixtures. This covers
+  SCF, not ACF Pro; ACF Pro still requires a separate test site.
 - **Deploy and Release Plugin** runs on numeric tags such as `1.0.0`, without a `v`
   prefix. The tag, plugin header version and `readme.txt` stable tag must match.
   It waits for the checks, builds again in the deploy job, deploys via

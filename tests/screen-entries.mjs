@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import vm from 'node:vm';
-import { runChromiumTests } from './helpers/chromium.mjs';
+import { runChromiumTests, testInChromium } from './helpers/chromium.mjs';
 import { sourceForVm } from './helpers/modules.mjs';
 
 const editorSource = await sourceForVm(new URL('../src/classic-editor.js', import.meta.url));
@@ -176,7 +176,7 @@ function browserRevisionHeaderTests(entry, startupError) {
     return results;
 }
 
-test('classic revision header with WordPress admin notices', (t) => runChromiumTests(t, {
+testInChromium('classic revision header with WordPress admin notices', (t) => runChromiumTests(t, {
     script: `(${browserRevisionHeaderTests})(${JSON.stringify(revisionsSource)}, ${JSON.stringify(failureSource)})`,
     count: 2,
 }));

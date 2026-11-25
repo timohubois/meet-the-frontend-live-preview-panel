@@ -1,6 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import test from 'node:test';
-import { runChromiumTests } from './helpers/chromium.mjs';
+import { runChromiumTests, testInChromium } from './helpers/chromium.mjs';
 import { panelStrings } from './helpers/panel-strings.mjs';
 
 function browserTests({ core, panel, strings }) {
@@ -208,7 +207,7 @@ function browserTests({ core, panel, strings }) {
     return results;
 }
 
-test('panel styles preserve native surfaces, component states and balanced messages in Chromium', async (t) => {
+testInChromium('panel styles preserve native surfaces, component states and balanced messages', async (t) => {
     const corePath = process.env.WORDPRESS_ROOT
         ? `${process.env.WORDPRESS_ROOT}/wp-includes/css/dist/components/style.min.css`
         : new URL('../node_modules/@wordpress/components/build-style/style.css', import.meta.url);
