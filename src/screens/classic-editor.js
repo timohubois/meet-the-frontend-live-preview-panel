@@ -10,7 +10,7 @@ export function initLivePreview(config, nativeEditor, inlineLauncher) {
     const editors = new Set();
     let destroyed = false;
     nativeEditor.title = document.getElementById('title')?.value ?? config.postTitle;
-    nativeEditor.preparePreview = async () => {
+    nativeEditor.preparePreview = async (followChanges) => {
         capturing = true;
         let values;
         try {
@@ -27,14 +27,28 @@ export function initLivePreview(config, nativeEditor, inlineLauncher) {
         ]));
         const data = extensions.capture(core, values);
         const comparisonValues = extensions.comparisonValues(data, coreValues);
+        const rowFields = new Set();
+        if (followChanges) for (const hint of Object.values(comparisonValues)) {
+            if (hint?.type !== 'row-order' || !hint.fieldsByRow) continue;
+            for (const fields of Object.values(hint.fieldsByRow).filter(Array.isArray)) for (const name of fields) {
+                if (comparisonValues[name]?.type === 'html' && data.has(name)) rowFields.add(name);
+            }
+        }
         data.set('base', config.base);
+        // PHP can truncate large forms; keep the optional hint after the required baseline.
+        if (rowFields.size) data.set('mtflpp_row_text_fields', JSON.stringify([...rowFields]));
         const response = await fetch(config.endpoint, {
             method: 'POST', credentials: 'same-origin',
             headers: { 'X-WP-Nonce': config.nonce }, body: data,
         });
         const result = await response.json();
         if (!response.ok) throw Object.assign(new Error(result.message || config.strings.failed), { code: result.code });
-        return { ...result, comparisonValues };
+        const { rowDisplayText, ...preview } = result;
+        for (const name of rowFields) {
+            const formatted = rowDisplayText?.[name];
+            if (typeof formatted === 'string') comparisonValues[name] = { ...comparisonValues[name], formatted };
+        }
+        return { ...preview, comparisonValues };
     };
     const preview = createLivePreview(config, nativeEditor, { inlineLauncher });
     const changed = () => {

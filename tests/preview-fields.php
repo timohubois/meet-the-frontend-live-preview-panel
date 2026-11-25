@@ -46,9 +46,24 @@ try {
     $prepare = static function (array $input = []) use ($route, $base): WP_REST_Response {
         $request = new WP_REST_Request('POST', $route);
         $request->set_header('X-WP-Nonce', wp_create_nonce('wp_rest'));
+        // WordPress supplies the unslashed, PHP-parsed POST values to REST as body parameters.
         $request->set_body_params(['base' => $base, ...$input]);
         return rest_ensure_response(rest_do_request($request));
     };
+    $rich = "<h2>Heading</h2>\nUse the editor's options... <code>1x2...</code>";
+    $field = 'fixture[row-1][body]';
+    $rowBody = ['fixture' => ['row-1' => ['body' => $rich, 'unrequested' => 'Leave this unchanged...']]];
+    $check(!isset($prepare($rowBody)->get_data()['rowDisplayText']), 'Do not format row hints without opt-in.');
+    $typography = $prepare($rowBody + ['mtflpp_row_text_fields' => wp_json_encode([
+        $field, $field, 'fixture[row-1]', 'fixture[row-2][body]', 'fixture[row-1][body][]', 123,
+    ])]);
+    $formatted = wpautop(wptexturize($rich));
+    $check(
+        $typography->get_status() === 200 && $typography->get_data()['rowDisplayText'] === [$field => $formatted]
+        && str_contains($formatted, '<code>1x2...</code>') && str_contains($formatted, '<p>'),
+        'Return only requested native variants and leave code text intact.'
+    );
+    $check($live->fingerprint($postId) === $base, 'Row display hints must not write to the saved post.');
     $input = ['author' => $admin, 'date' => '2030-07-15T13:45:00Z', 'terms' => wp_json_encode([
         'category' => [$termId],
     ])];

@@ -730,10 +730,51 @@ async function browserTests(source) {
                 equal(after.defaultView.scrollY > 0, true, 'Reveal an off-screen destination.');
             });
         }
+        for (const scenario of captured ? ['up', 'down two', 'video poster', 'missing label', 'shared submitted label',
+            'shared attachment ID', 'duplicate rendered label', 'changed attachment', 'changed label', 'conflicting text',
+            'relocated image', 'runtime-only move', 'not a spacer'] : ['up']) {
+            await check(`${mode}: an image can identify a moved row (${scenario})`, async (frame, doc) => {
+                const label = 'Attachment A';
+                const image = `<img alt="${label}" data-src="/custom-derivative.webp">`;
+                const poster = scenario === 'video poster' ? '<iframe data-src="https://example.test/embed/sample?autoplay=1"></iframe>' : '';
+                const A = `<section id="media-row">${scenario === 'not a spacer' ? '' : image}${poster}</section>`;
+                const B = `<section><h2>Section B</h2>${scenario === 'duplicate rendered label'
+                    ? `<img alt="${label}" src="/different.webp">` : ''}</section>`;
+                const markup = (order) => '<div style="height:850px"></div>' + order.map((row) => ({ A, B,
+                    C: `<section><h2>${label}</h2></section>` })[row]).join('') + '<div id="outside" style="height:850px"></div>';
+                const oldOrder = scenario === 'down two' ? ['A', 'B', 'C'] : ['B', 'A', 'C'];
+                const nextOrder = scenario === 'down two' ? ['B', 'C', 'A'] : ['A', 'B', 'C'];
+                const before = await doc(markup(oldOrder), options);
+                const after = await doc(markup(scenario === 'runtime-only move' ? oldOrder : nextOrder), { ...options, script: {
+                    'relocated image': "document.querySelector('#outside').append(document.querySelector('#media-row img'))",
+                    'runtime-only move': "const row = document.querySelector('#media-row'); row.previousElementSibling.before(row);",
+                }[scenario] });
+                const title = (row) => row === 'A' ? (scenario === 'conflicting text' ? label : '') : `Section ${row}`;
+                const old = rowOrder(oldOrder, undefined, title), next = rowOrder(nextOrder, 'A', title);
+                for (const values of [old, next]) {
+                    values.rows.fieldsByRow.A.push('media:A');
+                    values['media:A'] = { type: 'row-image', value: '101', alt: scenario === 'missing label' ? '' : label };
+                    if (['shared submitted label', 'shared attachment ID'].includes(scenario)) {
+                        values.rows.fieldsByRow.B.push('media:B');
+                        values['media:B'] = { type: 'row-image', value: scenario === 'shared attachment ID' ? '101' : '202',
+                            alt: scenario === 'shared submitted label' ? label : 'Different alt' };
+                    }
+                }
+                if (scenario === 'changed attachment') next['media:A'].value = '303';
+                if (scenario === 'changed label') next['media:A'].alt = 'New alt';
+                before.defaultView.scrollTo(0, 110);
+                frame.scrolling.remember(before);
+                const target = follow(frame, before, after, old, next);
+                const expected = captured && ['up', 'down two', 'video poster'].includes(scenario) ? after.querySelector('#media-row') : null;
+                equal(target, expected, 'Only a stable submitted image label belonging to one confirmed row can locate the move.');
+                await frame.scrolling.restore(after, target);
+                equal(after.defaultView.scrollY === 110, !expected, 'An unresolved image move must retain position.');
+            });
+        }
         for (const scenario of captured ? [
-            'down', 'up', 'margin-only spacer', 'different-sized blank sibling', 'duplicate blank', 'duplicate rendered witness', 'duplicate submitted witness',
+            'down', 'up', 'margin-only spacer', 'different-sized blank sibling', 'identical blank outside swap', 'duplicate rendered witness', 'duplicate submitted witness',
             'reversed source', 'reversed live order', 'reversed visual order', 'no live box', 'live exclusion', 'more than one swap',
-            'unrelated source styling', 'nonempty moved row', 'image-only row', 'nonadjacent drag',
+            'unrelated source styling', 'nonempty moved row', 'image-only row', 'wrong move distance',
         ] : ['down']) {
             await check(`${mode}: an adjacent empty-row boundary (${scenario})`, async (frame, doc) => {
                 const up = scenario === 'up', crossed = '<section id="crossed"><h2>Section B</h2></section>';
@@ -744,7 +785,7 @@ async function browserTests(source) {
                 const suffix = (changed) => {
                     const peers = section(scenario === 'duplicate rendered witness' ? 'Section B' : 'Section C') + section('Section D');
                     return (scenario === 'different-sized blank sibling' ? '<div style="height:190px"></div>' : '')
-                        + (scenario === 'duplicate blank' ? '<div style="height:160px"></div>' : '')
+                        + (scenario === 'identical blank outside swap' ? '<div style="height:160px"></div>' : '')
                         + (changed && scenario === 'more than one swap' ? section('Section D') + section('Section C') : peers)
                         + extra(changed && scenario === 'unrelated source styling');
                 };
@@ -761,17 +802,67 @@ async function browserTests(source) {
                 const before = await doc(markup(false), options);
                 const after = await doc(markup(true), { ...options, script: initialize[scenario] });
                 const oldOrder = up ? ['B', 'A', 'C', 'D'] : ['A', 'B', 'C', 'D'];
-                const nextOrder = up ? ['A', 'B', 'C', 'D'] : scenario === 'nonadjacent drag' ? ['B', 'C', 'A', 'D'] : ['B', 'A', 'C', 'D'];
+                const nextOrder = up ? ['A', 'B', 'C', 'D'] : scenario === 'wrong move distance' ? ['B', 'C', 'A', 'D'] : ['B', 'A', 'C', 'D'];
                 const title = (item) => item === 'A' && scenario !== 'nonempty moved row' ? ''
                     : item === 'C' && scenario === 'duplicate submitted witness' ? 'Section B' : `Section ${item}`;
                 before.defaultView.scrollTo(0, 110);
                 frame.scrolling.remember(before);
                 const target = follow(frame, before, after, rowOrder(oldOrder, undefined, title), rowOrder(nextOrder, 'A', title));
-                const boundary = captured && ['down', 'up', 'margin-only spacer', 'different-sized blank sibling'].includes(scenario)
+                const boundary = captured && ['down', 'up', 'margin-only spacer', 'different-sized blank sibling', 'identical blank outside swap'].includes(scenario)
                     ? after.querySelector(up ? '#crossed' : '#blank') : null;
                 equal(target, boundary, 'Only a confirmed, visible pair can locate the new boundary.');
                 await frame.scrolling.restore(after, target);
                 equal(after.defaultView.scrollY === 110, !boundary, 'Do not jump without a boundary.');
+            });
+        }
+        for (const scenario of captured ? ['down two', 'up three', 'wrong crossed order', 'missing middle text',
+            'duplicate middle text', 'changed middle section', 'live order mismatch', 'visual order mismatch'] : ['down two']) {
+            await check(`${mode}: a spacer moved across multiple rows (${scenario})`, async (frame, doc) => {
+                const start = ['A', 'B', 'C', 'D', 'E'];
+                const end = scenario === 'down two' ? ['B', 'C', 'A', 'D', 'E'] : ['B', 'C', 'D', 'A', 'E'];
+                const up = scenario === 'up three';
+                const title = (item) => item === 'A' || (item === 'C' && scenario === 'missing middle text') ? '' : `Section ${item}`;
+                const markup = (items, updated) => '<div style="height:900px"></div>' + items.map((item) => {
+                    if (item === 'A') return '<div id="blank" style="height:160px"></div>';
+                    const heading = item === 'E' && scenario === 'duplicate middle text' ? 'Section C' : `Section ${item}`;
+                    const style = updated && item === 'C' && scenario === 'changed middle section' ? ' style="background:red"' : '';
+                    return `<section id="row-${item}"${style}><h2>${heading}</h2></section>`;
+                }).join('') + '<div style="height:800px"></div>';
+                const oldOrder = up ? end : start, newOrder = up ? start : end;
+                const sourceOrder = scenario === 'wrong crossed order' ? ['B', 'D', 'C', 'A', 'E'] : newOrder;
+                const script = scenario === 'live order mismatch'
+                    ? "document.querySelector('#row-C').before(document.querySelector('#row-D'))"
+                    : scenario === 'visual order mismatch' ? "document.querySelector('#row-C').style.transform = 'translateY(-120px)'" : '';
+                const before = await doc(markup(oldOrder, false), options);
+                const after = await doc(markup(sourceOrder, true), { ...options, script });
+                before.defaultView.scrollTo(0, 110);
+                frame.scrolling.remember(before);
+                const target = follow(frame, before, after, rowOrder(oldOrder, undefined, title), rowOrder(newOrder, 'A', title));
+                const boundary = captured && (scenario === 'down two' || up) ? after.querySelector(up ? '#row-B' : '#blank') : null;
+                equal(target, boundary, 'Every crossed row must confirm the same move to locate the new boundary.');
+                await frame.scrolling.restore(after, target);
+                equal(after.defaultView.scrollY === 110, !boundary, 'Scroll only when the destination is verified.');
+            });
+        }
+        if (captured) for (const [scenario, oldOrder, newOrder, targetIndex] of [
+            ['down', 'XABCY', 'XBCAY', 3],
+            ['up', 'XBCAY', 'XABCY', 2],
+            ['across another spacer', 'AXBCY', 'XBCAY', null],
+            ['only across another spacer', 'AXBCY', 'XABCY', null],
+        ]) {
+            await check(`${mode}: identical spacers in a move ${scenario}`, async (frame, doc) => {
+                const isSpacer = (row) => 'AXY'.includes(row);
+                const title = (row) => isSpacer(row) ? '' : `Section ${row}`;
+                const markup = (order) => `<div style="height:900px"></div><div id="rows">${[...order].map((row) =>
+                    isSpacer(row) ? '<div style="margin-top:160px"></div>' : section(title(row))).join('')}</div><div style="height:800px"></div>`;
+                const before = await doc(markup(oldOrder), options), after = await doc(markup(newOrder), options);
+                before.defaultView.scrollTo(0, 110);
+                frame.scrolling.remember(before);
+                const target = follow(frame, before, after, rowOrder([...oldOrder], undefined, title), rowOrder([...newOrder], 'A', title));
+                const boundary = targetIndex === null ? null : after.querySelector('#rows').children[targetIndex];
+                equal(target, boundary, 'Identical spacers outside the verified range must not veto its unique destination.');
+                await frame.scrolling.restore(after, target);
+                equal(after.defaultView.scrollY === 110, !boundary, 'Only follow an identifiable change to the rendered gap.');
             });
         }
         await check(`${mode}: a boxless moved row follows its eligible off-screen heading, not its fixed navigation`, async (frame, doc) => {
@@ -846,6 +937,37 @@ async function browserTests(source) {
                     'The heading and body inside a linked card are content, not an action label.');
             });
         }
+        for (const scenario of ['row move', 'duplicate submitted text', 'duplicate rendered text', 'changed number', 'no native variant',
+            ...(captured ? ['spacer move'] : [])]) {
+            await check(`${mode}: a WYSIWYG row with native formatting evidence (${scenario})`, async (frame, doc) => {
+                const submitted = `<h2>Managing content</h2>\nUse the editor's <em>layout</em> options...\n\nTry "Preview" -- Acme (tm) in 12x24 at 1.25% with a 9" margin and <code>1x2...</code>.`;
+                // Model the result of wpautop(wptexturize($submitted)) in WordPress's default locale.
+                const formatted = '<h2>Managing content</h2><p>Use the editor&#8217;s <em>layout</em> options&#8230;</p>'
+                    + '<p>Try &#8220;Preview&#8221; &#8212; Acme &#8482; in 12&#215;24 at 1.25% with a 9&#8243; margin and <code>1x2...</code>.</p>';
+                const rendered = scenario === 'changed number' ? formatted.replace('1.25%', '125%') : formatted;
+                const moved = `<section id="rich-text">${rendered}</section>`;
+                const blank = '<div style="margin-top:160px"></div>';
+                const tail = scenario === 'duplicate rendered text' ? `<aside>${formatted}</aside>` : section('Section C');
+                const prefix = '<div style="height:900px"></div>';
+                const before = await doc(prefix + blank + moved + tail, options);
+                const after = await doc(prefix + moved + blank + tail, options);
+                const old = rowOrder(['B', 'A', 'C']), next = rowOrder(['A', 'B', 'C'], scenario === 'spacer move' ? 'B' : 'A');
+                old['title:A'] = { type: 'html', value: submitted, formatted };
+                next['title:A'] = scenario === 'no native variant' ? { type: 'html', value: submitted } : old['title:A'];
+                old['title:B'].value = next['title:B'].value = '';
+                if (scenario === 'duplicate submitted text') old['title:C'] = next['title:C'] = { type: 'html', value: formatted };
+                const richText = after.querySelector('#rich-text');
+                const expected = scenario === 'row move' ? richText : scenario === 'spacer move' ? richText.nextElementSibling : null;
+                equal(follow(frame, before, after, old, next), expected,
+                    'Typography may corroborate a unique row; it must not hide a real value difference or make repeated text unique.');
+            });
+        }
+        await check(`${mode}: a typography-only text edit remains an edit`, async (frame, doc) => {
+            const before = await doc('<p id="edit">Wait...</p>' + section('Unchanged'), options);
+            const after = await doc('<p id="edit">Wait…</p>' + section('Unchanged'), options);
+            equal(follow(frame, before, after, hints('Wait...'), hints('Wait…')), after.querySelector('#edit'),
+                'Keep real punctuation changes in the rendered comparison.');
+        });
         await check(`${mode}: a single block from a longer field cannot anchor a row move`, async (frame, doc) => {
             const moved = '<section><h2>Unique heading</h2><p>Unrelated content.</p></section>';
             const before = await doc(moved + section('Section B'), options);
@@ -982,6 +1104,79 @@ async function browserTests(source) {
             equal(gallery.scrollLeft, 0, 'Do not change the widget’s horizontal offset.');
             equal(target.getAttribute('style'), style, 'Do not move the track.');
         });
+        const validGalleryChanges = ['reorder no text', 'already visible', 'paragraph only', 'duplicate headings',
+            'add image', 'remove image', 'fill empty gallery', 'empty gallery', 'single list', 'vertical viewport', 'hidden slide clones'];
+        for (const scenario of captured ? [...validGalleryChanges, 'unrelated section', 'independent divs', 'page-wide target', 'second edited field',
+            'wrong permutation', 'wrong removal', 'reused source', 'repeated members', 'runtime only', 'no rendered change',
+            'cloned live region', 'relocated track', 'reverted order', 'reverted single list', 'discarded addition']
+            : ['reorder no text', 'add image', 'remove image']) {
+            await check(`${mode}: gallery changes follow a verified local region (${scenario})`, async (frame, doc) => {
+                const oldOrder = scenario === 'repeated members' ? ['a', 'b', 'a', 'd'] : scenario === 'fill empty gallery' ? [] : ['a', 'b', 'c', 'd'];
+                const newOrder = ['add image', 'reused source', 'discarded addition'].includes(scenario) ? ['a', 'e', 'b', 'c', 'd']
+                    : scenario === 'remove image' || scenario === 'wrong removal' ? ['a', 'c', 'd']
+                        : scenario === 'fill empty gallery' ? ['e'] : scenario === 'empty gallery' ? [] : [oldOrder[1], oldOrder[0], ...oldOrder.slice(2)];
+                function track(row, kind, order) {
+                    return `<div style="width:160px;overflow:auto"><div id="${row}-${kind}" style="display:flex;transform:translateX(-12px)">
+                        ${order.map((image) => `<figure style="flex:0 0 140px;height:60px;margin:0"${image === 'c' ? ' class="active"' : ''}>
+                            <img data-src="/${row}/${kind}/${image === 'e' && scenario === 'reused source' ? 'a' : image}.jpg" alt="Repeated alt"></figure>`).join('\n')}
+                    </div></div>`;
+                }
+                function markup(changed) {
+                    const edit = changed && !['runtime only', 'no rendered change'].includes(scenario);
+                    if (scenario === 'page-wide target') return '<div style="height:800px"></div>' + track('B', 'main', edit ? newOrder : oldOrder)
+                        + track('B', 'thumbs', edit ? newOrder : oldOrder) + '<div style="height:650px"></div>';
+                    const independent = scenario === 'independent divs';
+                    const rows = independent ? ['A', 'B'] : ['A', 'B', 'C'];
+                    const tag = independent ? 'div' : 'section';
+                    return '<div style="height:800px"></div><article>' + rows.map((row) => {
+                        const other = (scenario === 'unrelated section' || independent) && row === 'A';
+                        const order = edit && (row === 'B' || other) ? newOrder : oldOrder;
+                        const copy = scenario === 'paragraph only' ? '<p>Copy surrounding the gallery.</p>'
+                            : scenario === 'duplicate headings' ? '<h2>Same heading on every gallery</h2>' : '';
+                        const thumbs = edit && row === 'B' && scenario === 'wrong permutation' ? [...oldOrder].reverse()
+                            : edit && row === 'B' && scenario === 'wrong removal' ? ['a', 'b', 'd'] : order;
+                        const gallery = `<div id="gallery-${row}">${track(row, 'main', order)}${['single list', 'reverted single list', 'independent divs'].includes(scenario)
+                            ? '' : track(row, 'thumbs', thumbs)}</div>`;
+                        const wrapped = scenario === 'vertical viewport' ? `<div class="gallery-scrollport" style="height:80px;overflow-y:auto">${gallery}</div>` : gallery;
+                        return `<${tag}>${copy}${wrapped}</${tag}>`;
+                    }).join(independent ? '<div style="height:600px"><p>Unrelated page copy.</p></div>' : '') + '</article><div style="height:650px"></div>';
+                }
+                const gallery = (order) => ({ ...orderHints(...order).attachments, type: 'gallery-order' });
+                const old = { 'images:A': gallery(oldOrder), 'images:B': gallery(oldOrder) };
+                const next = { ...old, 'images:B': gallery(newOrder) };
+                if (scenario === 'second edited field') next['images:A'] = gallery(newOrder);
+                const before = await doc(markup(false), options);
+                const after = await doc(markup(true), { ...options, script: ({
+                    'relocated track': 'document.querySelector("main").append(document.querySelector("#B-main"))',
+                    'cloned live region': 'document.querySelector("main").append(document.querySelector("#gallery-B").cloneNode(true))',
+                    'runtime only': 'for (const el of document.querySelectorAll("#B-main,#B-thumbs")) el.prepend(el.children[1])',
+                    'reverted order': 'for (const el of document.querySelectorAll("#B-main,#B-thumbs")) el.prepend(el.children[1])',
+                    'reverted single list': 'const el = document.querySelector("#B-main"); el.prepend(el.children[1]);',
+                    'discarded addition': 'for (const el of document.querySelectorAll("#B-main,#B-thumbs")) el.children[1].remove();',
+                    'hidden slide clones': 'for (const el of document.querySelectorAll("#B-main,#B-thumbs")) { const clone = el.lastElementChild.cloneNode(true); clone.setAttribute("aria-hidden", "true"); el.prepend(clone); }',
+                })[scenario] });
+                const slider = after.querySelector('#B-main');
+                const initial = scenario === 'already visible' ? after.querySelector('#gallery-B').getBoundingClientRect().top - 70 : 100;
+                before.defaultView.scrollTo(0, initial);
+                frame.scrolling.remember(before);
+                slider.parentElement.scrollLeft = 30;
+                const horizontal = slider.parentElement.scrollLeft;
+                const vertical = slider.closest('.gallery-scrollport');
+                if (vertical) vertical.scrollTop = 30;
+                const active = slider.querySelector('.active');
+                const expected = validGalleryChanges.includes(scenario)
+                    ? vertical ?? (scenario === 'single list' ? slider.parentElement : after.querySelector('#gallery-B')) : null;
+                const target = follow(frame, before, after, old, next);
+                equal(target, expected, 'Require one local region with the exact submitted change in the rendered lists.');
+                await frame.scrolling.restore(after, target);
+                equal(after.defaultView.scrollY === Math.round(initial), !expected || scenario === 'already visible',
+                    'Reveal only an off-screen confirmed region.');
+                equal(slider.parentElement.scrollLeft, horizontal, 'Keep the horizontal offset.');
+                if (vertical) equal(vertical.scrollTop, 30, 'Keep the vertical widget offset.');
+                equal(slider.style.transform, 'translateX(-12px)', 'Keep the track transform.');
+                equal(slider.querySelector('.active'), active, 'Leave the active slide to the widget.');
+            });
+        }
         await check(`${mode}: a reorder with repeated entries still identifies its container`, async (frame, doc) => {
             const markup = (items) => `<ol>${items.map((item) => `<li>${item}</li>`).join('')}</ol>`;
             const before = await doc(markup(['A', 'A', 'B', 'C']), options);
@@ -1921,5 +2116,5 @@ test('preview scrolling matches changed sections conservatively in Chromium', as
     const comparison = await readFile(new URL('../src/preview/comparison.js', import.meta.url), 'utf8');
     const scrolling = await readFile(new URL('../src/preview/scroll.js', import.meta.url), 'utf8');
     const source = `${comparison.replace('export function', 'function')}\n${scrolling.replace(/^import .*;\n/, '')}`;
-    await runChromiumTests(t, { script: `(${browserTests.toString()})(${JSON.stringify(source)})`, count: 409, virtualTimeBudget: 24000 });
+    await runChromiumTests(t, { script: `(${browserTests.toString()})(${JSON.stringify(source)})`, count: 478, virtualTimeBudget: 30000 });
 });

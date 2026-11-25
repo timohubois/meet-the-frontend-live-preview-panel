@@ -161,7 +161,7 @@ export function createLivePreview(config, nativeEditor, { inlineLauncher, native
                 let result;
                 let failure;
                 // Assign before yielding: a pre-save hook must always see an already-started write.
-                writeTask = nativeEditor.preparePreview();
+                writeTask = nativeEditor.preparePreview(view.followChanges);
                 try {
                     result = await writeTask;
                 } catch (error) {

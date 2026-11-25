@@ -297,7 +297,7 @@ test('extension capture preserves core field types supplied by the screen owner'
 
 // Share the real classic adapter setup across its boundary tests.
 const classicSource = await sourceForVm(new URL('../src/screens/classic-editor.js', import.meta.url));
-function classicFixture(setup, entries = [['content', 'Unsaved content']], controls = []) {
+function classicFixture(setup, entries = [['content', 'Unsaved content']], controls = [], response = {}) {
     const calls = [], requests = [], listeners = new Map();
     let destroyed = 0;
     const native = { destroy: () => destroyed++ };
@@ -313,7 +313,7 @@ function classicFixture(setup, entries = [['content', 'Unsaved content']], contr
         FormData: class { *[Symbol.iterator]() { yield* entries; } },
         fetch: async (url, options) => {
             requests.push(options.body);
-            return { ok: true, json: async () => ({ url: '/preview' }) };
+            return { ok: true, json: async () => ({ url: '/preview', ...response }) };
         },
     };
     const runtime = editorExtensionsFixture(context);
@@ -353,6 +353,37 @@ test('classic comparison values stay tied to the submitted core and contributed 
     assert.equal(Object.hasOwn(result.comparisonValues, '_acf_nonce'), false);
     assert.equal(Object.hasOwn(result.comparisonValues, 'image_id'), false);
     assert.equal(h.requests[0].has('comparisonValues'), false, 'Hints stay in browser memory, outside REST transport.');
+    h.native.destroy();
+});
+
+test('classic following requests native formatting only for submitted rich-text row fields', async () => {
+    const name = 'vendor[row-1][body]', label = 'vendor[row-1][label]', other = 'vendor[other]';
+    const raw = "The editor's options...", formatted = '<p>The editor&#8217;s options&#8230;</p>';
+    const controls = [name, label, other].map((field) => ({
+        name: field, localName: 'textarea', classList: { contains: () => field !== label },
+    }));
+    const h = classicFixture(({ hooks }) => {
+        hooks.addFilter('previewFormBody', 'vendor/rows', (body, values) => {
+            for (const [field, value] of values) body.append(field, value);
+            return body;
+        });
+        hooks.addFilter('previewComparisonValues', 'vendor/rows', (values) => values.set('rows', {
+            type: 'row-order', fieldsByRow: { a: [name, label, 'vendor[missing]'], b: [name] },
+        }));
+    }, [[name, raw], [label, 'Label'], [other, 'Unrelated']], controls,
+    { rowDisplayText: { [name]: formatted, [other]: '<p>Unrelated</p>' } });
+    const { comparisonValues, ...preview } = await h.native.preparePreview(true);
+    assert.deepEqual(JSON.parse(h.requests[0].get('mtflpp_row_text_fields')), [name]);
+    assert.deepEqual([...h.requests[0].keys()].slice(-2), ['base', 'mtflpp_row_text_fields'],
+        'If PHP truncates the extras, the required baseline still arrives.');
+    assert.equal(h.requests[0].get(name), raw);
+    assert.equal(comparisonValues[name].value, raw);
+    assert.equal(comparisonValues[name].formatted, formatted);
+    assert.equal(comparisonValues[other].formatted, undefined);
+    assert.equal(preview.rowDisplayText, undefined);
+    const disabled = await h.native.preparePreview(false);
+    assert.equal(h.requests[1].has('mtflpp_row_text_fields'), false);
+    assert.equal(disabled.comparisonValues[name].formatted, undefined);
     h.native.destroy();
 });
 
