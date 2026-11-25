@@ -42,25 +42,19 @@ final class LiveNote
                 update_metadata('post', $context['source']['id'], KEY, wp_slash($this->submitted));
             }
         });
-        add_filter('mtflpp_live_preview_preparation_error', function (?WP_Error $error, array $context): ?WP_Error {
-            if ($error || $this->submitted === null || !isset($context['source']['id'])) {
-                return $error;
-            }
-            return get_post_meta($context['source']['id'], KEY, false) === [$this->submitted] ? null
-                : new WP_Error('example_note_not_saved', 'Could not prepare the post note.', ['status' => 409]);
-        }, 10, 2);
+        add_filter('mtflpp_live_preview_preparation_error', [$this, 'verify'], 10, 2);
         add_action('mtflpp_live_preview_preparation_finished', function (): void {
             $this->submitted = null;
         });
         add_action('mtflpp_frontend_live_preview_source_selected', function (array $context): void {
-            $this->unbind();
-            if (get_post_type($context['post']['id']) === 'post') {
-                $this->selected = $context;
-                add_filter('get_post_metadata', [$this, 'read'], 10, 4);
+            if (get_post_type($context['post']['id']) !== 'post') {
+                $this->unbind();
+                return;
             }
+            $this->selected = $context;
+            add_filter('get_post_metadata', [$this, 'read'], 10, 4);
         });
         add_action('mtflpp_frontend_saved_preview_source_selected', [$this, 'unbind']);
-        add_action('shutdown', [$this, 'unbind'], PHP_INT_MAX);
     }
 
     public function prepare(array|WP_Error $form, array $context): array|WP_Error
@@ -73,11 +67,30 @@ final class LiveNote
             return new WP_Error('example_note_forbidden', 'Cannot edit this post note.', ['status' => 403]);
         }
         $note = $context['input'][KEY];
+        // Use the post field's sanitizer even though the write target is a revision.
+        $note = is_string($note) ? sanitize_meta(KEY, $note, 'post', 'post') : null;
         if (!is_string($note)) {
             return new WP_Error('example_note_invalid', 'The post note must be text.', ['status' => 400]);
         }
-        $this->submitted = sanitize_text_field($note); // The empty string explicitly clears the note.
+        $this->submitted = $note;
         return $form;
+    }
+
+    public function verify(?WP_Error $error, array $context): ?WP_Error
+    {
+        $postId = $context['post']['id'];
+        $sourceId = $context['source']['id'] ?? null;
+        if ($error || !$sourceId || get_post_type($postId) !== 'post') {
+            return $error;
+        }
+        if ($this->submitted === null) {
+            // Compare stored rows: a key-specific parent read may still be bound to a live preview.
+            $matches = (get_post_meta($sourceId)[KEY] ?? []) === (get_post_meta($postId)[KEY] ?? []);
+        } else {
+            $matches = get_post_meta($sourceId, KEY, false) === [$this->submitted];
+        }
+        return $matches ? null
+            : new WP_Error('example_note_not_saved', 'Could not prepare the post note.', ['status' => 409]);
     }
 
     public function read(mixed $value, int $id, string $key, bool $single): mixed

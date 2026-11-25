@@ -15,7 +15,8 @@ editors do not import, construct or inspect optional plugin integrations.
 
 The [Post Note example](examples/post-note/post-note.php) registers one public, plain-text post meta field.
 WordPress's built-in `core/post-meta` block binding supplies the editor control, the native Save and the
-frontend output. The [editor adapter](examples/post-note/preview.js) contributes just the unsaved note.
+frontend output. Gutenberg includes unchanged fields when any post meta is edited, so the
+[editor adapter](examples/post-note/preview.js) compares just the note with its saved value.
 
 1. On a test site with the panel active, copy [`docs/examples/post-note/`](examples/post-note/)
    into `wp-content/plugins/post-note/` and activate **Post Note – Live Preview Example**. The example
@@ -36,11 +37,12 @@ frontend output. The [editor adapter](examples/post-note/preview.js) contributes
    keeps its old note until you use WordPress's normal Save. A template using
    `echo esc_html(get_post_meta(get_the_ID(), 'example_post_note', true));` gets the same scoped read.
 
-On a preview write, the PHP adapter checks the post, field permission and input type, then applies the
-field's normal text sanitization. It uses `update_metadata('post', $sourceId, ...)` on the owned revision:
-**do not use `update_post_meta()` here**, as it redirects revisions to their parent. Omission keeps the
-saved baseline; an empty string clears the preview value. Only an authorized live source binds the read,
-only for this post and key. The example does not add term or historical field support.
+For a submitted note, the PHP adapter checks the post, field permission and input type, then applies the
+post field's registered sanitizer. It uses `update_metadata('post', $sourceId, ...)` on the owned revision:
+**do not use `update_post_meta()` here**, as it redirects revisions to their parent. Before returning a
+preview URL, the adapter verifies the edited value (an empty string when cleared). If the note was
+omitted, it checks that the saved note was copied, distinguishing a missing row from an empty one.
+Only the authorized live preview changes reads for this post and key; term and historical previews are unchanged.
 
 ### PHP hook context
 
@@ -374,10 +376,13 @@ Hook lifetime is part of each compatibility owner's contract:
 - ACF's save monitor and side-effect guards exist only for an initialized owned
   write. Cleanup runs after success, rejection or exceptions, including exceptions in
   payload preparation or verification.
-- Frontend read overlays remain active through rendering, not just while the source
-  action is dispatched. Each adapter removes its own filters in `unbindPreview()`,
-  before rebinding and at late request shutdown. Cleanup is idempotent; ACF also clears
-  preview value caches and removes old saved-history write guards before live rebinding.
+- Keep frontend read filters active through rendering. If another source is selected in the same
+  request, replace or release the old binding. The Post Note example reuses the same filter for a new
+  live post and removes it for a saved source or an unsupported post type. It needs no `shutdown`
+  callback: WordPress filters and the selected IDs are local to that PHP request.
+- Built-in adapters with more state have explicit teardown. For example, ACF's `unbindPreview()`
+  also clears value caches, restores wrapped callbacks and removes write guards before rebinding
+  and at late shutdown.
 - Availability checks happen inside the adapter at use time, not once in the bootstrap:
   other plugins and a theme's Timber autoloader may load later. Missing dependencies or
   required read APIs install no third-party read/write filters. Unbound callbacks are

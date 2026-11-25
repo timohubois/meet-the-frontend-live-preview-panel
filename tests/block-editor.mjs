@@ -29,7 +29,7 @@ function fixture({ ready = true, loaded = true, available = true, route = '/wp/v
     const selectors = {
         getCurrentPostId: () => state.id,
         getCurrentPostType: () => state.type,
-        getCurrentPost: () => state.loaded ? { id: state.id, content: state.savedContent } : undefined,
+        getCurrentPost: () => state.loaded ? { id: state.id, content: state.savedContent, meta: state.savedMeta } : undefined,
         getPostEdits: () => ({ content: state.content, meta: state.meta }),
         getEditedPostAttribute: (name) => state[name],
         getEditedPostContent: () => { calls.contentReads++; return state.content ?? state.savedContent; },
@@ -181,7 +181,11 @@ for (const transport of ['JSON', 'peer form', 'ACF form']) {
             vm.runInNewContext(noteExample, { wp: { hooks: wpHooks } });
         } });
         const before = h.calls.changes;
-        h.state.meta = { example_post_note: `Editor's C:\\draft 🧪`, unrelated: 'Do not send' };
+        h.state.savedMeta = { example_post_note: 'Saved note', unrelated: 'Original' };
+        h.state.meta = { ...h.state.savedMeta, unrelated: 'Do not send' };
+        await h.emit();
+        assert.equal(h.calls.changes, before, 'editing unrelated meta must not contribute the saved note');
+        h.state.meta.example_post_note = `Editor's C:\\draft 🧪`;
         await h.emit();
         assert.equal(h.calls.changes, before + 1);
         assert.equal(h.calls.contentReads, 0, 'observing edited meta must not serialize core content');
@@ -203,9 +207,11 @@ for (const transport of ['JSON', 'peer form', 'ACF form']) {
         h.state.meta.example_post_note = '';
         await h.emit();
         assert.equal((await capture()).get('example_post_note'), '');
-        delete h.state.meta.example_post_note;
+        h.state.meta.example_post_note = h.state.savedMeta.example_post_note;
         await h.emit();
-        assert.equal(h.calls.changes, before + 3, 'removing a contributed key must also refresh');
+        assert.equal(h.calls.changes, before + 3, 'reverting the note must remove the contribution and refresh');
+        assert.equal((await capture()).has('example_post_note'), false);
+        delete h.state.meta.example_post_note;
         assert.equal((await capture()).has('example_post_note'), false);
         h.state.meta.example_post_note = null;
         const requests = h.calls.requests.length;

@@ -27,6 +27,7 @@ $originalUser = get_current_user_id();
 $originalGet = $_GET;
 $user = 0;
 $posts = [];
+$sanitizeHook = 'sanitize_post_meta_' . KEY . '_for_post';
 try {
     $user = wp_insert_user([
         'user_login' => 'mtflpp_note_' . wp_generate_password(12, false, false),
@@ -62,6 +63,7 @@ try {
     add_filter($authHook, '__return_false');
     try {
         $check($prepare([KEY => 'Denied'])->get_status() === 403, 'Post editing alone must not grant field access.');
+        $check($prepare([])->get_status() === 200, 'An unchanged note needs no field edit permission.');
     } finally {
         remove_filter($authHook, '__return_false');
     }
@@ -76,10 +78,12 @@ try {
     } finally {
         remove_filter('update_post_metadata', $blockWrite, 10);
     }
+    add_filter($sanitizeHook, 'strtoupper', 20);
     $sourceId = null;
+    $edit = "<b>Editor's</b> C:\\draft";
     $cases = [
-        [[KEY => 'New'], 'New'], [[KEY => ''], ''], [[], 'Saved note'],
-        [[KEY => "<b>Editor's</b> C:\\draft"], "Editor's C:\\draft"],
+        [[KEY => 'New'], 'NEW'], [[KEY => ''], ''], [[], 'Saved note'],
+        [[KEY => $edit], "EDITOR'S C:\\DRAFT"],
     ];
     foreach ($cases as [$input, $expected]) {
         $response = $prepare($input);
@@ -93,21 +97,41 @@ try {
         $live->snapshotFingerprint($postId) === $parent && $live->snapshotFingerprint($recoveryId) === $recovery,
         'Editing, clearing and omitting the note must leave the parent and recovery autosave unchanged.'
     );
-    $_GET = $query;
-    $frontend->authorizePreview();
+    $show = static function (string $url) use ($frontend): void {
+        parse_str(wp_parse_url($url, PHP_URL_QUERY), $query);
+        $_GET = $query;
+        $frontend->authorizePreview();
+    };
+    $show($response->get_data()['url']);
     $block = parse_blocks('<!-- wp:paragraph {"metadata":{"bindings":{"content":{"source":"core/post-meta",'
         . '"args":{"key":"example_post_note"}}}}} --><p></p><!-- /wp:paragraph -->')[0];
     $render = static fn (int $id) => wp_strip_all_tags((new WP_Block($block, ['postId' => $id, 'postType' => 'post']))
         ->render());
     $check($render($postId) === $expected && $render($otherId) === 'Unrelated note', 'Scope the bound Paragraph.');
-    parse_str(wp_parse_url($frontend->savedPreviewUrl(get_post($postId), $postId), PHP_URL_QUERY), $savedQuery);
-    $_GET = $savedQuery;
-    $frontend->authorizePreview();
-    $check($render($postId) === 'Saved note', 'A current-saved preview must release the live read.');
-    $response = $send('/wp/v2/posts/' . $postId, ['meta' => [KEY => 'Explicit save']]);
-    $check($response->get_status() === 200 && $render($postId) === 'Explicit save', 'Native Save owns persistence.');
+    // The parent-key read is still bound to the live revision; it cannot stand in for the saved baseline.
+    add_filter('add_post_metadata', $blockWrite, 10, 3);
+    try {
+        $failed = $prepare([]);
+        $check(
+            $failed->get_status() === 409 && $failed->get_data()['code'] === 'example_note_not_saved',
+            'Omitting the note must not authorize a reused revision when copying the saved note failed.'
+        );
+    } finally {
+        remove_filter('add_post_metadata', $blockWrite, 10);
+    }
+    $other = $send('/meet-the-frontend-live-preview-panel/v1/posts/' . $otherId . '/preview', [
+        'base' => $live->fingerprint($otherId), KEY => 'Other draft',
+    ]);
+    $check($other->get_status() === 200, 'Expected a live preview for the second post.');
+    $show($other->get_data()['url']);
+    $check($render($postId) === 'Saved note' && $render($otherId) === 'OTHER DRAFT', 'Replace the previous live read.');
+    $show($frontend->savedPreviewUrl(get_post($otherId), $otherId));
+    $check($render($otherId) === 'Unrelated note', 'A current-saved preview must release the live read.');
+    $response = $send('/wp/v2/posts/' . $postId, ['meta' => [KEY => $edit]]);
+    $check($response->get_status() === 200 && $render($postId) === $expected, 'Native Save must match the preview.');
     WP_CLI::success('Post note example: live edits, clearing, omission, scoped rendering and native Save passed.');
 } finally {
+    remove_filter($sanitizeHook, 'strtoupper', 20);
     $_GET = $originalGet;
     foreach ($posts as $id) {
         wp_delete_post($id, true);
