@@ -1,10 +1,7 @@
-import { readFile } from 'node:fs/promises';
-import { runChromiumTests, testInChromium } from './helpers/chromium.mjs';
+import { browserBundle, runChromiumTests, testInChromium } from './helpers/chromium.mjs';
 
-async function browserTests(source) {
-    const { createPreviewScroll, createPreviewComparison, visibleTarget } = new Function(
-        `${source.replace('export function', 'function')}\nreturn { createPreviewScroll, createPreviewComparison, visibleTarget };`,
-    )();
+async function browserTests() {
+    const { createPreviewScroll, createPreviewComparison, visibleTarget } = window.previewScroll;
     const results = [];
     // Model the PHP configuration; editor-extensions.php separately verifies the complete shipped policy.
     const defaults = ['script', 'style', 'noscript', 'template', 'link', 'meta', 'nav',
@@ -1204,6 +1201,22 @@ async function browserTests(source) {
                 equal(after.defaultView.scrollY === 73, pinned, 'Keep the reader’s offset if CSS kept the row in place.');
             });
         }
+        for (const [scenario, markup, expected] of [
+            ['visible heading inside a hidden wrapper', '<div style="visibility:hidden"><h2 style="visibility:visible">Section A</h2></div>', true],
+            ['heading inherits hidden visibility', '<div style="visibility:hidden"><h2>Section A</h2></div>', false],
+            ['visible text inside a hidden inline wrapper', '<h2>Section <span style="visibility:hidden"><b style="visibility:visible">A</b></span></h2>', true],
+            ['part of the heading is hidden', '<h2>Section <span style="visibility:hidden">A</span></h2>', false],
+            ['visible heading inside a display:none wrapper', '<div style="display:none"><h2 style="visibility:visible">Section A</h2></div>', false],
+        ]) {
+            await check(`${mode}: moved row with ${scenario}`, async (frame, doc) => {
+                const row = `<section id="row-A">${markup}</section>`, peer = section('Section B');
+                const before = await doc(row + peer, options), after = await doc(peer + row, options);
+                frame.capture(before, rowOrder(['A', 'B']));
+                frame.capture(after, rowOrder(['B', 'A'], 'A'));
+                equal(frame.comparison.findChange(before, after), expected ? after.querySelector('#row-A') : null,
+                    'Only visible text or text in a native disclosure can identify the row.');
+            });
+        }
         await check(`${mode}: moving a named row inside native disclosures can still reveal it`, async (frame, doc) => {
             const a = section('Section A'), b = section('Section B');
             const markup = (rows) => `<details><summary>Reports</summary><div hidden="until-found">${rows}</div></details>`;
@@ -2331,8 +2344,8 @@ async function browserTests(source) {
 }
 
 testInChromium('preview scrolling matches changed sections conservatively', async (t) => {
-    const comparison = await readFile(new URL('../src/preview/comparison.js', import.meta.url), 'utf8');
-    const scrolling = await readFile(new URL('../src/preview/scroll.js', import.meta.url), 'utf8');
-    const source = `${comparison.replace('export function', 'function')}\n${scrolling.replace(/^import .*;\n/, '')}`;
-    await runChromiumTests(t, { script: `(${browserTests.toString()})(${JSON.stringify(source)})`, count: 563, virtualTimeBudget: 30000 });
+    const bundle = await browserBundle(t, new URL('./browser/preview-scroll.js', import.meta.url), 'previewScroll');
+    await runChromiumTests(t, {
+        head: `<script src="${bundle}"></script>`, script: `(${browserTests.toString()})()`, count: 573, virtualTimeBudget: 30000,
+    });
 });

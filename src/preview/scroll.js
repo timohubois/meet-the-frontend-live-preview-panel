@@ -160,7 +160,7 @@ function revealAncestors(element, canFollow) {
 }
 
 // Resolve only the identified element's presentation, never choose between unrelated changes.
-function visibleTarget(element) {
+export function visibleTarget(element) {
     if (!element?.isConnected) return null;
     const initial = targetBounds(element, true);
     if (initial?.clipped) return element;

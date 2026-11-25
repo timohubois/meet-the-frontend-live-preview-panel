@@ -4,11 +4,28 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // Keep the Chromium tests selectable even when they share a file with unit tests.
 export function testInChromium(name, ...args) {
     return test(`Chromium: ${name}`, ...args);
+}
+
+// Bundle the fixture's ES module entry just as a browser build would, without rewriting production imports.
+export async function browserBundle(t, entry, name) {
+    const { default: webpack } = await import('webpack');
+    const directory = await mkdtemp(join(tmpdir(), 'mtflpp-browser-bundle-'));
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    await new Promise((resolve, reject) => webpack({
+        mode: 'production', devtool: false, entry: fileURLToPath(entry),
+        output: { path: directory, filename: 'bundle.js', library: { name, type: 'window' } },
+        optimization: { minimize: false }, performance: false,
+    }, (error, stats) => {
+        if (error) return reject(error);
+        if (stats.hasErrors()) return reject(new Error(stats.toString({ all: false, errors: true })));
+        resolve();
+    }));
+    return pathToFileURL(join(directory, 'bundle.js')).href;
 }
 
 // Share local pages and isolated profiles, not the suites' different input drivers.
