@@ -246,6 +246,9 @@ final class FrontendPreview
             // Native routing owns other destinations, including archives, redirects and error pages.
             return;
         }
+        // This panel document must not claim the window name WordPress uses for its native Preview tab.
+        remove_action('wp_head', 'wp_post_preview_js', 1);
+
         // Editors have already authorized this preview. Leave other posts and later site policies alone.
         $postId = $this->previewPostId;
         add_filter('post_password_required', static function (bool $required, ?WP_Post $post) use ($postId): bool {

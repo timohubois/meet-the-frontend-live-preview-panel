@@ -203,12 +203,28 @@ try {
         remove_filter('wp_template_enhancement_output_buffer', [$preview, 'captureSource'], PHP_INT_MAX);
     }
 
+    $check(has_action('wp_head', 'wp_post_preview_js') === 1, 'WordPress registers its native preview tab naming.');
+    $makePreview(false)->authorizePreview();
+    $check(has_action('wp_head', 'wp_post_preview_js') === 1, 'Leave the naming script on ordinary WordPress previews.');
+
     foreach ([false, true] as $requested) {
         foreach ([false, true] as $target) {
+            // Earlier buffer runs can register their own core enhancement callbacks.
+            foreach (['wp_head', 'wp_template_enhancement_output_buffer'] as $hook) {
+                if ($originalHooks[$hook] === null) {
+                    unset($GLOBALS['wp_filter'][$hook]);
+                } else {
+                    $GLOBALS['wp_filter'][$hook] = clone $originalHooks[$hook];
+                }
+            }
             PreviewSourceFixture::$target = $target;
             $preview = $makePreview($requested);
             $level = ob_get_level();
             $preview->checkPreviewTarget();
+            $check(
+                has_action('wp_head', 'wp_post_preview_js') === ($target ? false : 1),
+                'Only matched panel previews skip native tab naming, with or without source capture.'
+            );
             $expected = $requested && $target;
             $check(
                 (($GLOBALS['wp_filter']['wp_template_enhancement_output_buffer'] ?? null)
@@ -227,12 +243,6 @@ try {
                     is_string($readSource(apply_filters('wp_template_enhancement_output_buffer', $html, $html))),
                     'The native filter must accept its real one-argument callback registration.'
                 );
-            }
-            if ($originalHooks['wp_template_enhancement_output_buffer'] === null) {
-                unset($GLOBALS['wp_filter']['wp_template_enhancement_output_buffer']);
-            } else {
-                $GLOBALS['wp_filter']['wp_template_enhancement_output_buffer'] =
-                    clone $originalHooks['wp_template_enhancement_output_buffer'];
             }
         }
     }
