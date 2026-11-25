@@ -80,6 +80,7 @@ $preview = (new ReflectionClass(FrontendPreview::class))->newInstanceWithoutCons
     dirname(__DIR__) . '/meet-the-frontend-live-preview-panel.php'
 );
 (new ReflectionProperty(FrontendPreview::class, 'previewPostId'))->setValue($preview, 123);
+(new ReflectionProperty(FrontendPreview::class, 'previewSiteId'))->setValue($preview, get_current_blog_id());
 $isolation = new ReflectionProperty(FrontendPreview::class, 'isolated');
 $policy = 'Document-Isolation-Policy: isolate-and-credentialless';
 $cases = [

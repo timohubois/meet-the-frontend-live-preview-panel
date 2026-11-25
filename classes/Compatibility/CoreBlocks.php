@@ -30,6 +30,7 @@ final class CoreBlocks
     private ?WP_Block_Type $excerptBlock = null;
     private ?WP_Block_Type $dateBlock = null;
     private array $authorBlocks = [];
+    private int $postSiteId = 0;
     private ?WP_Post $post = null;
     private ?WP_Post $displayPost = null;
 
@@ -151,6 +152,7 @@ final class CoreBlocks
         }
         // Keep the parent clone's filter state raw; get_post() would reload it after display normalization.
         $source = sanitize_post(clone $source);
+        $this->postSiteId = get_current_blog_id();
         $this->post = clone $post;
         foreach (['post_title', 'post_content', 'post_excerpt'] as $field) {
             $this->post->$field = $source->$field;
@@ -196,12 +198,15 @@ final class CoreBlocks
         add_action('shutdown', [$this, 'unbindPreview'], PHP_INT_MAX);
     }
 
+    private function isPreviewPostBlock(WP_Block $block): bool
+    {
+        return $this->post && ($block->context['postId'] ?? null) === $this->post->ID
+            && get_current_blog_id() === $this->postSiteId;
+    }
+
     public function readDateBinding($value, string $name, array $args, WP_Block $block)
     {
-        if (
-            $value === null || $name !== 'core/post-data' || !$this->post
-            || ($block->context['postId'] ?? null) !== $this->post->ID
-        ) {
+        if ($value === null || $name !== 'core/post-data' || !$this->isPreviewPostBlock($block)) {
             return $value;
         }
         $field = $args['field'] ?? $args['key'] ?? '';
@@ -217,7 +222,7 @@ final class CoreBlocks
 
     public function renderDate(array $attributes, string $content, WP_Block $block): string
     {
-        if (!$this->displayPost || ($block->context['postId'] ?? null) !== $this->displayPost->ID) {
+        if (!$this->isPreviewPostBlock($block)) {
             return render_block_core_post_date($attributes, $content, $block);
         }
         $block = clone $block;
@@ -243,7 +248,7 @@ final class CoreBlocks
 
     public function renderExcerpt(array $attributes, string $content, WP_Block $block): string
     {
-        if ($this->post && ($block->context['postId'] ?? null) === $this->post->ID) {
+        if ($this->isPreviewPostBlock($block)) {
             // Only core's private call copy sees an object: get_the_excerpt() and
             // get_the_permalink() accept WP_Post and retain its original parent identity.
             // The real block's integer context, globals and cached post objects stay untouched.
@@ -255,7 +260,7 @@ final class CoreBlocks
 
     public function renderAuthor(array $attributes, string $content, WP_Block $block): string
     {
-        if ($this->post && ($block->context['postId'] ?? null) === $this->post->ID) {
+        if ($this->isPreviewPostBlock($block)) {
             // These native callbacks use object-aware get_post_field(). Explicit avatar
             // users, comment authors and author-archive contexts remain core-owned.
             $block = clone $block;
@@ -283,6 +288,7 @@ final class CoreBlocks
         $this->authorBlocks = [];
         $this->excerptBlock = null;
         $this->dateBlock = null;
+        $this->postSiteId = 0;
         $this->post = null;
         $this->displayPost = null;
     }

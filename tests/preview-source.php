@@ -60,6 +60,7 @@ $makePreview = static function (bool $requested) use ($file): FrontendPreview {
     $properties = [
         'file' => $file,
         'previewPostId' => 123,
+        'previewSiteId' => get_current_blog_id(),
         'previewToken' => 'source-token',
         'sourceRequested' => $requested,
         'source' => new WP_Post((object) ['ID' => 123]),
@@ -205,7 +206,10 @@ try {
 
     $check(has_action('wp_head', 'wp_post_preview_js') === 1, 'WordPress registers its native preview tab naming.');
     $makePreview(false)->authorizePreview();
-    $check(has_action('wp_head', 'wp_post_preview_js') === 1, 'Keep tab naming on ordinary WordPress previews.');
+    $check(
+        has_action('wp_head', 'wp_post_preview_js') === 1,
+        'Leave the naming script on ordinary WordPress previews.'
+    );
 
     foreach ([false, true] as $requested) {
         foreach ([false, true] as $target) {

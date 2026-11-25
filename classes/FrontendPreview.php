@@ -9,11 +9,13 @@ final class FrontendPreview
 {
     private ?WP_Post $source = null;
     private int $previewPostId = 0;
+    private int $previewSiteId = 0;
     private string $previewToken = '';
     private bool $isolated = false;
     private bool $saved = false;
     private bool $sourceRequested = false;
     private bool $postsPage = false;
+    private ?string $savedPostsPageTitle = null;
 
     public function __construct(
         private readonly string $file,
@@ -110,7 +112,11 @@ final class FrontendPreview
             );
         }
 
+        // Document-only exceptions must not follow a new source before its frontend route is matched.
+        remove_filter('post_password_required', [$this, 'requirePostPassword'], 0);
+        remove_filter('the_title', [$this, 'readPostsPageTitle'], PHP_INT_MIN);
         $this->previewPostId = $postId;
+        $this->previewSiteId = get_current_blog_id();
         $this->previewToken = $token;
         $this->isolated = isset($_GET['mtflpp_isolated']) && $_GET['mtflpp_isolated'] === '1';
         $this->source = sanitize_post($source);
@@ -147,15 +153,19 @@ final class FrontendPreview
             ]);
     }
 
+    private function isPreviewPost(mixed $postId): bool
+    {
+        return $postId === $this->previewPostId && get_current_blog_id() === $this->previewSiteId;
+    }
+
     /** History uses revision-enabled keys; live reads overlay only the supported featured-image input. */
     public function readRevisionMeta($value, int $postId, string $key, bool $single)
     {
-        $keys = $this->saved ? wp_post_revision_meta_keys(get_post_type($this->previewPostId)) : ['_thumbnail_id'];
-        if (
-            $value !== null || $postId !== $this->previewPostId || !$this->source
-            || $this->source->ID === $postId
-            || !in_array($key, $keys, true)
-        ) {
+        if ($value !== null || !$this->source || $postId === $this->source->ID || !$this->isPreviewPost($postId)) {
+            return $value;
+        }
+        $keys = $this->saved ? wp_post_revision_meta_keys(get_post_type($postId)) : ['_thumbnail_id'];
+        if (!in_array($key, $keys, true)) {
             return $value;
         }
         // Core unwraps the first item for single reads. Keep array-valued meta intact and
@@ -167,7 +177,7 @@ final class FrontendPreview
     /** Overlay lists after native relationship caching; never cache unsaved assignments on the parent. */
     public function readTerms($terms, int $postId, string $taxonomy)
     {
-        if ($this->saved || !$this->source || $postId !== $this->previewPostId || is_wp_error($terms)) {
+        if ($this->saved || !$this->source || !$this->isPreviewPost($postId) || is_wp_error($terms)) {
             return $terms;
         }
         $selection = get_post_meta($this->source->ID, LivePreview::TERMS_META, true);
@@ -193,7 +203,7 @@ final class FrontendPreview
 
     public function readPost(WP_Post $post): WP_Post
     {
-        if ($post->ID === $this->previewPostId && $this->source) {
+        if ($this->source && $this->isPreviewPost($post->ID)) {
             foreach (['post_title', 'post_content', 'post_excerpt'] as $field) {
                 $post->$field = $this->source->$field;
             }
@@ -216,7 +226,7 @@ final class FrontendPreview
             return false;
         }
         $page = get_queried_object();
-        if (!$page instanceof WP_Post || $page->ID !== $this->previewPostId) {
+        if (!$page instanceof WP_Post || !$this->isPreviewPost($page->ID)) {
             return false;
         }
 
@@ -225,12 +235,22 @@ final class FrontendPreview
         $wp_query->queried_object = $preview;
         if ($page->post_title !== $preview->post_title) {
             // Support get_the_title($id) without replacing titles already formatted by core or other code.
-            add_filter('the_title', static function ($title, $id) use ($page, $preview) {
-                return $id === $page->ID && $title === $page->post_title ? $preview->post_title : $title;
-            }, PHP_INT_MIN, 2);
+            $this->savedPostsPageTitle = $page->post_title;
+            add_filter('the_title', [$this, 'readPostsPageTitle'], PHP_INT_MIN, 2);
         }
         $this->bindSource();
         return true;
+    }
+
+    public function readPostsPageTitle($title, $id = 0)
+    {
+        return $title === $this->savedPostsPageTitle && $this->isPreviewPost($id)
+            ? $this->source->post_title : $title;
+    }
+
+    public function requirePostPassword(bool $required, ?WP_Post $post): bool
+    {
+        return !empty($post->post_password) && $this->isPreviewPost($post->ID) ? false : $required;
     }
 
     public function checkPreviewTarget(): void
@@ -239,7 +259,7 @@ final class FrontendPreview
             if (!$this->bindPostsPage()) {
                 return;
             }
-        } elseif (is_preview() && is_singular() && get_queried_object_id() === $this->previewPostId) {
+        } elseif (is_preview() && is_singular() && $this->isPreviewPost(get_queried_object_id())) {
             // Core drops preview=true without native autosave parameters, losing the singular overlay.
             remove_action('template_redirect', 'redirect_canonical');
         } else {
@@ -250,13 +270,7 @@ final class FrontendPreview
         remove_action('wp_head', 'wp_post_preview_js', 1);
 
         // Editors have already authorized this preview. Leave other posts and later site policies alone.
-        $postId = $this->previewPostId;
-        add_filter('post_password_required', static function (bool $required, ?WP_Post $post) use ($postId): bool {
-            if ($post?->ID === $postId && !empty($post->post_password)) {
-                return false;
-            }
-            return $required;
-        }, 0, 2);
+        add_filter('post_password_required', [$this, 'requirePostPassword'], 0, 2);
 
         (new PreviewDocument($this->file, $this->previewToken))->enhance($this->isolated, $this->sourceRequested);
     }

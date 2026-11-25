@@ -119,7 +119,8 @@ wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/public-redirect
 ```
 
 CI also runs the Post Note fixture on the opted-in `mtflpp_test_` multisite installation. It creates
-and removes a subsite to check that matching post IDs do not share preview reads across sites.
+and removes a subsite with a matching post ID. It checks the custom note, native post fields,
+featured image, Post Excerpt block and password handling across the site switch.
 
 The Posts page fixture checks live and saved revision sources on plain and pretty
 permalinks, including the native posts loop, queried page, title helpers, and
