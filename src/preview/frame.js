@@ -25,7 +25,7 @@ export function createPreviewFrame(view, scrolling, strings, report, excludedSel
         cancelLoad?.();
     }
 
-    function load(nextAddress, isCurrent, followChanges = () => false, comparisonValues) {
+    function load(nextAddress, isCurrent, followChanges = () => false, comparisonValues, beforeReveal) {
         const url = new URL(nextAddress);
         if (url.protocol !== 'https:' && url.protocol !== 'http:') {
             throw Object.assign(new Error(strings.failed), { code: 'mtflpp_preview_unsupported_url' });
@@ -74,6 +74,8 @@ export function createPreviewFrame(view, scrolling, strings, report, excludedSel
             }
             frame.onload = async () => {
                 const replacing = frame !== activeFrame;
+                const pendingEdit = replacing && beforeReveal?.();
+                if (pendingEdit) await pendingEdit;
                 if (!replacing) {
                     activeDocument = null;
                     followedTarget = null;

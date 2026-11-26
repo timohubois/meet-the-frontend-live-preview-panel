@@ -33,11 +33,11 @@ function setupBlockEditorAcf({ config, changed, hooks, onDestroy }) {
     });
 }
 
-function setupClassicEditorAcf({ config, form, changed, watchEditor, cancelNativeSave, hooks, onDestroy }) {
+function setupClassicEditorAcf({ config, form, changed, acfFieldChanged, watchEditor, cancelNativeSave, hooks, onDestroy }) {
     if (!checkAcf(config)) return;
-    const fields = initAcf(form, changed, watchEditor, cancelNativeSave);
+    const fields = initAcf(form, changed, watchEditor, cancelNativeSave, acfFieldChanged);
     onDestroy(() => fields.destroy());
-    const onInput = (event) => { if (fields.isField(event.target)) changed(); };
+    const onInput = (event) => { if (fields.isField(event.target)) changed(event); };
     form.addEventListener('input', onInput);
     form.addEventListener('change', onInput, true);
     onDestroy(() => {
