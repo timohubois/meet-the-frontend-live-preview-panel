@@ -3,7 +3,7 @@ Contributors: timohubois
 Tags: preview, live preview, block editor
 Requires at least: 6.9
 Tested up to: 7.1
-Stable tag: 1.3.2
+Stable tag: 1.3.3
 Requires PHP: 8.3
 License: GPLv3 or later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
@@ -112,6 +112,9 @@ Report issues or contribute on [GitHub](https://github.com/timohubois/meet-the-f
 8. Keep the preview in a separate Picture-in-Picture window where supported.
 
 == Changelog ==
+
+= 1.3.3 =
+* Fix a Classic Editor crash when a theme replaces the current post with a wrapper such as a Timber post.
 
 = 1.3.2 =
 * Follow moved ACF Flexible Content rows more reliably, including on the first drag. Keep the preview in place when it can't verify where the row moved.
