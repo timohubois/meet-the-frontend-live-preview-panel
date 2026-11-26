@@ -217,7 +217,9 @@ try {
             $block = $termBlock('core/term-name', $term);
             if ($block) {
                 $html = $block->render();
-                $check(str_contains($html, $name), 'A contextual Term Name block must show the edit.');
+                // WordPress 7.2 applies its term-name display filters, including wptexturize().
+                $label = html_entity_decode(wp_strip_all_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                $check(str_replace('’', "'", $label) === $name, 'A contextual Term Name block must show the edit.');
                 $check(str_contains($html, esc_url(get_term_link($term))), 'The term name link stays saved.');
                 $check($block->context['termId'] === $term->term_id, 'Keep the real block context intact.');
                 $otherBlock = $termBlock('core/term-name', $other);
