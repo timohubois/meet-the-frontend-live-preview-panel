@@ -1,5 +1,6 @@
 import { containsEntry, contentSnapshot, entryText, normalizedText, sourceDocument } from './snapshot.js';
 import { createRowMoveVerifier, inputRowMove } from './row-move.js';
+import { duplicateIds, markRowNavigationEchoes } from './row-navigation.js';
 
 // Comparison state belongs to one preview owner. Visibility is supporting evidence, not scroll presentation.
 export function createPreviewComparison(excludedSelectors = []) {
@@ -11,8 +12,11 @@ export function createPreviewComparison(excludedSelectors = []) {
             try {
                 if (snapshots.has(doc)) return;
                 const source = sourceDocument(doc);
+                const sourceSnapshot = source ? contentSnapshot(source, doc, selectors) : null;
+                // Fragment targets must be unique across the document, not just the content root.
+                if (sourceSnapshot && !source.querySelector('base[href]')) sourceSnapshot.duplicateIds = duplicateIds(source);
                 snapshots.set(doc, {
-                    source: source ? contentSnapshot(source, doc, selectors) : null,
+                    source: sourceSnapshot,
                     dom: contentSnapshot(doc, doc, selectors),
                     values: values && structuredClone(values),
                 });
@@ -31,7 +35,7 @@ export function createPreviewComparison(excludedSelectors = []) {
                     captured && !edited && !inputOrderChanged(before.values, after.values));
                 const sourceChanges = captured ? changedCandidates(before.source, after.source, move, true) : [];
                 if (move?.boundaryGroups?.length) {
-                    const meaningful = sourceChanges.filter((item) => item.priority > 0);
+                    const meaningful = sourceChanges.filter((item) => !item.referenceOnly);
                     if (meaningful.length === 1 && meaningful[0].boundary) {
                         return renderedBoundary(meaningful[0].boundary, after.source?.excluded);
                     }
@@ -46,12 +50,12 @@ export function createPreviewComparison(excludedSelectors = []) {
                     ...changedCandidates(before.dom, after.dom, move),
                 ];
                 const rendered = new Map();
-                const ranked = rankCandidates(candidates, hints).filter((item) => (item.priority > 0 || item.input)
+                const evidenced = corroborateCandidates(candidates, hints).filter((item) => (!item.referenceOnly || item.input)
                     && (!item.spacing || renderedSpacingChanged(item, rendered, after.dom?.excluded)));
                 // When source is available, a field change alone cannot confirm live text or styling.
                 // Keep conditional insertions/removals as a fallback when there is no source change.
-                const mayFollowConditionalContent = captured && edited && !ranked.some((item) => item.source);
-                const eligible = ranked.filter((item) => item.source || item.input || (!captured && !transition)
+                const mayFollowConditionalContent = captured && edited && !evidenced.some((item) => item.source);
+                const eligible = evidenced.filter((item) => item.source || item.input || (!captured && !transition)
                     || (mayFollowConditionalContent && (item.kind === 'insert' || item.kind === 'delete')));
                 return selectChange(eligible, {
                     rowMove: !!move, excluded: after.source?.excluded ?? after.dom?.excluded,
@@ -63,13 +67,13 @@ export function createPreviewComparison(excludedSelectors = []) {
     };
 }
 
-function rankCandidates(candidates, hints) {
+function corroborateCandidates(candidates, hints) {
     const text = new Map();
     const textOf = (entry) => entryText(entry, text);
-    const ranked = [];
+    const corroborated = [];
     for (const candidate of candidates) {
         if (candidate.unresolved) {
-            for (const resolved of resolveRegion(candidate, hints, textOf)) ranked.push(resolved);
+            for (const resolved of resolveRegion(candidate, hints, textOf)) corroborated.push(resolved);
         }
         // Input evidence belongs to a matching inserted sibling, not the entire range.
         // Without literal support, keep the range's existing structural target intact.
@@ -80,14 +84,14 @@ function rankCandidates(candidates, hints) {
                 return { ...insertion, input };
             }).filter((item) => item.input);
             if (supported.length) {
-                ranked.push(...supported);
+                corroborated.push(...supported);
                 continue;
             }
         }
         const input = inputSupport(candidate, hints, textOf);
-        ranked.push({ ...candidate, input });
+        corroborated.push({ ...candidate, input });
     }
-    return ranked;
+    return corroborated;
 }
 
 // Unaligned regions remain evidence, not an early veto. Unique input transitions
@@ -109,27 +113,44 @@ function resolveRegion(candidate, hints, textOf) {
             if (wrapping && !oldMatches.some((old) => markupChanged(old, entry, textOf))) continue;
             resolved.push({
                 ...candidate, unresolved: false, before: null, after: entry,
-                kind: 'content', input: hint.before && hint.after ? 2 : 1, priority: 2, matches: [hint],
+                kind: 'content', input: hint.before && hint.after ? 2 : 1, matches: [hint],
             });
         }
     }
     return resolved;
 }
 
+function candidateScore({ input, kind }) {
+    // Evidence tiers, not votes: paired input (4), one-sided input (3), then output alone.
+    // Only uncorroborated output uses the change type as evidence.
+    if (input) return 2 + input;
+    return kind === 'attributes' ? 1 : 2;
+}
+
 function selectChange(eligible, reorder) {
-    if (!eligible.length) return null;
-    // Ordered evidence, not percentages or added votes: paired input > one-sided input
-    // > rendered-only; content/structure > presentation > unconfirmed reference churn.
-    const bestInput = eligible.reduce((best, item) => Math.max(best, item.input), 0);
-    const supported = eligible.filter((item) => item.input === bestInput);
-    const priority = supported.reduce((best, item) => Math.max(best, item.priority), 0);
-    const best = supported.filter((item) => item.priority === priority);
-    if ((reorder.rowMove && !bestInput) || best.some((item) => item.unresolved)) return identifyRegion(best, reorder);
-    // A wrapper can contain the same transition as its edited child without changing
-    // that text itself. Prefer the precise child, but keep independently edited parent text.
-    const precise = best.filter((item) => !item.input || item.directInput || !best.some((other) =>
-        other !== item && item.matches?.length && item.matches.every((hint) => other.matches?.includes(hint))
-        && containsEntry(item.after, other.after)));
+    const best = [];
+    let strongest = 0;
+    for (const item of eligible) {
+        const score = candidateScore(item);
+        if (score < strongest) continue;
+        if (score > strongest) {
+            strongest = score;
+            best.length = 0;
+        }
+        best.push(item);
+    }
+    if (!best.length) return null;
+    const corroborated = !!best[0].input;
+    // A verified row move must account for independent source changes even when they score lower.
+    if (reorder.rowMove && !corroborated) {
+        return identifyRegion(eligible.filter((item) => item.source || candidateScore(item) === strongest), reorder);
+    }
+    if (best.some((item) => item.unresolved)) return identifyRegion(best, reorder);
+    // A wrapper can echo its child's text transition. Keep the precise child and any
+    // independent parent evidence, including attributes on the wrapper itself.
+    const precise = best.filter((item) => !item.input || item.kind === 'attributes' || item.directInput || !best.some((other) =>
+        other !== item && other.kind !== 'attributes' && item.matches?.length
+        && item.matches.every((hint) => other.matches?.includes(hint)) && containsEntry(item.after, other.after)));
     // Source and DOM can nominate the same live element. Deletions use their surviving
     // boundary, not the common parent, so separate deletion ranges remain separate.
     const seen = new Map();
@@ -145,7 +166,7 @@ function selectChange(eligible, reorder) {
         return true;
     });
     // Visibility must not turn equally corroborated, different elements into a winner.
-    if (bestInput && seen.size > 1) return null;
+    if (corroborated && seen.size > 1) return null;
     return identifyElement(unique);
 }
 
@@ -158,7 +179,7 @@ function identifyRegion(changes, { rowMove, excluded, canFollowLiveReorder, canF
         const target = destination?.node;
         if (!target?.isConnected || !move.after.node?.contains(target)) return null;
         const onlyMove = changes.every((change) => change === move
-            || (move.source && !change.source && (change.moved || change.regionChange === 'reorder')));
+            || (move.source && (change.rowNavigationEcho || (!change.source && (change.moved || change.regionChange === 'reorder')))));
         if (!onlyMove || sameRowPosition(origin.node, target)) return null;
         if (target.ownerDocument.defaultView.getComputedStyle(target).display !== 'contents') return target;
         // A moved row needs a position inside that row, not an excluded or relocated child.
@@ -505,11 +526,11 @@ function changedCandidates(previous, next, move, cleanSource = false) {
     }
     function compare(before, after) {
         if (!before || !after) return;
-        if (before.signature !== after.signature) candidates.push({ kind: 'content', before, after, priority: 2 });
-        else if (before.rawText !== after.rawText) candidates.push({ kind: 'content', before, after, priority: 2, spacing: true });
-        if (before.presentation !== after.presentation || before.references !== after.references) {
-            candidates.push({ kind: 'attributes', before, after,
-                priority: before.presentation !== after.presentation ? 1 : 0 });
+        if (before.signature !== after.signature) candidates.push({ kind: 'content', before, after });
+        else if (before.rawText !== after.rawText) candidates.push({ kind: 'content', before, after, spacing: true });
+        const referenceOnly = before.presentation === after.presentation;
+        if (!referenceOnly || before.references !== after.references) {
+            candidates.push({ kind: 'attributes', before, after, referenceOnly });
         }
         align(before.children, after.children, before, after);
     }
@@ -531,7 +552,7 @@ function changedCandidates(previous, next, move, cleanSource = false) {
             return keys.get(old) === keys.get(next) && corresponds(old, next, presentationKeys)
                 && corresponds(old, next, exactKeys);
         }
-        function unresolved(oldStart, oldEnd, newStart, newEnd, reason, moved, boundary) {
+        function unresolved(oldStart, oldEnd, newStart, newEnd, reason, row) {
             const oldRange = before.slice(oldStart, oldEnd), newRange = after.slice(newStart, newEnd);
             const replaced = reason === 'replacement' && local
                 && oldRange.some((entry) => !newPositions.has(keys.get(entry)))
@@ -539,8 +560,9 @@ function changedCandidates(previous, next, move, cleanSource = false) {
                 && (!couldBeSeparateReplacements(oldRange, newRange)
                     || (parent.tag === 'form' && replacesFormFields(oldRange, newRange)));
             const regionChange = local && (reason === 'reorder' || replaced) ? reason : undefined;
-            candidates.push({ kind: 'region', after: parent, priority: 2, unresolved: true,
-                regionChange, oldRange, newRange, moved, boundary });
+            candidates.push({ kind: 'region', after: parent, unresolved: true,
+                regionChange, oldRange, newRange, moved: row?.moved, boundary: row?.boundary,
+                unchangedRows: row?.moved && row.pairs.every(([old, next]) => presentationKey(old) === presentationKey(next)) });
         }
         function repeatedContent(entry) {
             const key = contentKey(entry);
@@ -588,9 +610,9 @@ function changedCandidates(previous, next, move, cleanSource = false) {
                 if (changed.some((entry) => boundary.some((neighbor) => neighbor && keys.get(neighbor) === keys.get(entry)))) {
                     unresolved(oldStart, oldEnd, newStart, newEnd);
                 } else if (deleted) {
-                    candidates.push({ kind: 'delete', after: parent, removed: changed, priority: 2,
+                    candidates.push({ kind: 'delete', after: parent, removed: changed,
                         following: after.slice(newStart), preceding: after.slice(0, newStart).reverse() });
-                } else candidates.push({ kind: 'insert', after: changed[0], added: changed, priority: 2 });
+                } else candidates.push({ kind: 'insert', after: changed[0], added: changed });
                 return;
             }
             if (oldEnd - oldStart === 1 && newEnd - newStart === 1) {
@@ -601,7 +623,7 @@ function changedCandidates(previous, next, move, cleanSource = false) {
             const row = verifyRowMove?.(before.slice(oldStart, oldEnd), after.slice(newStart, newEnd), aligned, repeatedContent);
             if (row || (local && reordered(oldStart, oldEnd, newStart, newEnd))) {
                 if (row?.boundary) for (const [a, b] of row.pairs) compare(a, b);
-                unresolved(oldStart, oldEnd, newStart, newEnd, 'reorder', row?.moved, row?.boundary);
+                unresolved(oldStart, oldEnd, newStart, newEnd, 'reorder', row);
                 return;
             }
             let anchors = findAnchors(oldStart, oldEnd, newStart, newEnd, oldPositions, newPositions, contentKey);
@@ -630,6 +652,7 @@ function changedCandidates(previous, next, move, cleanSource = false) {
         range(0, before.length, 0, after.length);
     }
     compare(previous, next);
+    if (cleanSource) markRowNavigationEchoes(candidates, previous, next);
     return candidates;
 }
 

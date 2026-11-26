@@ -1319,6 +1319,60 @@ async function browserTests() {
                     'Do not use an incidental action label to follow the displaced section in reverse order.');
             });
         }
+        if (captured) for (const [scenario, follows] of [
+            ['numbered links and matching select', true], ['plain links', true], ['upward move', true],
+            ['options with fragment values', true], ['link retargeted', false], ['link retargeted after capture', false],
+            ['external fragment base', false], ['duplicate destination', false], ['duplicate ID outside the content', false],
+            ['duplicate ID removed after capture', false], ['different row order', false], ['unrelated list', false],
+            ['standalone select', false], ['select without a destination witness', false], ['different option destination', false],
+            ['changed link label', false], ['changed option attribute', false], ['independent copy edit', false],
+            ['independent style edit', false], ['attribute edit inside reordered rows', false],
+        ]) {
+            await check(`${mode}: a verified row move with ${scenario}`, async (frame, doc) => {
+                const markup = (order, updated) => {
+                    const linked = scenario === 'unrelated list' ? (updated ? 'YZX' : 'XYZ')
+                        : updated && scenario === 'different row order' ? 'CBA' : order;
+                    const target = (item) => updated && scenario === 'link retargeted' && item === 'B' ? 'elsewhere' : `section-${item}`;
+                    const label = (item) => updated && scenario === 'changed link label' && item === 'B' ? 'New caption' : `Jump to ${item}`;
+                    const data = (item) => ` data-destination="section-${item}"`;
+                    const plain = scenario === 'plain links', listTag = plain ? 'ol' : 'ul';
+                    const list = scenario === 'standalone select' ? '' : `<${listTag}>${[...linked].map((item, index) =>
+                        `<li><a href="#${target(item)}"${data(item)}>${plain ? '' : `<span>${index + 1}</span>`}${label(item)}</a></li>`).join('')}</${listTag}>`;
+                    const select = plain ? '' : `<select aria-label="Go to section">${[...linked].map((item, index) => {
+                        const witness = scenario === 'select without a destination witness' ? ''
+                            : scenario === 'options with fragment values' ? ` value="#section-${item}"`
+                                : data(updated && item === 'B' && scenario === 'different option destination' ? 'C' : item);
+                        const extra = updated && item === 'B' && scenario === 'changed option attribute' ? ' disabled' : '';
+                        return `<option${witness}${extra}>${index + 1} ${label(item)}</option>`;
+                    }).join('')}</select>`;
+                    const rows = [...order].map((item) => {
+                        const style = updated && item === 'B' && scenario === 'attribute edit inside reordered rows' ? ' style="background:red"' : '';
+                        return `<section id="section-${item}"${style}><h2>Section ${item}</h2></section>`;
+                    }).join('');
+                    const duplicate = scenario === 'duplicate destination' ? '<i id="section-A"></i>' : '';
+                    const outside = scenario.startsWith('duplicate ID') ? '</main><footer id="section-A"></footer><main>' : '';
+                    const base = scenario === 'external fragment base' ? '<base href="https://example.test/another-document">' : '';
+                    const independent = `<p${updated && scenario === 'independent style edit' ? ' class="highlight"' : ''}>${updated && scenario === 'independent copy edit' ? 'New aside' : 'Aside'}</p>`;
+                    return `${base}<div>${list}${select}</div><div style="height:900px"></div><div>${rows}</div>${duplicate}${independent}${outside}<div style="height:900px"></div>`;
+                };
+                const up = scenario === 'upward move', first = up ? 'BCA' : 'ABC', last = up ? 'ABC' : 'BCA';
+                const script = scenario === 'link retargeted after capture' ? `document.querySelector('a[href="#section-A"]').href = '#elsewhere';` : '';
+                const cleanup = scenario === 'duplicate ID removed after capture' ? 'document.querySelector("footer").remove();' : '';
+                const previous = await doc(markup(first, false), { ...options, script: cleanup });
+                const next = await doc(markup(last, true), { ...options, script: cleanup + script });
+                if (scenario === 'duplicate ID outside the content') {
+                    // Source and live duplicates both veto; the duplicate need not be in <main>.
+                    equal(next.querySelectorAll('[id="section-A"]').length, 2, 'The full document has a duplicate ID.');
+                }
+                previous.defaultView.scrollTo(0, 95);
+                frame.remember(previous);
+                const target = follow(frame, previous, next, rowOrder([...first]), rowOrder([...last], 'A'));
+                equal(target, follows ? next.getElementById('section-A') : null,
+                    'Only independently verified fragment navigation can be an echo of the move.');
+                await frame.scrolling.restore(next, target);
+                equal(next.defaultView.scrollY === 95, !follows, 'Do not follow a second, independent change.');
+            });
+        }
         await check(`${mode}: a row move must not follow an unrelated list with the same rotation`, async (frame, doc) => {
             const markup = (items) => `<div id="other">${items.map((item) => section(item)).join('')}</div>`;
             const before = await doc(markup(['List X', 'List Y']), options);
@@ -1821,6 +1875,32 @@ async function browserTests() {
         scrolling.capture(before, hints('Hello'));
         equal(scrolling.findTarget(before, after, hints('Welcome')), null, 'Identification remains ambiguous even when only one matching element is visible.');
     });
+    for (const captured of [false, true]) {
+        await check(`equally corroborated text and attributes do not decide between elements, captured=${captured}`, async (frame, doc) => {
+            const markup = (label) => `<section aria-label="${label}"><div hidden><h2>${label}</h2></div></section>`;
+            const before = await doc(markup('Trail guide'), { captured });
+            const after = await doc(markup('Route map'), { captured });
+            frame.capture(before, hints('Trail guide'));
+            frame.capture(after, hints('Route map'));
+            equal(frame.comparison.findChange(before, after), null,
+                'The same submitted edit explains both targets; neither change type nor visibility should decide.');
+        });
+        await check(`equally corroborated text and attributes can identify the same element, captured=${captured}`, async (frame, doc) => {
+            const markup = (label) => `<h2 aria-label="${label}">${label}</h2><p>Contact</p>`;
+            const before = await doc(markup('Trail guide'), { captured });
+            const after = await doc(markup('Route map'), { captured });
+            equal(follow(frame, before, after, hints('Trail guide'), hints('Route map')), after.querySelector('h2'),
+                'Several signals pointing to one element are not a tie between targets.');
+        });
+        await check(`a full transition outranks a newly inserted matching label, captured=${captured}`, async (frame, doc) => {
+            const before = await doc('<button aria-label="Trail guide">Open</button><hr>', { captured });
+            const after = await doc('<button aria-label="Route map">Open</button><hr><h2>Route map</h2>', { captured });
+            const old = { field: { type: 'text', value: 'Trail guide' }, extra: { type: 'text', value: '' } };
+            const next = { field: { type: 'text', value: 'Route map' }, extra: { type: 'text', value: 'Route map' } };
+            equal(follow(frame, before, after, old, next), after.querySelector('button'),
+                'The button shows both the old and new value, while the inserted heading only matches the new value.');
+        });
+    }
     await check('nonliteral input intent can support transformed DOM-only content', async (scrolling, doc) => {
         const before = await doc('<section></section>', { captured: true });
         const after = await doc('<section></section>', { captured: true, script: "document.querySelector('section').innerHTML = '<p id=\"conditional\">Conditional result</p>';" });
@@ -2377,6 +2457,6 @@ async function browserTests() {
 testInChromium('preview scrolling matches changed sections conservatively', async (t) => {
     const bundle = await browserBundle(t, new URL('./browser/preview-scroll.js', import.meta.url), 'previewScroll');
     await runChromiumTests(t, {
-        head: `<script src="${bundle}"></script>`, script: `(${browserTests.toString()})()`, count: 590, virtualTimeBudget: 30000,
+        head: `<script src="${bundle}"></script>`, script: `(${browserTests.toString()})()`, count: 616, virtualTimeBudget: 30000,
     });
 });
