@@ -16,9 +16,10 @@ final class ClassicEditor
         add_action('admin_footer', [$this, 'renderPanel']);
     }
 
-    public function renderLauncher(WP_Post $post): void
+    public function renderLauncher(mixed $post = null): void
     {
-        if ($this->editorPost()?->ID !== $post->ID) {
+        $postId = self::postId($post);
+        if ($postId === null || $this->editorPost()?->ID !== $postId) {
             return;
         }
         ?>
@@ -30,15 +31,34 @@ final class ClassicEditor
         <?php
     }
 
+    private static function postId(mixed $post): ?int
+    {
+        $id = is_object($post) ? (get_object_vars($post)['ID'] ?? null) : null;
+        if (is_string($id) && (string) (int) $id === $id) {
+            $id = (int) $id;
+        }
+        return is_int($id) && $id > 0 ? $id : null;
+    }
+
     private function editorPost(): ?WP_Post
     {
         $screen = get_current_screen();
-        $post = get_post();
+        if (!$screen || $screen->base !== 'post' || $screen->is_block_editor()) {
+            return null;
+        }
 
+        $current = $GLOBALS['post'] ?? null;
+        $postId = self::postId($current);
+        // Core sets post_ID before rendering meta boxes; a wrapper must match that independent ID.
+        $screenPostId = $GLOBALS['post_ID'] ?? ($current instanceof WP_Post ? $postId : null);
+        if ($postId === null || $postId !== $screenPostId) {
+            return null;
+        }
+
+        $post = get_post($postId);
         if (
-            !$screen || $screen->base !== 'post' || $screen->is_block_editor()
-            || !$post || !is_post_type_viewable($post->post_type)
-            || !current_user_can('edit_post', $post->ID)
+            !$post instanceof WP_Post || !is_post_type_viewable($post->post_type)
+            || !current_user_can('edit_post', $postId)
         ) {
             return null;
         }
