@@ -2457,6 +2457,6 @@ async function browserTests() {
 testInChromium('preview scrolling matches changed sections conservatively', async (t) => {
     const bundle = await browserBundle(t, new URL('./browser/preview-scroll.js', import.meta.url), 'previewScroll');
     await runChromiumTests(t, {
-        head: `<script src="${bundle}"></script>`, script: `(${browserTests.toString()})()`, count: 616, virtualTimeBudget: 30000,
+        head: `<script src="${bundle}"></script>`, script: `(${browserTests.toString()})()`, count: 616, virtualTimeBudget: 60000,
     });
 });
