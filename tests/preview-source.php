@@ -128,14 +128,36 @@ try {
     }
     $check($liveIds === $ids, 'The clean source and live response must carry identical element identities.');
 
-    $longHtml = str_replace(
-        '<section><p>Server-rendered content</p></section>',
-        str_repeat('<section><h2>Section</h2><p>Repeated content</p></section>', 1500),
-        $html
+    $section = '<section><h2>Section</h2><p>Repeated content</p></section>';
+    $longHtml = str_replace('<section><p>Server-rendered content</p></section>', str_repeat($section, 1500), $html);
+    $expectedSections = '';
+    for ($i = 0; $i < 1500; ++$i) {
+        $firstId = 6 + 3 * $i;
+        $expectedSections .= str_replace(
+            ['<section>', '<h2>', '<p>'],
+            [
+                '<section data-mtflpp-node="' . $firstId . '">',
+                '<h2 data-mtflpp-node="' . ($firstId + 1) . '">',
+                '<p data-mtflpp-node="' . ($firstId + 2) . '">',
+            ],
+            $section
+        );
+    }
+    $expectedSource = str_replace(
+        '<section data-mtflpp-node="6"><p data-mtflpp-node="7">Server-rendered content</p></section>',
+        $expectedSections,
+        $source
     );
+    $longOutput = $makeDocument()->captureSource($longHtml);
+    $check($readSource($longOutput) === $expectedSource, 'Long pages must preserve the bookmark and every identity.');
     $check(
-        is_string($readSource($makeDocument()->captureSource($longHtml))),
-        'Long pages must retain the source bookmark.'
+        preg_replace('/ data-mtflpp-source="[^"]*"/', '', $longOutput, 1) === $expectedSource,
+        'The live response must match the source except for the added payload.'
+    );
+    $incompleteHtml = $longHtml . '<script>incomplete';
+    $check(
+        $makeDocument()->captureSource($incompleteHtml) === $incompleteHtml,
+        'An incomplete document must not return partially applied markers.'
     );
 
     $largeHtml = str_replace('<body>', '<body><!--' . str_repeat(' ', 2 * 1024 * 1024) . '-->', $html);

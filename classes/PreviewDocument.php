@@ -5,6 +5,8 @@ namespace MeetTheFrontendLivePreviewPanel;
 /** Enhance the native document only after a preview owner authorizes and matches the request. */
 final class PreviewDocument
 {
+    private const SOURCE_BATCH_SIZE = 64;
+
     public function __construct(
         private readonly string $file,
         private readonly string $previewToken
@@ -100,6 +102,10 @@ final class PreviewDocument
                 if (!in_array($tag, ['BASE', 'HEAD', 'LINK', 'META', 'SCRIPT', 'STYLE', 'TITLE'], true)) {
                     // Response-local identities bridge the clean source to elements moved/wrapped by scripts.
                     $processor->set_attribute('data-mtflpp-node', (string) ++$index);
+                    if ($index % self::SOURCE_BATCH_SIZE === 0) {
+                        // Limit repeated scans of pending edits without copying the HTML for every marker.
+                        $processor->get_updated_html();
+                    }
                 }
             }
             if (!$found || $processor->paused_at_incomplete_token()) {
