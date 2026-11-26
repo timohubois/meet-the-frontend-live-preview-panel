@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { withChromiumPage, testInChromium } from './helpers/chromium.mjs';
+import { withChromiumInput, withChromiumPage, testInChromium } from './helpers/chromium.mjs';
 import { sourceForVm, previewSourceForVm } from './helpers/modules.mjs';
 import { browserEditorExtensionsSource } from './helpers/editor-extensions.mjs';
 
@@ -99,52 +98,10 @@ const jquery = process.env.WORDPRESS_ROOT
 const script = `(${browserFixture.toString()})(${JSON.stringify(editorSource)}, ${JSON.stringify(nativeSource)}, ${JSON.stringify(browserEditorExtensionsSource)});`;
 const html = `<!doctype html><script src="data:text/javascript;base64,${Buffer.from(jquery).toString('base64')}"></script><body><script>${script.replace(/<\/script/gi, '<\\/script')}</script></body>`;
 
-testInChromium('native save cancellation with trusted Chromium input', { timeout: 30000 }, async (t) => withChromiumPage(html, async ({ args, url }) => {
-    const pending = new Map();
-    let chrome, sessionId, nextId = 0, buffer = '', stderr = '';
-    const rejectPending = (error) => {
-        for (const entry of pending.values()) entry.reject(error);
-        pending.clear();
-    };
-    const abort = () => { rejectPending(t.signal.reason); chrome?.kill(); };
-    t.signal.addEventListener('abort', abort, { once: true });
-    try {
-        // dump-dom and element.click() cannot reproduce microtask checkpoints between trusted listeners.
-        // A local DevTools pipe supplies actual input without another browser dependency or server.
-        chrome = spawn(process.env.CHROMIUM_BIN || 'chromium', [...args, '--remote-debugging-pipe'],
-            { stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
-        chrome.stderr.on('data', (data) => { stderr += data; });
-        chrome.on('error', rejectPending);
-        chrome.on('exit', (code) => rejectPending(new Error(`Chromium exited (${code}).\n${stderr}`)));
-        chrome.stdio[3].on('error', rejectPending);
-        chrome.stdio[4].setEncoding('utf8');
-        chrome.stdio[4].on('data', (data) => {
-            buffer += data;
-            let end;
-            while ((end = buffer.indexOf('\0')) !== -1) {
-                const message = JSON.parse(buffer.slice(0, end));
-                buffer = buffer.slice(end + 1);
-                const entry = pending.get(message.id);
-                if (!entry) continue;
-                pending.delete(message.id);
-                if (message.error) entry.reject(new Error(JSON.stringify(message.error)));
-                else entry.resolve(message.result);
-            }
-        });
-        const send = (method, params = {}, targetSession = sessionId) => new Promise((resolve, reject) => {
-            const id = ++nextId;
-            pending.set(id, { resolve, reject });
-            chrome.stdio[3].write(`${JSON.stringify({ id, method, params, sessionId: targetSession })}\0`);
-        });
-        const { targetId } = await send('Target.createTarget', { url });
-        ({ sessionId } = await send('Target.attachToTarget', { targetId, flatten: true }));
-        const evaluate = async (expression) => {
-            const result = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
-            assert.equal(result.exceptionDetails, undefined, JSON.stringify(result.exceptionDetails));
-            return result.result.value;
-        };
+testInChromium('native save cancellation with trusted Chromium input', { timeout: 30000 }, async (t) => withChromiumPage(html, ({ args, url }) =>
+    withChromiumInput(t, url, args, async ({ send, evaluate }) => {
         for (let i = 0; i < 100 && !(await evaluate('typeof window.setupSave === "function"')); i++) await delay(10);
-        assert.equal(await evaluate('typeof window.setupSave'), 'function', stderr);
+        assert.equal(await evaluate('typeof window.setupSave'), 'function');
         const tap = async (selector = '#publish') => {
             const { x, y } = await evaluate(`(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()`);
             await send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
@@ -198,10 +155,5 @@ testInChromium('native save cancellation with trusted Chromium input', { timeout
             await tap('#unrelated');
             assert.equal((await evaluate('saveState()')).saving, false);
         });
-    } finally {
-        t.signal.removeEventListener('abort', abort);
-        if (chrome?.pid && chrome.exitCode === null && chrome.signalCode === null) {
-            await new Promise((resolve) => { chrome.once('exit', resolve); chrome.kill(); });
-        }
-    }
-}));
+    })
+));

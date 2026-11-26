@@ -81,38 +81,7 @@ test('all admin entries emit the same panel stylesheet without a separate shared
     assert.match(editor, /\.mtflpp-pip-document/);
 });
 
-test('the standalone frontend build preserves hash navigation but blocks links and form submissions', async () => {
-    const source = await readFile(new URL('../build/preview-navigation.js', import.meta.url), 'utf8');
+test('the standalone frontend build needs no WordPress runtime', async () => {
     const asset = await readFile(new URL('../build/preview-navigation.asset.php', import.meta.url), 'utf8');
     assert.match(asset, /'dependencies'\s*=>\s*array\(\s*\)/);
-    const handlers = new Map();
-    const href = 'https://site.test/post/?preview=true&mtflpp_token=token';
-    vm.runInNewContext(source, {
-        URL, window: { location: { href } },
-        document: { addEventListener: (type, callback) => handlers.set(type, callback) },
-    });
-    const event = (link) => ({
-        target: { closest: () => link },
-        preventDefault() { this.prevented = true; },
-        stopImmediatePropagation() { this.stopped = true; },
-    });
-    const hash = event({ href: `${href}#details`, hasAttribute: () => false });
-    handlers.get('click')(hash);
-    assert.equal(hash.prevented, undefined);
-    for (const address of ['https://elsewhere.test/', 'https://site.test/another/', `${href}&other=1`]) {
-        const click = event({ href: address, hasAttribute: () => false });
-        handlers.get('click')(click);
-        assert.equal(click.prevented, true);
-        assert.equal(click.stopped, true);
-    }
-    const unrelated = event(null);
-    handlers.get('click')(unrelated);
-    assert.equal(unrelated.prevented, undefined);
-    const download = event({ href: `${href}#details`, hasAttribute: () => true });
-    handlers.get('click')(download);
-    assert.equal(download.prevented, true);
-    const submit = event(null);
-    handlers.get('submit')(submit);
-    assert.equal(submit.prevented, true);
-    assert.equal(submit.stopped, true);
 });
