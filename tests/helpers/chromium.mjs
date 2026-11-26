@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -42,6 +42,58 @@ export async function withChromiumPage(html, run) {
     } finally {
         // Subprocesses can still be releasing profile files after the main process exits.
         await rm(directory, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+}
+
+// Trusted input requires a real browser dispatch, not element.click() or dump-dom.
+export async function withChromiumInput(t, url, args, run) {
+    const pending = new Map();
+    let chrome, sessionId, nextId = 0, buffer = '', stderr = '';
+    const rejectPending = (error) => {
+        for (const entry of pending.values()) entry.reject(error);
+        pending.clear();
+    };
+    const abort = () => { rejectPending(t.signal.reason); chrome?.kill(); };
+    t.signal.addEventListener('abort', abort, { once: true });
+    try {
+        chrome = spawn(process.env.CHROMIUM_BIN || 'chromium', [...args, '--remote-debugging-pipe'],
+            { stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
+        chrome.stderr.on('data', (data) => { stderr += data; });
+        chrome.on('error', rejectPending);
+        chrome.on('exit', (code) => rejectPending(new Error(`Chromium exited (${code}).\n${stderr}`)));
+        chrome.stdio[3].on('error', rejectPending);
+        chrome.stdio[4].setEncoding('utf8');
+        chrome.stdio[4].on('data', (data) => {
+            buffer += data;
+            let end;
+            while ((end = buffer.indexOf('\0')) !== -1) {
+                const message = JSON.parse(buffer.slice(0, end));
+                buffer = buffer.slice(end + 1);
+                const entry = pending.get(message.id);
+                if (!entry) continue;
+                pending.delete(message.id);
+                if (message.error) entry.reject(new Error(JSON.stringify(message.error)));
+                else entry.resolve(message.result);
+            }
+        });
+        const send = (method, params = {}, targetSession = sessionId) => new Promise((resolve, reject) => {
+            const id = ++nextId;
+            pending.set(id, { resolve, reject });
+            chrome.stdio[3].write(`${JSON.stringify({ id, method, params, sessionId: targetSession })}\0`);
+        });
+        const { targetId } = await send('Target.createTarget', { url });
+        ({ sessionId } = await send('Target.attachToTarget', { targetId, flatten: true }));
+        const evaluate = async (expression) => {
+            const result = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
+            assert.equal(result.exceptionDetails, undefined, JSON.stringify(result.exceptionDetails));
+            return result.result.value;
+        };
+        await run({ send, evaluate });
+    } finally {
+        t.signal.removeEventListener('abort', abort);
+        if (chrome?.pid && chrome.exitCode === null && chrome.signalCode === null) {
+            await new Promise((resolve) => { chrome.once('exit', resolve); chrome.kill(); });
+        }
     }
 }
 
