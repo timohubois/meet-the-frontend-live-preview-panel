@@ -98,6 +98,7 @@ blocking live-editor or unrelated writes:
 
 ```sh
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/revisions.php
+wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/classic-editor.php
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/block-editor.php
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/author.php
 wp eval-file /path/to/meet-the-frontend-live-preview-panel/tests/date-terms.php

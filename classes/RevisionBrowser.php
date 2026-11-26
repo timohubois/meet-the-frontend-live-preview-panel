@@ -19,11 +19,12 @@ final class RevisionBrowser
     private function revisionPost(): ?WP_Post
     {
         $screen = get_current_screen();
+        if (!$screen || $screen->base !== 'revision') {
+            return null;
+        }
+
         $post = get_post();
-        if (
-            !$screen || $screen->base !== 'revision' || !$post
-            || !is_post_type_viewable($post->post_type) || !current_user_can('edit_post', $post->ID)
-        ) {
+        if (!$post || !is_post_type_viewable($post->post_type) || !current_user_can('edit_post', $post->ID)) {
             return null;
         }
         return $post;
