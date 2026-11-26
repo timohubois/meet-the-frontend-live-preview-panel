@@ -33,6 +33,8 @@ export function createLivePreview(config, nativeEditor, { inlineLauncher, native
     const frames = createPreviewFrame(view, scrolling, strings, report, config.comparisonExcludedSelectors);
     let followPending = false;
     let refreshTask;
+    let candidate;
+    let pendingCheck;
     let previewError;
     // Native saves drain only the server write, never a refresh waiting for that same native save.
     let writeTask;
@@ -97,7 +99,15 @@ export function createLivePreview(config, nativeEditor, { inlineLauncher, native
         report(text, reason === 'post-locked' ? 'paused' : 'error', { reason, canRetry: !reason });
     }
 
+    function finishCheck() {
+        if (!pendingCheck) return;
+        clearTimeout(pendingCheck.timer);
+        pendingCheck.done();
+        pendingCheck = undefined;
+    }
+
     function cancelScheduledRefresh() {
+        finishCheck();
         clearTimeout(refreshTimer);
         refreshAt = undefined;
     }
@@ -112,14 +122,52 @@ export function createLivePreview(config, nativeEditor, { inlineLauncher, native
         else update();
     }
 
+    function recheck() {
+        if (!previewActive) return;
+        if (candidate?.version !== generation || nativeEditor.saving || nativeEditor.previewing) {
+            changed();
+            return;
+        }
+        // Let the form settle for the same debounce as a normal edit, including related fields
+        // that change asynchronously. The current iframe can keep loading but cannot swap yet.
+        if (!pendingCheck) {
+            let done;
+            const promise = new Promise((resolve) => { done = resolve; });
+            pendingCheck = { promise, done };
+        }
+        clearTimeout(pendingCheck.timer);
+        pendingCheck.timer = setTimeout(checkCandidate, refreshDelay);
+    }
+
+    function relatedChange() {
+        // Only a native commit can start a check. A companion notification can join it,
+        // but standalone integration changes must still invalidate the current frame.
+        if (pendingCheck) recheck();
+        else changed();
+    }
+
+    function checkCandidate() {
+        finishCheck();
+        if (!previewActive || candidate?.version !== generation) return;
+        try {
+            if (candidate.stillMatches()) return;
+        } catch { /* If the form can't be verified, keep the normal refresh path. */ }
+        markChanged(0);
+    }
+
     function changed() {
+        markChanged(refreshDelay);
+    }
+
+    function markChanged(delay) {
         if (!previewActive) return;
         generation += 1;
         followPending = true;
+        finishCheck();
         frames.cancel();
         if (!nativeEditor.saving) report(strings.stale, 'stale');
         if (nativeEditor.saving || nativeEditor.previewing) cancelScheduledRefresh();
-        else scheduleRefresh(refreshDelay);
+        else scheduleRefresh(delay);
     }
 
     function pause(text = strings.saving, state = 'loading') {
@@ -143,9 +191,15 @@ export function createLivePreview(config, nativeEditor, { inlineLauncher, native
         changed();
     }
 
-    function loadFrame(address, version, values) {
-        return frames.load(address, () => previewActive && version === generation,
-            () => view.followChanges && followPending, values);
+    async function loadFrame(address, version, values, stillMatches) {
+        if (stillMatches) candidate = { version, stillMatches };
+        try {
+            await frames.load(address, () => previewActive && version === generation,
+                () => view.followChanges && followPending, values, () => pendingCheck?.promise);
+        } finally {
+            if (pendingCheck) await pendingCheck.promise;
+            candidate = undefined;
+        }
     }
 
     function update() {
@@ -176,7 +230,9 @@ export function createLivePreview(config, nativeEditor, { inlineLauncher, native
                 if (typeof result.url !== 'string') {
                     throw Object.assign(new Error(result.message || strings.failed), { code: result.code });
                 }
-                if (previewActive && version === generation) await loadFrame(result.url, version, result.comparisonValues);
+                if (previewActive && version === generation) {
+                    await loadFrame(result.url, version, result.comparisonValues, result.stillMatches);
+                }
             } catch (error) {
                 if (previewActive && !nativeEditor.saving) reportFailure(error);
             } finally {
@@ -189,6 +245,7 @@ export function createLivePreview(config, nativeEditor, { inlineLauncher, native
 
     function discardFrames() {
         generation += 1;
+        finishCheck();
         frames.clear();
     }
 
@@ -305,12 +362,13 @@ export function createLivePreview(config, nativeEditor, { inlineLauncher, native
             return;
         }
         generation += 1;
+        finishCheck();
         frames.cancel();
         scheduleRefresh(0);
     }
 
     return {
-        changed, pause, resume,
+        changed, recheck, relatedChange, pause, resume,
         setSuspended: view.setSuspended,
         setTitle: view.setTitle,
         openFromLauncher: view.openFromLauncher,

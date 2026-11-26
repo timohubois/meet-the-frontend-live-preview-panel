@@ -334,6 +334,14 @@ async function browserTests(editorSource, initAcf, nativeSource, extensionSource
         field.dispatchEvent(new Event('change', { bubbles: true }));
         equal(context.stale(), 3);
     }, { withAcf: true });
+    await check('standalone ACF field and structural actions still request a preview', (context) => {
+        const field = { get: () => 'field_text' };
+        context.actions.get('change_field')(field);
+        context.actions.get('append')();
+        context.actions.get('remove')();
+        context.actions.get('sortstop')();
+        equal(context.stale(), 4);
+    }, { withAcf: true });
     await check('ACF jQuery-only input and widget container changes retain their bridge', (context) => {
         context.trigger('input', context.form.querySelector('.acf-field input'));
         context.trigger('change', context.form.querySelector('.widget'));
@@ -498,6 +506,6 @@ testInChromium('native editor events and ACF compatibility boundaries', async (t
     await runChromiumTests(t, {
         head: `<script>window.quicktagsL10n = new Proxy({}, { get: (target, key) => key });</script>${wordpressScripts.join('')}`,
         script: `(${browserTests.toString()})(${JSON.stringify(editorSource)}, (await import(${JSON.stringify(acfUrl)})).initAcf, ${JSON.stringify(nativeSource)}, ${JSON.stringify(browserEditorExtensionsSource)})`,
-        count: process.env.WORDPRESS_ROOT ? 25 : 22,
+        count: process.env.WORDPRESS_ROOT ? 26 : 23,
     });
 });

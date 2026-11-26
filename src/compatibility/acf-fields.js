@@ -1,8 +1,9 @@
 // Optional integration: report changes to core; never refresh or save independently.
-export function initAcf(form, changed, watchEditor, cancelNativeSave) {
+export function initAcf(form, changed, watchEditor, cancelNativeSave, fieldChanged = changed) {
     const acf = window.acf;
     acf.addAction('wysiwyg_tinymce_init', watchEditor);
-    for (const action of ['append', 'remove', 'sortstop', 'change_field']) acf.addAction(action, changed);
+    for (const action of ['append', 'remove', 'sortstop']) acf.addAction(action, changed);
+    acf.addAction('change_field', fieldChanged);
     const validationFailure = ($form) => {
         if ($form[0] === form) cancelNativeSave?.();
     };
@@ -99,7 +100,8 @@ export function initAcf(form, changed, watchEditor, cancelNativeSave) {
         },
         destroy() {
             acf.removeAction('wysiwyg_tinymce_init', watchEditor);
-            for (const action of ['append', 'remove', 'sortstop', 'change_field']) acf.removeAction(action, changed);
+            for (const action of ['append', 'remove', 'sortstop']) acf.removeAction(action, changed);
+            acf.removeAction('change_field', fieldChanged);
             acf.removeAction('validation_failure', validationFailure);
             window.jQuery(form).off('.mtflppAcf');
         },

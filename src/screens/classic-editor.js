@@ -10,7 +10,7 @@ export function initLivePreview(config, nativeEditor, inlineLauncher) {
     const editors = new Set();
     let destroyed = false;
     nativeEditor.title = document.getElementById('title')?.value ?? config.postTitle;
-    nativeEditor.preparePreview = async (followChanges) => {
+    function capturePreview(followChanges) {
         capturing = true;
         let values;
         try {
@@ -37,6 +37,10 @@ export function initLivePreview(config, nativeEditor, inlineLauncher) {
         data.set('base', config.base);
         // PHP can truncate large forms; keep the optional hint after the required baseline.
         if (rowFields.size) data.set('mtflpp_row_text_fields', JSON.stringify([...rowFields]));
+        return { data, comparisonValues, rowFields };
+    }
+    nativeEditor.preparePreview = async (followChanges) => {
+        const { data, comparisonValues, rowFields } = capturePreview(followChanges);
         const response = await fetch(config.endpoint, {
             method: 'POST', credentials: 'same-origin',
             headers: { 'X-WP-Nonce': config.nonce }, body: data,
@@ -44,14 +48,19 @@ export function initLivePreview(config, nativeEditor, inlineLauncher) {
         const result = await response.json();
         if (!response.ok) throw Object.assign(new Error(result.message || config.strings.failed), { code: result.code });
         const { rowDisplayText, ...preview } = result;
+        const displayValues = { ...comparisonValues };
         for (const name of rowFields) {
             const formatted = rowDisplayText?.[name];
-            if (typeof formatted === 'string') comparisonValues[name] = { ...comparisonValues[name], formatted };
+            if (typeof formatted === 'string') displayValues[name] = { ...displayValues[name], formatted };
         }
-        return { ...preview, comparisonValues };
+        return { ...preview, comparisonValues: displayValues, stillMatches: () => {
+            const current = capturePreview(followChanges);
+            return current.data.toString() === data.toString() && (!followChanges
+                || JSON.stringify(current.comparisonValues) === JSON.stringify(comparisonValues));
+        } };
     };
     const preview = createLivePreview(config, nativeEditor, { inlineLauncher });
-    const changed = () => {
+    function handleChange(notify) {
         if (capturing || destroyed) return;
         const reason = extensions?.filter('previewPauseReason', '') || extensions?.error?.message;
         const becameReady = nativeEditor.ready === false && !reason;
@@ -61,8 +70,12 @@ export function initLivePreview(config, nativeEditor, inlineLauncher) {
         if (extensions?.error) preview.resume(extensions.error);
         else if (reason) preview.pause(reason, 'paused');
         else if (becameReady) preview.resume();
-        else preview.changed();
-    };
+        else notify();
+    }
+    const changed = (event) => handleChange(event?.type === 'change' && event.isTrusted && event.bubbles
+        && ['text', 'search', 'email', 'url', 'tel', 'textarea'].includes(event.target?.type ?? '')
+        ? preview.recheck : preview.changed);
+    const acfFieldChanged = () => handleChange(preview.relatedChange);
     nativeEditor.onAutosave = changed;
     nativeEditor.beforePreview = () => {
         preview.pause(config.strings.nativePreview);
@@ -92,7 +105,7 @@ export function initLivePreview(config, nativeEditor, inlineLauncher) {
     }
     nativeEditor.onSaveCancelled = cancelNativeSave;
     extensions = createEditorExtensions('mtflpp.classicEditor.previewSetup', {
-        config, form, changed, watchEditor, cancelNativeSave,
+        config, form, changed, acfFieldChanged, watchEditor, cancelNativeSave,
     });
     const destroyNative = nativeEditor.destroy;
     nativeEditor.destroy = () => {
@@ -115,7 +128,7 @@ export function initLivePreview(config, nativeEditor, inlineLauncher) {
     nativeEditor.isValidating = () => extensions.filter('nativeSaveValidationPending', false);
     function onFieldChange(event) {
         if (event.target.name === 'post_title') preview.setTitle(event.target.value);
-        if (['post_title', 'content', 'excerpt'].includes(event.target.name)) changed();
+        if (['post_title', 'content', 'excerpt'].includes(event.target.name)) changed(event);
     }
     nativeEditor.onFieldChange = onFieldChange;
     form.addEventListener('input', onFieldChange);

@@ -15,17 +15,31 @@ function fixture(t) {
     const endpoint = `/ownership-test-${process.pid}-${++nextSite}`;
     return ({
         site = endpoint, userId = 1, broadcast = true, pending = false, error, hasPreview = false, followChanges = true,
-        excludedSelectors = [], prepare, frameError, secureContext = true,
+        excludedSelectors = [], prepare, frameError, holdFrame = false, secureContext = true,
     } = {}) => {
         const write = Promise.withResolvers(), started = Promise.withResolvers();
         const reports = [], timers = new Map();
-        const frames = { loads: 0, cancels: 0, clears: 0, hasPreview,
+        let delivery;
+        const frames = { loads: 0, cancels: 0, clears: 0, accepts: 0, hasPreview,
             load(...args) {
                 this.loads++;
                 this.lastLoad = args;
                 if (frameError) throw frameError;
+                if (holdFrame) {
+                    delivery = Promise.withResolvers();
+                    return delivery.promise;
+                }
             },
-            cancel() { this.cancels++; }, clear() { this.clears++; },
+            async reveal() {
+                const [, isCurrent, , , beforeReveal] = this.lastLoad;
+                const frame = delivery;
+                const pending = beforeReveal?.();
+                if (pending) await pending;
+                if (isCurrent()) this.accepts++;
+                frame.resolve();
+            },
+            cancel() { this.cancels++; delivery?.resolve(); },
+            clear() { this.clears++; delivery?.resolve(); },
         };
         let callbacks, channel, exit, comparisonSelectors, frameReport, writes = 0, now = 0;
         const view = { visible: true, followChanges, setTitle() {}, returnToEditor() {},
@@ -99,6 +113,78 @@ test('only accepted preview generations pass their own input hints to frame load
     assert.equal(h.frames.loads, 1);
     assert.equal(h.frames.lastLoad[0], '/latest');
     assert.equal(h.frames.lastLoad[3], newValues);
+});
+
+for (const matches of [true, false]) {
+    test(`a native commit followed by a companion signal ${matches ? 'keeps an identical' : 'rejects a stale'} candidate at the edit deadline`, async (t) => {
+        let checks = 0;
+        const h = fixture(t)({holdFrame: true, prepare: () => Promise.resolve({
+            url: '/preview', stillMatches: () => { checks++; return matches; },
+        })});
+        h.session.start();
+        await h.started;
+        await settle();
+        assert.equal(h.frames.loads, 1);
+        h.session.recheck();
+        h.advance(25);
+        h.session.relatedChange();
+        assert.equal(checks, 0, 'Do not read form state during capture-phase event dispatch.');
+        const pending = h.session.pending;
+        const reveal = h.frames.reveal();
+        await settle();
+        assert.equal(h.frames.accepts, 0, 'A loaded iframe must wait for the check before becoming visible.');
+        h.advance(274);
+        assert.equal(checks, 0, 'Let late related updates settle until the existing edit deadline.');
+        assert.equal(h.writes, 1);
+        h.advance(1);
+        await reveal;
+        await pending;
+        assert.equal(checks, 1);
+        assert.equal(h.frames.accepts, matches ? 1 : 0);
+        await settle();
+        assert.equal(h.writes, matches ? 1 : 2);
+    });
+}
+
+test('a companion signal without a pending native commit still invalidates the frame', async (t) => {
+    let checks = 0;
+    const h = fixture(t)({holdFrame: true, prepare: () => Promise.resolve({
+        url: '/preview', stillMatches: () => { checks++; return true; },
+    })});
+    h.session.start();
+    await h.started;
+    await settle();
+    const current = h.frames.lastLoad[1];
+    h.session.relatedChange();
+    assert.equal(current(), false);
+    assert.equal(h.reports.at(-1).state, 'stale');
+    h.advance(275);
+    await settle();
+    assert.equal(checks, 0);
+    assert.equal(h.writes, 2);
+    await h.frames.reveal();
+    await h.session.pending;
+});
+
+test('a manual refresh supersedes a pending commit check', async (t) => {
+    let checks = 0;
+    const h = fixture(t)({holdFrame: true, prepare: () => Promise.resolve({
+        url: '/preview', stillMatches: () => { checks++; return true; },
+    })});
+    h.session.start();
+    await h.started;
+    await settle();
+    h.session.recheck();
+    const priorReveal = h.frames.reveal();
+    h.callbacks.onRefresh();
+    await priorReveal;
+    await settle();
+    assert.equal(h.writes, 2);
+    assert.equal(h.frames.accepts, 0, 'The manual request supersedes the waiting frame.');
+    assert.equal(checks, 0);
+    await h.frames.reveal();
+    await h.session.pending;
+    assert.equal(h.frames.accepts, 1);
 });
 
 test('an expired edit deadline starts the newest write as soon as the current write drains', async (t) => {
