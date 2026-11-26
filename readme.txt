@@ -3,7 +3,7 @@ Contributors: timohubois
 Tags: preview, live preview, block editor
 Requires at least: 6.9
 Tested up to: 7.1
-Stable tag: 1.3.3
+Stable tag: 1.3.4
 Requires PHP: 8.3
 License: GPLv3 or later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
@@ -112,6 +112,11 @@ Report issues or contribute on [GitHub](https://github.com/timohubois/meet-the-f
 8. Keep the preview in a separate Picture-in-Picture window where supported.
 
 == Changelog ==
+
+= 1.3.4 =
+
+* Improve scroll targeting by prioritizing matching editor changes and keeping position when multiple targets are equally supported.
+* Follow verified ACF Flexible Content row moves when a generated page index reorders to match.
 
 = 1.3.3 =
 * Fix a Classic Editor crash when a theme replaces the current post with a wrapper such as a Timber post.
