@@ -2,7 +2,9 @@
 
 /** Run with `wp eval-file tests/panel-config.php`; no database fixtures are created. */
 
+use MeetTheFrontendLivePreviewPanel\Compatibility\Flynt;
 use MeetTheFrontendLivePreviewPanel\Panel;
+use MeetTheFrontendLivePreviewPanel\PreviewRowEvidence;
 
 if (!defined('WP_CLI') || !WP_CLI || !class_exists(Panel::class)) {
     throw new RuntimeException('Run through WP-CLI with Meet the Frontend – Live Preview Panel active.');
@@ -13,7 +15,10 @@ $check = static function (bool $condition, string $message): void {
         throw new RuntimeException(esc_html($message));
     }
 };
-$panel = new Panel(dirname(__DIR__) . '/meet-the-frontend-live-preview-panel.php');
+$panel = new Panel(
+    dirname(__DIR__) . '/meet-the-frontend-live-preview-panel.php',
+    rowEvidence: new PreviewRowEvidence(builtInRowMarkerAdapter: new Flynt())
+);
 $handle = 'meet-the-frontend-live-preview-panel';
 $screens = ['classic-editor', 'block-editor', 'revision-browser', 'term-editor'];
 $defaults = ['script', 'style', 'noscript', 'template', 'link', 'meta', 'nav',

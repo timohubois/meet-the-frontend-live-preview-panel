@@ -2,6 +2,7 @@
 
 /** Run with `wp eval-file tests/row-evidence.php` on a disposable single site with ACF Pro or SCF. */
 
+use MeetTheFrontendLivePreviewPanel\Compatibility\Flynt;
 use MeetTheFrontendLivePreviewPanel\LivePreview;
 use MeetTheFrontendLivePreviewPanel\PreviewRowEvidence;
 
@@ -18,6 +19,9 @@ $check = static function (bool $condition, string $message): void {
         throw new RuntimeException(esc_html($message));
     }
 };
+$check(!class_exists('Flynt\\Api'), 'Run the fixture without a Flynt theme so it can test both modes.');
+$flynt = new Flynt();
+$check(!$flynt->isAvailable(), 'The adapter is unavailable without the Flynt theme.');
 require_once ABSPATH . 'wp-admin/includes/user.php';
 $originalUser = get_current_user_id();
 $postId = $user = 0;
@@ -25,11 +29,20 @@ $field = 'field_mtflpp_renderer_rows';
 $text = 'field_mtflpp_renderer_text';
 $policy = 'Mtflpp/previewRowRenderFilter';
 $renderer = 'ExampleTheme/renderRow';
-$descriptor = ['name' => $renderer, 'rowArgument' => 2];
-$select = static function () use (&$descriptor) {
-    return $descriptor;
+$selection = $renderer;
+$selections = [];
+$select = static function ($default) use (&$selection, &$selections) {
+    $selections[] = $default;
+    return $selection;
 };
 add_filter($policy, $select, 20);
+$html = "<h2><span>Heading</span></h2>\n<p>Copy</p>";
+$flyntRenderer = 'Flynt/renderComponent';
+$flynt->bindRowMarker(static fn (): string => 'unexpected marker');
+$check(apply_filters($flyntRenderer, $html, 'Fixture', []) === $html, 'Unavailable Flynt must not bind its hook.');
+$renderFlynt = static function ($output, string $componentName, array $row) use ($html) {
+    return $componentName === 'Fixture' && $row['label'] === "Second's row" ? $html : $output;
+};
 try {
     $user = wp_insert_user([
         'user_login' => 'mtflpp_renderer_' . wp_generate_password(12, false, false),
@@ -73,24 +86,26 @@ try {
         return rest_do_request($request);
     };
 
-    $evidence = new PreviewRowEvidence();
+    $evidence = new PreviewRowEvidence(builtInRowMarkerAdapter: $flynt);
     $config = [];
     $evidence->configureEditor($config);
     $check(($config['previewRowEvidence'] ?? false) === true, 'A renderer can opt in through the public filter.');
-    $html = "<h2><span>Heading</span></h2>\n<p>Copy</p>";
+    $check($selections === [null], 'The public filter has no default renderer.');
     $check(apply_filters($renderer, $html, []) === $html, 'Ordinary renders are not marked.');
     $plain = $send(false);
     $check($plain->get_status() === 200 && !isset($plain->get_data()['rowMarkers']), 'No evidence without opt-in.');
-    $selection = $descriptor;
-    foreach ([null, 'invalid', ['name' => $renderer, 'rowArgument' => 1]] as $invalid) {
-        $descriptor = $invalid;
+    foreach ([null, false, '', ' ', ['name' => $renderer], (object) ['name' => $renderer]] as $invalid) {
+        $selection = $invalid;
+        $config = [];
+        $evidence->configureEditor($config);
+        $check(!isset($config['previewRowEvidence']), 'Null or invalid values do not enable custom evidence.');
         $plain = $send(true);
         $check(
             $plain->get_status() === 200 && !isset($plain->get_data()['rowMarkers']),
             'An invalid renderer selection must not block the preview or return evidence.'
         );
     }
-    $descriptor = $selection;
+    $selection = $renderer;
     $response = $send(true);
     $result = $response->get_data();
     $check(
@@ -110,11 +125,24 @@ try {
     $evidence->markPreview($sourceId);
     $accepted = get_field($field, $sourceId);
     $check($accepted[0]['label'] === "Second's row", 'ACF must read the reordered snapshot.');
+    foreach ([null, false, (object) ['html' => $html]] as $invalidHtml) {
+        $check(
+            apply_filters($renderer, $invalidHtml, $accepted[0]) === $invalidHtml,
+            'Non-string HTML must pass through unchanged even with a marked row.'
+        );
+    }
     $updated = apply_filters($renderer, $html, $accepted[0]);
     $attribute = ' data-mtflpp-evidence-row="' . $marker . ':';
     $expected = '<h2' . $attribute . '0"><span>Heading</span></h2>' . "\n" . '<p' . $attribute . '1">Copy</p>';
     $check($updated === $expected, 'Mark existing roots only, with no wrapper or descendant changes.');
-    $check(apply_filters($renderer, $html, null) === $html, 'Unrelated renders stay unmarked.');
+    $check(apply_filters($renderer, $html) === $html, 'A renderer without a row argument stays unmarked.');
+    foreach ([null, false, 'not a row', (object) $accepted[0]] as $invalidRow) {
+        $check(apply_filters($renderer, $html, $invalidRow) === $html, 'A non-array row stays unmarked.');
+    }
+    $check(
+        apply_filters($renderer, $html, ['label' => $accepted[0]['label']]) === $html,
+        'Rebuilt rows stay unmarked.'
+    );
     $check(apply_filters($renderer, $html, get_field($field, $postId)[0]) === $html, 'Saved rows stay unmarked.');
     $check($evidence->discardDuplicates($updated) === $expected, 'Split roots from one render belong to the same row.');
     $duplicate = apply_filters($renderer, $html, $accepted[0]);
@@ -123,8 +151,39 @@ try {
             === $html . $html,
         'Never follow either copy of a row rendered more than once.'
     );
+
+    // Flynt starts with null output, then its normal renderer produces HTML at priority 10.
+    add_filter($flyntRenderer, $renderFlynt, 10, 3);
+    $check(
+        apply_filters($flyntRenderer, null, 'Fixture', $accepted[0]) === $html,
+        'A custom renderer opt-in on a non-Flynt site does not attach to the Flynt hook.'
+    );
+    $flyntApi = new class () {
+    };
+    class_alias($flyntApi::class, 'Flynt\\Api');
+    $selections = [];
+    $config = [];
+    $evidence = new PreviewRowEvidence(builtInRowMarkerAdapter: $flynt);
+    $evidence->configureEditor($config);
+    $check(($config['previewRowEvidence'] ?? false) === true, 'Flynt opts in without a public filter callback.');
+    $response = $send(true);
+    $result = $response->get_data();
+    $check($response->get_status() === 200 && !empty($result['rowMarkers']), 'Flynt receives accepted row evidence.');
+    parse_str(wp_parse_url($result['url'], PHP_URL_QUERY), $query);
+    $sourceId = (int) $query['mtflpp_revision'];
+    acf_flush_value_cache($sourceId, 'mtflpp_renderer_rows');
+    $evidence->markPreview($sourceId);
+    $accepted = get_field($field, $sourceId);
+    $flyntMarkers = $result['rowMarkers']['acf-layout-order:acf[' . $field . ']'];
+    $flyntMarker = $flyntMarkers['acf[' . $field . '][row-2][acf_fc_layout]'];
+    $check(
+        apply_filters($flyntRenderer, null, 'Fixture', $accepted[0]) === str_replace($marker, $flyntMarker, $expected),
+        'The Flynt adapter marks the rendered HTML using the row in the third argument.'
+    );
+    $check($selections === [], 'Built-in Flynt does not consult the public renderer filter.');
 } finally {
     remove_filter($policy, $select, 20);
+    remove_filter($flyntRenderer, $renderFlynt, 10);
     if (is_int($postId) && $postId > 0) {
         wp_delete_post($postId, true);
     }
@@ -133,4 +192,4 @@ try {
         wp_delete_user($user);
     }
 }
-WP_CLI::success('External row render filters use accepted row evidence and reject repeated renders.');
+WP_CLI::success('Custom and Flynt render filters mark accepted rows and ignore missing or repeated evidence.');

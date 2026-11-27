@@ -4,7 +4,7 @@
  * Plugin Name:       Meet the Frontend – Live Preview Panel
  * Plugin URI:        https://github.com/timohubois/meet-the-frontend-live-preview-panel/
  * Description:       See your changes in a floating preview while you edit posts, pages and taxonomy terms.
- * Version:           1.3.4
+ * Version:           1.4.0
  * Requires at least: 6.9
  * Requires PHP:      8.3
  * Author:            Timo Hubois
@@ -21,6 +21,7 @@ defined('ABSPATH') || exit;
 require_once __DIR__ . '/classes/Compatibility/Acf.php';
 require_once __DIR__ . '/classes/Compatibility/AcfTerm.php';
 require_once __DIR__ . '/classes/Compatibility/CoreBlocks.php';
+require_once __DIR__ . '/classes/RowMarkerAdapter.php';
 require_once __DIR__ . '/classes/Compatibility/Flynt.php';
 require_once __DIR__ . '/classes/Compatibility/Timber.php';
 require_once __DIR__ . '/classes/Compatibility/Yoast.php';

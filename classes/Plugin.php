@@ -18,8 +18,8 @@ final class Plugin
         $acf = new Acf();
         $acfTerm = new AcfTerm();
         $coreBlocks = new CoreBlocks();
-        new Flynt();
-        $rowEvidence = new PreviewRowEvidence();
+        $flynt = new Flynt();
+        $rowEvidence = new PreviewRowEvidence(builtInRowMarkerAdapter: $flynt);
         $timber = new Timber();
         $yoast = new Yoast();
 

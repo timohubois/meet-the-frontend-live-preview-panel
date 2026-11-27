@@ -15,28 +15,40 @@ final class PreviewRowEvidence
     private array $fields = [];
     private array $rendered = [];
 
+    public function __construct(private readonly ?RowMarkerAdapter $builtInRowMarkerAdapter = null)
+    {
+    }
+
     public function configureEditor(array &$config): void
     {
-        if ($this->renderFilter()) {
+        if ($this->rowMarkerBinding() !== null) {
             $config['previewRowEvidence'] = true;
         }
     }
 
-    private function renderFilter(): ?array
+    /** Select the built-in adapter, a custom render hook, or no row evidence. */
+    private function rowMarkerBinding(): RowMarkerAdapter|string|null
     {
         if (!function_exists('acf_get_field_type') || !acf_get_field_type('flexible_content')) {
             return null;
         }
+        if ($this->builtInRowMarkerAdapter?->isAvailable()) {
+            return $this->builtInRowMarkerAdapter;
+        }
+        return $this->customRowRenderFilter();
+    }
+
+    private function customRowRenderFilter(): ?string
+    {
         /**
-         * Choose the theme or plugin's HTML filter for a single rendered row.
+         * Choose a filter that receives one ACF row's HTML and its formatted row array.
          *
-         * @param array{name: string, rowArgument: int}|null $filter Hook name and one-based position of the row.
+         * @param string|null $filter Hook name, or null to disable renderer evidence.
          */
         // Mtflpp is the plugin's public hook prefix; Plugin Check does not infer slash-delimited prefixes.
         // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound
         $filter = apply_filters('Mtflpp/previewRowRenderFilter', null);
-        return is_array($filter) && is_string($filter['name'] ?? null) && trim($filter['name']) !== ''
-            && is_int($filter['rowArgument'] ?? null) && $filter['rowArgument'] >= 2 ? $filter : null;
+        return is_string($filter) && $filter !== '' && trim($filter) === $filter ? $filter : null;
     }
 
     public function clearSaveEvidence(): void
@@ -46,11 +58,16 @@ final class PreviewRowEvidence
 
     public function observeSave(int $sourceId, array $input): void
     {
-        if (!empty($input['acf']) && ($input['mtflpp_row_markers'] ?? '') === '1' && $this->renderFilter()) {
-            $this->writing = $sourceId;
-            // Observe the actual rows and storage path just before ACF's native type update at priority 10.
-            add_filter('acf/update_value/type=flexible_content', [$this, 'savedField'], 9, 3);
+        if (
+            empty($input['acf']) || ($input['mtflpp_row_markers'] ?? '') !== '1'
+            || $this->rowMarkerBinding() === null
+        ) {
+            return;
         }
+
+        $this->writing = $sourceId;
+        // Observe the actual rows and storage path just before ACF's native type update at priority 10.
+        add_filter('acf/update_value/type=flexible_content', [$this, 'savedField'], 9, 3);
     }
 
     public function stopObserving(): void
@@ -157,7 +174,8 @@ final class PreviewRowEvidence
 
     public function markPreview(int $sourceId): void
     {
-        if (!($filter = $this->renderFilter())) {
+        $binding = $this->rowMarkerBinding();
+        if ($binding === null) {
             return;
         }
         try {
@@ -178,18 +196,24 @@ final class PreviewRowEvidence
             return $rows;
         };
         add_filter('acf/format_value/type=flexible_content', $format, PHP_INT_MAX, 3);
-        $argument = $filter['rowArgument'];
-        $mark = function ($html, ...$args) use ($argument, $site) {
-            return get_current_blog_id() === $site ? $this->markRow($html, $args[$argument - 2] ?? null) : $html;
+        $mark = function (mixed $html, mixed $row = null) use ($site): mixed {
+            if (!is_string($html) || !is_array($row) || get_current_blog_id() !== $site) {
+                return $html;
+            }
+            return $this->markRow($html, $row);
         };
-        add_filter($filter['name'], $mark, PHP_INT_MAX, $argument);
+        if ($binding instanceof RowMarkerAdapter) {
+            $binding->bindRowMarker($mark);
+        } else {
+            add_filter($binding, $mark, PHP_INT_MAX, 2);
+        }
         add_filter('wp_template_enhancement_output_buffer', [$this, 'discardDuplicates'], PHP_INT_MAX - 1);
     }
 
-    private function markRow(mixed $html, mixed $data): mixed
+    private function markRow(string $html, array $row): string
     {
-        $marker = is_array($data) ? ($data[self::ROW_DATA] ?? null) : null;
-        if (!is_string($html) || !is_string($marker) || !preg_match('/^[a-f0-9]{64}$/D', $marker)) {
+        $marker = $row[self::ROW_DATA] ?? null;
+        if (!is_string($marker) || !preg_match('/^[a-f0-9]{64}$/D', $marker)) {
             return $html;
         }
         $this->rendered[$marker] = ($this->rendered[$marker] ?? 0) + 1;

@@ -3,7 +3,7 @@ Contributors: timohubois
 Tags: preview, live preview, block editor
 Requires at least: 6.9
 Tested up to: 7.1
-Stable tag: 1.3.4
+Stable tag: 1.4.0
 Requires PHP: 8.3
 License: GPLv3 or later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
@@ -46,11 +46,11 @@ No. The plugin works with WordPress on its own.
 
 ACF live previews cover supported post and term fields, including paginated repeaters with ACF Pro. The term archive must render the fields through ACF (directly or through an integration such as Timber).
 
-The Timber integration supports post previews, including changes to taxonomy assignments. On term archives, it also previews the current term’s name and description in Timber’s standard term objects. Custom term classes and raw WordPress lookups can still show saved values.
+The [Timber](https://github.com/timber/timber) integration supports post previews, including changes to taxonomy assignments. On term archives, it also previews the current term’s name and description in Timber’s standard term objects. Custom term classes and raw WordPress lookups can still show saved values.
 
 Yoast SEO support previews changes to post breadcrumbs when you edit primary-term selections in the Block Editor, and changes to the default archive breadcrumb when you edit a term name. It does not preview SEO titles, meta descriptions or analysis scores.
 
-Flynt is optional. In the Classic Editor, the plugin can use matching Flynt components to help follow an ACF Flexible Content row after it is dragged. If the preview cannot verify the match, normal change detection still applies.
+[Flynt](https://github.com/flyntwp/flynt) is optional. Built-in support helps the preview follow ACF Flexible Content row moves in the Classic Editor without any theme configuration. If the preview cannot verify the match, normal change detection still applies.
 
 = Can I preview older revisions? =
 
@@ -112,6 +112,15 @@ Report issues or contribute on [GitHub](https://github.com/timohubois/meet-the-f
 8. Keep the preview in a separate Picture-in-Picture window where supported.
 
 == Changelog ==
+
+= 1.4.0 =
+
+* Follow verified ACF Flexible Content row moves more reliably in the Classic Editor, including moves across disabled rows.
+* Add built-in [Flynt](https://github.com/flyntwp/flynt) support for following ACF Flexible Content row moves, including components that render as multiple elements.
+* Follow uniquely identifiable ACF plain-text edits in the Classic Editor.
+* Preserve frontend click handlers in the preview, including links used by interactive components.
+* Avoid duplicate Classic Editor preview refreshes and reduce the work needed to capture large preview pages.
+* Breaking change for custom integrations: the previous `mtflpp_` PHP hooks and `mtflpp.` JavaScript setup actions are no longer called, and no aliases are provided. See the [integration guide](https://github.com/timohubois/meet-the-frontend-live-preview-panel/blob/1.4.0/docs/integrations.md) for the two supported filters. Built-in integrations need no changes.
 
 = 1.3.4 =
 

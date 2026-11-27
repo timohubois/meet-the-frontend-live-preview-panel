@@ -40,30 +40,73 @@ A theme or plugin that renders ACF Flexible Content rows can use
 change detection cannot identify the moved row. This only adds evidence for
 Classic Editor reorders; it does not add support for new kinds of unsaved data.
 
-Suppose your renderer already calls
-`apply_filters('ExampleTheme/renderRow', $html, $row)`. Point the panel at that
-filter:
+Flynt sites use the built-in adapter directly and do not call this filter. On
+other sites, the filter starts at `null` (no custom renderer). Your callback can
+declare a `?string` return type: return one theme or plugin hook name to opt in,
+or `null` to leave custom evidence off. Reuse a hook with the signature
+`($html, $row)` or add one where you render each row.
+
+### Example: a theme with an ACF sections field
+
+In ACF, add a Flexible Content field with the field name `sections` to Pages.
+Give it a layout named `text` with a Text subfield named `heading` and a Text Area
+subfield named `body`. Add at least two rows with different headings on a page
+to try a reorder in the Classic Editor.
+
+In the theme's `functions.php`, register the hook name (not inside an admin-only hook):
 
 ```php
-add_filter('Mtflpp/previewRowRenderFilter', static function ($filter) {
-    return $filter ?? ['name' => 'ExampleTheme/renderRow', 'rowArgument' => 2];
-});
+add_filter('Mtflpp/previewRowRenderFilter', static fn (): string => 'ExampleTheme/renderRow');
 ```
 
-The panel selects one renderer filter. Return a hook name and the one-based
-position of the row in its arguments (HTML is argument 1), or leave the incoming
-selection unchanged. Return `null` at a later priority to disable the selection.
-Register on editor, REST and frontend requests alike; the same rendering hook
-must apply on the site being previewed. Flynt uses this same contract with
-`Flynt/renderComponent` and argument 3.
+In `page.php`, render each row to a string before passing it through the theme's filter:
 
-Pass each row's HTML through the renderer filter **once**, with the original
-formatted row array (or a copy preserving all its keys). Multiple sibling roots
-in that HTML are fine. Do not construct a row from its index or recreate the
-panel's evidence. The panel marks eligible roots only in authorized live previews
-that request row evidence. It still verifies the reorder, HTML mapping and
-on-screen placement before scrolling. Missing or ambiguous evidence falls back
-to normal change detection. Ordinary page renders are unchanged.
+```php
+<?php
+get_header();
+
+while (have_posts()) {
+    the_post();
+    $rows = function_exists('get_field') ? get_field('sections', get_the_ID()) : [];
+    echo '<main>';
+    foreach (is_array($rows) ? $rows : [] as $row) {
+        if (!is_array($row) || ($row['acf_fc_layout'] ?? null) !== 'text') {
+            continue;
+        }
+
+        $heading = $row['heading'] ?? null;
+        $body = $row['body'] ?? null;
+        $html = sprintf(
+            '<h2>%s</h2><p>%s</p>',
+            esc_html(is_string($heading) ? $heading : ''),
+            esc_html(is_string($body) ? $body : '')
+        );
+
+        $filteredHtml = apply_filters('ExampleTheme/renderRow', $html, $row);
+        echo is_string($filteredHtml) ? $filteredHtml : $html;
+    }
+    echo '</main>';
+}
+
+get_footer();
+```
+
+- **`$html`** is the finished HTML string for **one row**. It can contain one
+  top-level element or several siblings, like the heading and paragraph above.
+  It is not the whole page, a template filename, or an already-printed result.
+  If a callback returns a non-string value, the example prints the original HTML.
+- **`$row`** is the formatted associative array returned by ACF for that same row.
+  Here it contains `acf_fc_layout`, `heading`, and `body`. Pass the original array,
+  or a copy that keeps **all** its keys. Do not pass the row number, request data,
+  or a new array containing just the template fields.
+
+Call the render filter **once per row**. In an eligible live preview, the panel
+adds a private marker to the formatted ACF array and uses your render filter to
+copy it to the HTML's top-level elements. Your theme does not create the marker.
+If the hook doesn't receive a string and an array, the panel leaves its result
+unchanged. The panel still verifies the reorder before scrolling; missing or
+ambiguous evidence falls back to normal change detection. Ordinary page renders
+are unchanged.
 
 The other built-in adaptations are wired directly to the preview owners. There
 is no public save or preview lifecycle hook. The former `mtflpp_` PHP hooks and
