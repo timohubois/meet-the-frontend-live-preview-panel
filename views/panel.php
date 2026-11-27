@@ -49,7 +49,10 @@ defined('ABSPATH') || exit;
             <div class="mtflpp-fit-control"></div>
         </div>
     </footer>
-    <?php foreach (['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'] as $mtflppEdge) : ?>
+    <?php
+    // This view is included from Panel::render(), so the loop variable is already local.
+    // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound
+    foreach (['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'] as $mtflppEdge) : ?>
         <span class="mtflpp-edge mtflpp-edge-<?php echo esc_attr($mtflppEdge); ?>"
             data-resize-edge="<?php echo esc_attr($mtflppEdge); ?>" aria-hidden="true"></span>
     <?php endforeach; ?>

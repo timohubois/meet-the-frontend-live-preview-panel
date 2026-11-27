@@ -51,6 +51,8 @@ final class Panel
          * @param string[] $selectors Complete list of CSS selectors, including defaults.
          * @param string   $screen    classic-editor, block-editor, revision-browser or term-editor.
          */
+        // Mtflpp is the plugin's public hook prefix; Plugin Check does not infer slash-delimited prefixes.
+        // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound
         $selectors = apply_filters('Mtflpp/previewComparisonExclusions', self::COMPARISON_EXCLUDED_SELECTORS, $entry);
         $config['comparisonExcludedSelectors'] = is_array($selectors) && !array_filter(
             $selectors,

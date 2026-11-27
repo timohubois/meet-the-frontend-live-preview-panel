@@ -32,6 +32,8 @@ final class PreviewRowEvidence
          *
          * @param array{name: string, rowArgument: int}|null $filter Hook name and one-based position of the row.
          */
+        // Mtflpp is the plugin's public hook prefix; Plugin Check does not infer slash-delimited prefixes.
+        // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound
         $filter = apply_filters('Mtflpp/previewRowRenderFilter', null);
         return is_array($filter) && is_string($filter['name'] ?? null) && trim($filter['name']) !== ''
             && is_int($filter['rowArgument'] ?? null) && $filter['rowArgument'] >= 2 ? $filter : null;
