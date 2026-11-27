@@ -2,18 +2,21 @@
 
 namespace MeetTheFrontendLivePreviewPanel\Compatibility;
 
-use Closure;
+use MeetTheFrontendLivePreviewPanel\RowMarkerAdapter;
 
 /** Adapt Flynt's native (HTML, component name, row data) filter to the panel's row callback. */
-final class Flynt
+final class Flynt implements RowMarkerAdapter
 {
-    public static function rowMarkerRegistration(): ?Closure
+    public function isAvailable(): bool
     {
-        return class_exists('Flynt\\Api') ? self::addRenderedRowFilter(...) : null;
+        return class_exists('Flynt\\Api');
     }
 
-    private static function addRenderedRowFilter(callable $mark): void
+    public function bindRowMarker(callable $mark): void
     {
+        if (!$this->isAvailable()) {
+            return;
+        }
         add_filter(
             'Flynt/renderComponent',
             static fn (mixed $html, mixed $componentName = null, mixed $row = null): mixed => $mark($html, $row),

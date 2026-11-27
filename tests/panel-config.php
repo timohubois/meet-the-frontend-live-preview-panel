@@ -17,7 +17,7 @@ $check = static function (bool $condition, string $message): void {
 };
 $panel = new Panel(
     dirname(__DIR__) . '/meet-the-frontend-live-preview-panel.php',
-    rowEvidence: new PreviewRowEvidence(Flynt::rowMarkerRegistration(...))
+    rowEvidence: new PreviewRowEvidence(builtInRowMarkerAdapter: new Flynt())
 );
 $handle = 'meet-the-frontend-live-preview-panel';
 $screens = ['classic-editor', 'block-editor', 'revision-browser', 'term-editor'];

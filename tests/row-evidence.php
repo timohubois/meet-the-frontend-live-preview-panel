@@ -20,7 +20,8 @@ $check = static function (bool $condition, string $message): void {
     }
 };
 $check(!class_exists('Flynt\\Api'), 'Run the fixture without a Flynt theme so it can test both modes.');
-$check(Flynt::rowMarkerRegistration() === null, 'The adapter is unavailable without the Flynt theme.');
+$flynt = new Flynt();
+$check(!$flynt->isAvailable(), 'The adapter is unavailable without the Flynt theme.');
 require_once ABSPATH . 'wp-admin/includes/user.php';
 $originalUser = get_current_user_id();
 $postId = $user = 0;
@@ -37,6 +38,8 @@ $select = static function ($default) use (&$selection, &$selections) {
 add_filter($policy, $select, 20);
 $html = "<h2><span>Heading</span></h2>\n<p>Copy</p>";
 $flyntRenderer = 'Flynt/renderComponent';
+$flynt->bindRowMarker(static fn (): string => 'unexpected marker');
+$check(apply_filters($flyntRenderer, $html, 'Fixture', []) === $html, 'Unavailable Flynt must not bind its hook.');
 $renderFlynt = static function ($output, string $componentName, array $row) use ($html) {
     return $componentName === 'Fixture' && $row['label'] === "Second's row" ? $html : $output;
 };
@@ -83,7 +86,7 @@ try {
         return rest_do_request($request);
     };
 
-    $evidence = new PreviewRowEvidence(Flynt::rowMarkerRegistration(...));
+    $evidence = new PreviewRowEvidence(builtInRowMarkerAdapter: $flynt);
     $config = [];
     $evidence->configureEditor($config);
     $check(($config['previewRowEvidence'] ?? false) === true, 'A renderer can opt in through the public filter.');
@@ -160,7 +163,7 @@ try {
     class_alias($flyntApi::class, 'Flynt\\Api');
     $selections = [];
     $config = [];
-    $evidence = new PreviewRowEvidence(Flynt::rowMarkerRegistration(...));
+    $evidence = new PreviewRowEvidence(builtInRowMarkerAdapter: $flynt);
     $evidence->configureEditor($config);
     $check(($config['previewRowEvidence'] ?? false) === true, 'Flynt opts in without a public filter callback.');
     $response = $send(true);

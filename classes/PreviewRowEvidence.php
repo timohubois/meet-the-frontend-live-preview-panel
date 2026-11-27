@@ -2,7 +2,6 @@
 
 namespace MeetTheFrontendLivePreviewPanel;
 
-use Closure;
 use WP_HTML_Processor;
 use WP_HTML_Tag_Processor;
 
@@ -16,35 +15,27 @@ final class PreviewRowEvidence
     private array $fields = [];
     private array $rendered = [];
 
-    /** @param (Closure(): ?Closure)|null $resolveBuiltInRenderer Resolve after the theme has loaded. */
-    public function __construct(private readonly ?Closure $resolveBuiltInRenderer = null)
+    public function __construct(private readonly ?RowMarkerAdapter $builtInRowMarkerAdapter = null)
     {
     }
 
     public function configureEditor(array &$config): void
     {
-        if ($this->rowMarkerRegistration() !== null) {
+        if ($this->rowMarkerBinding() !== null) {
             $config['previewRowEvidence'] = true;
         }
     }
 
-    /** Select how to attach the internal (HTML, row) callback for this site. */
-    private function rowMarkerRegistration(): ?Closure
+    /** Select the built-in adapter, a custom render hook, or no row evidence. */
+    private function rowMarkerBinding(): RowMarkerAdapter|string|null
     {
         if (!function_exists('acf_get_field_type') || !acf_get_field_type('flexible_content')) {
             return null;
         }
-        $builtIn = $this->resolveBuiltInRenderer?->__invoke();
-        if ($builtIn !== null) {
-            return $builtIn;
+        if ($this->builtInRowMarkerAdapter?->isAvailable()) {
+            return $this->builtInRowMarkerAdapter;
         }
-        $filter = $this->customRowRenderFilter();
-        if ($filter === null) {
-            return null;
-        }
-        return static function (callable $mark) use ($filter): void {
-            add_filter($filter, $mark, PHP_INT_MAX, 2);
-        };
+        return $this->customRowRenderFilter();
     }
 
     private function customRowRenderFilter(): ?string
@@ -69,7 +60,7 @@ final class PreviewRowEvidence
     {
         if (
             empty($input['acf']) || ($input['mtflpp_row_markers'] ?? '') !== '1'
-            || $this->rowMarkerRegistration() === null
+            || $this->rowMarkerBinding() === null
         ) {
             return;
         }
@@ -183,8 +174,8 @@ final class PreviewRowEvidence
 
     public function markPreview(int $sourceId): void
     {
-        $register = $this->rowMarkerRegistration();
-        if ($register === null) {
+        $binding = $this->rowMarkerBinding();
+        if ($binding === null) {
             return;
         }
         try {
@@ -205,12 +196,17 @@ final class PreviewRowEvidence
             return $rows;
         };
         add_filter('acf/format_value/type=flexible_content', $format, PHP_INT_MAX, 3);
-        $register(function (mixed $html, mixed $row = null) use ($site): mixed {
+        $mark = function (mixed $html, mixed $row = null) use ($site): mixed {
             if (!is_string($html) || !is_array($row) || get_current_blog_id() !== $site) {
                 return $html;
             }
             return $this->markRow($html, $row);
-        });
+        };
+        if ($binding instanceof RowMarkerAdapter) {
+            $binding->bindRowMarker($mark);
+        } else {
+            add_filter($binding, $mark, PHP_INT_MAX, 2);
+        }
         add_filter('wp_template_enhancement_output_buffer', [$this, 'discardDuplicates'], PHP_INT_MAX - 1);
     }
 
