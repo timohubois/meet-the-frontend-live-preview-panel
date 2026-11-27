@@ -11,8 +11,12 @@ export function sourceDocument(doc) {
     } catch { return null; } // Missing/invalid data or a restrictive Trusted Types policy uses the DOM fallback.
 }
 
+export function comparisonRoot(doc) {
+    return doc.querySelector('main, [role="main"]') || doc.querySelector('article') || doc.body;
+}
+
 // Compare content and presentation without theme/field knowledge or viewport-dependent geometry.
-export function contentSnapshot(doc, live, excludedSelectors, root = doc.querySelector('main, [role="main"]') || doc.querySelector('article') || doc.body) {
+export function contentSnapshot(doc, live, excludedSelectors, root = comparisonRoot(doc)) {
     if (!root) return null;
     // Validate CSS once per cached snapshot, not for every node. Bad extension selectors remain inert.
     const excluded = excludedSelectors.filter((selector) => {
@@ -20,19 +24,11 @@ export function contentSnapshot(doc, live, excludedSelectors, root = doc.querySe
         try { root.matches(selector); return true; }
         catch { return false; }
     }).join(', ');
-    let targets;
-    if (doc !== live) {
-        targets = new Map();
-        for (const node of live.querySelectorAll('[data-mtflpp-node]')) {
-            const key = node.getAttribute('data-mtflpp-node');
-            // Cloned markers are ambiguous; never silently choose the first matching widget.
-            targets.set(key, targets.has(key) ? null : node);
-        }
-    }
-    let snapshot = subtreeSnapshot(root, excluded, targets);
-    if (!snapshot) return null;
+    const contentRoot = subtreeSnapshot(root, excluded, doc !== live ? mappedPreviewNodes(live) : undefined);
+    if (!contentRoot) return null;
     // Ancestor attributes can control layout; their unrelated siblings/text are not preview content.
-    const target = snapshot.node;
+    let snapshot = contentRoot;
+    const target = contentRoot.node;
     for (let node = root.parentElement; node; node = node.parentElement) {
         const parent = snapshotEntry(node, target, node.localName);
         parent.children = [snapshot];
@@ -40,7 +36,18 @@ export function contentSnapshot(doc, live, excludedSelectors, root = doc.querySe
         snapshot = parent;
     }
     snapshot.excluded = excluded;
+    snapshot.contentRoot = contentRoot;
     return snapshot;
+}
+
+export function mappedPreviewNodes(doc) {
+    const targets = new Map();
+    for (const node of doc.querySelectorAll('[data-mtflpp-node]')) {
+        const key = node.getAttribute('data-mtflpp-node');
+        // Cloned markers are ambiguous; never silently choose the first matching widget.
+        targets.set(key, targets.has(key) ? null : node);
+    }
+    return targets;
 }
 
 export function subtreeSnapshot(root, excluded, targets) {
@@ -77,7 +84,7 @@ function presentationAttributes(node) {
     const attributes = [];
     for (const { name, value } of node.attributes) {
         // Keep authored accessibility/identity values eligible; normalize reference churn separately.
-        if (name === 'data-mtflpp-node' || name.startsWith('on')
+        if (name === 'data-mtflpp-node' || name.startsWith('data-mtflpp-evidence-') || name.startsWith('on')
             || /(?:^|-)(nonce|token)(?:-|$)/.test(name)) continue;
         // Media sources are normalized separately, so loading a declared lazy source is not an edit.
         if (/^(?:data-)?(?:src|srcset|poster|sizes|bg)$/.test(name)) continue;
@@ -130,6 +137,15 @@ export function isFlowBoundary(tag) {
 
 export function childFlowText(tag, text) {
     return isFlowBoundary(tag) ? ` ${text} ` : text;
+}
+
+export function sameRowPosition(before, after) {
+    // Only comparable boxes can disprove a move. Native disclosures and display:contents can be boxless.
+    if (!before?.getClientRects().length || !after.getClientRects().length) return false;
+    const a = before.getBoundingClientRect(), b = after.getBoundingClientRect();
+    const from = before.ownerDocument.defaultView, to = after.ownerDocument.defaultView;
+    return Math.abs((a.top + from.scrollY) - (b.top + to.scrollY)) < 1
+        && Math.abs((a.left + from.scrollX) - (b.left + to.scrollX)) < 1;
 }
 
 export function containsEntry(parent, child) {

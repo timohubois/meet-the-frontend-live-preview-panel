@@ -17,24 +17,7 @@ final class Timber
     private array $terms = [];
     private ?WeakMap $legacyEmptyQueries = null;
 
-    public function __construct()
-    {
-        add_action('mtflpp_frontend_live_preview_source_selected', fn (array $context) => $this->bindPreview(
-            $context['post']['id'],
-            $context['source']['id']
-        ));
-        add_action('mtflpp_frontend_saved_preview_source_selected', fn (array $context) => $this->bindPreview(
-            $context['post']['id'],
-            $context['source']['id'],
-            true
-        ));
-        add_action('mtflpp_frontend_term_preview_source_selected', fn (array $context) => $this->bindTimber2TermPreview(
-            $context['term'],
-            $context['saved']
-        ));
-    }
-
-    private function bindTimber2TermPreview(WP_Term $term, WP_Term $saved): void
+    public function bindTermPreview(WP_Term $term, WP_Term $saved): void
     {
         // Timber 1 lacks the class hook and its Term::init() has a different signature.
         // Leave its archive on the native WordPress preview path.

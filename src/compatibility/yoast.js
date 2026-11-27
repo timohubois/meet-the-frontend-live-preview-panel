@@ -1,16 +1,7 @@
 import { select } from '@wordpress/data';
-import { addAction } from '@wordpress/hooks';
-
-addAction('mtflpp.blockEditor.previewSetup', 'meet-the-frontend-live-preview-panel/yoast', ({ config, hooks }) => {
-    if (!config.yoastPrimaryTaxonomies?.length) return;
-    hooks.addFilter('additionalPreviewValues', 'meet-the-frontend-live-preview-panel/yoast', (values, editor) => {
-        const primary = yoastPrimaryTerms(config, editor);
-        return primary === undefined ? values : { ...values, yoast_primary_terms: primary };
-    });
-});
 
 // Use Yoast's native primary-term selector; never dispatch changes to either editor store.
-function yoastPrimaryTerms(config, editor) {
+export function yoastPrimaryTerms(config, editor) {
     if (!config.yoastPrimaryTaxonomies?.length) return undefined;
     const yoast = select('yoast-seo/editor');
     if (typeof yoast?.getPrimaryTaxonomyId !== 'function' || Number(yoast.getPostId?.()) !== config.postId) return undefined;

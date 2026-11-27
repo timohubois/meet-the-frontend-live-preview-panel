@@ -46,22 +46,14 @@ try {
     $timber->bindPreview(123, 456);
     $yoast->bindPreview(123, 456);
     $check(!$yoast->isAvailable() && $yoast->primaryTaxonomies(123) === [], 'Absent Yoast exposes no controls.');
-    $check(!$acf->isAvailable() && $acf->editorDependencies() === [], 'Absent ACF must not enqueue its assets.');
-    $config = ['postId' => 123, 'strings' => [], 'vendor' => 'keep'];
-    $context = ['post' => ['id' => 123], 'source' => null];
-    foreach (['classic-editor', 'block-editor', 'revision-browser'] as $entry) {
-        $hook = match ($entry) {
-            'classic-editor' => 'mtflpp_classic_editor_preview_config',
-            'block-editor' => 'mtflpp_block_editor_preview_config',
-            'revision-browser' => 'mtflpp_revision_browser_preview_config',
-        };
-        $dependencyHook = str_replace('_config', '_script_dependencies', $hook);
-        $check(
-            apply_filters($hook, $config, $context) === $config
-            && apply_filters($dependencyHook, ['wp-hooks'], $context) === ['wp-hooks'],
-            'Missing integrations must leave screen configuration and asset dependencies unchanged.'
-        );
-    }
+    $config = ['postId' => 123, 'strings' => []];
+    $dependencies = ['jquery'];
+    $acf->configureEditor($config, $dependencies);
+    $yoast->configureEditor($config);
+    $check(
+        !$acf->isAvailable() && $config === ['postId' => 123, 'strings' => []] && $dependencies === ['jquery'],
+        'Unavailable adapters must leave the native screen configuration and assets alone.'
+    );
     $check(
         !has_filter('acf/validate_post_id', [$acf, 'readPostId'])
         && !has_filter('acf/pre_load_metadata', [$acf, 'readMetadata'])
@@ -94,24 +86,23 @@ try {
     $acf->clearRevisionCache(456);
     $payload = ['post_title' => 'Core content'];
     $check(
-        $acf->preparePayload($payload, $context + ['input' => []]) === $payload,
+        $acf->preparePayload($payload, []) === $payload,
         'Missing ACF must not affect core-only writes.'
     );
-    $error = $acf->preparePayload($payload, $context + ['input' => ['acf' => []]]);
+    $error = $acf->preparePayload($payload, ['acf' => []]);
     $check(
         is_wp_error($error) && $error->get_error_code() === 'mtflpp_acf_unavailable'
-        && $acf->verifySave($error, $context) === $error && !has_action('acf/save_post', [$acf, 'recordSave']),
+        && !has_action('acf/save_post', [$acf, 'recordSave']),
         'Submitted ACF data without ACF must fail clearly, not disappear silently or leave a save monitor.'
     );
 
     $check(
-        $yoast->preparePayload($payload, $context + ['input' => []]) === $payload,
+        $yoast->preparePrimaryTerms(123, []) === null,
         'Missing Yoast must not affect core writes.'
     );
-    $error = $yoast->preparePayload($payload, $context + ['input' => ['yoast_primary_terms' => '{"category":1}']]);
+    $error = $yoast->preparePrimaryTerms(123, ['yoast_primary_terms' => '{"category":1}']);
     $check(
-        is_wp_error($error) && $error->get_error_code() === 'mtflpp_invalid_yoast_primary_terms'
-        && $yoast->verifySave($error, $context) === $error,
+        is_wp_error($error) && $error->get_error_code() === 'mtflpp_invalid_yoast_primary_terms',
         'Submitted primary terms without Yoast must fail clearly and release pending state.'
     );
 
@@ -127,6 +118,8 @@ try {
     $timber->unbindPreview();
     WP_CLI::success('Missing ACF, Timber and Yoast, partial APIs and inert callback contracts passed.');
 } finally {
+    $acf->resetSave();
+    $yoast->resetSave();
     $acf->unbindPreview();
     $timber->unbindPreview();
     $yoast->unbindPreview();

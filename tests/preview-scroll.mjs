@@ -3,17 +3,17 @@ import { browserBundle, runChromiumTests, testInChromium } from './helpers/chrom
 async function browserTests() {
     const { createPreviewScroll, createPreviewComparison, visibleTarget } = window.previewScroll;
     const results = [];
-    // Model the PHP configuration; editor-extensions.php separately verifies the complete shipped policy.
+    // Model the PHP configuration; panel-config.php separately verifies the complete shipped policy.
     const defaults = ['script', 'style', 'noscript', 'template', 'link', 'meta', 'nav',
         '[role="navigation"]', '[aria-live]', 'input[type="hidden"]', 'table.xdebug-error'];
     async function check(name, run, excludedSelectors = defaults) {
         const frames = [];
-        const documentFor = async (content, { captured = false, script = '', offset = 0, reducedMotion = true } = {}) => {
+        const documentFor = async (content, { captured = false, script = '', offset = 0, reducedMotion = true, beforeMain = '' } = {}) => {
             const frame = document.createElement('iframe');
             frame.style.cssText = 'width:640px;height:320px;border:0';
             frames.push(frame);
             const loaded = new Promise((resolve) => { frame.onload = resolve; });
-            let html = `<!doctype html><html><head><meta name="meet-the-frontend-live-preview-panel" content="source-token"><style>p{height:100px;margin:0}img{width:20px;height:20px}</style></head><body><main>${content}</main><script>${script}</script></body></html>`;
+            let html = `<!doctype html><html><head><meta name="meet-the-frontend-live-preview-panel" content="source-token"><style>p{height:100px;margin:0}img{width:20px;height:20px}</style></head><body>${beforeMain}<main>${content}</main><script>${script}</script></body></html>`;
             if (captured) {
                 // Model the PHP wire format; the PHP fixture separately verifies the actual buffer/HTML API.
                 const source = new DOMParser().parseFromString(html, 'text/html');
@@ -1717,6 +1717,58 @@ async function browserTests() {
         scrolling.capture(before, hints('Hello'));
         equal(scrolling.findTarget(before, after, hints('Welcome')), after.querySelector('#edited'), 'Keep ambiguous rendered regions available for collaborative evidence.');
     });
+    const acfText = (value) => ({ 'acf[field_heading]': { type: 'text', value, acfPlainText: true } });
+    await check('an exact edit cannot join independently changing regions', async (scrolling, doc) => {
+        const left = (text) => '<section id="left"><h3>' + text + '</h3><p>Stable left anchor</p></section>';
+        const before = await doc(left('Service') + '<aside id="right"><p>Old first</p><p>Old second</p></aside>', { captured: true });
+        const after = await doc(left('Unrelated update') + '<aside id="right"><div>New decoration</div><h3>Service team</h3></aside>', { captured: true });
+        equal(follow(scrolling, before, after, acfText('Service'), acfText('Service team')), null,
+            'Loss of the full value in one range does not identify a matching gain in another.');
+    });
+    for (const scenario of ['exact', 'duplicate source', 'duplicate live', 'old value survives', 'unverified row reorder', 'added row',
+        'disabled row order', 'old duplicate outside main', 'new source duplicate outside main', 'new live duplicate outside main',
+        'excluded duplicate outside main', 'core title', 'ACF rich text']) {
+        await check(`an overlapping field edit in unaligned source uses only a unique full transition: ${scenario}`, async (scrolling, doc) => {
+            const before = await doc('<section><h3>Service</h3><p>Old render decoration</p></section>', {
+                captured: true,
+                beforeMain: scenario === 'old duplicate outside main' ? '<header><h3>Service</h3></header>' : '',
+            });
+            const marker = '<h3 id="edited">Service team</h3>';
+            const extra = scenario === 'duplicate source' ? '<h3>Service team</h3>' : scenario === 'old value survives' ? '<h3>Service</h3>' : '';
+            const after = await doc('<section><aside>New decoration</aside>' + marker + extra + '</section>', {
+                captured: true,
+                beforeMain: scenario === 'new source duplicate outside main' ? '<header><h3>Service team</h3></header>'
+                    : scenario === 'excluded duplicate outside main' ? '<nav><h3>Service team</h3></nav>' : '',
+                script: scenario === 'duplicate live' ? "document.querySelector('#edited').insertAdjacentHTML('afterend', '<h3>Service team</h3>');"
+                    : scenario === 'new live duplicate outside main' ? "document.body.insertAdjacentHTML('afterbegin', '<header><h3>Service team</h3></header>');" : '',
+            });
+            function submittedText(value) {
+                if (scenario === 'core title') return { post_title: { type: 'text', value } };
+                if (scenario === 'ACF rich text') return { 'acf[field_heading]': { type: 'html', value: '<h3>' + value + '</h3>' } };
+                return acfText(value);
+            }
+            const previous = submittedText('Service'), next = submittedText('Service team');
+            if (['unverified row reorder', 'added row'].includes(scenario)) {
+                const key = 'acf-layout-order:acf[field_rows]';
+                const orderHint = (rows) => {
+                    const names = rows.map((row) => `acf[field_rows][row-${row}][acf_fc_layout]`);
+                    return { type: 'row-order', value: JSON.stringify(names), members: JSON.stringify(names.slice().sort()) };
+                };
+                previous[key] = orderHint([0, 1]);
+                next[key] = orderHint(scenario === 'added row' ? [0, 1, 2] : [1, 0]);
+            }
+            const submittedRows = (rows) => rows.flatMap((row) => {
+                const name = `acf[field_rows][row-${row}]`;
+                return [[name + '[acf_fc_layout]', 'content'], [name + '[acf_fc_layout_disabled]', row === 1 ? '1' : '0']];
+            });
+            const hasSubmission = scenario === 'disabled row order';
+            scrolling.capture(before, previous, hasSubmission ? submittedRows([0, 1, 2]) : undefined);
+            scrolling.capture(after, next, hasSubmission ? submittedRows([1, 0, 2]) : undefined);
+            const expected = ['exact', 'excluded duplicate outside main'].includes(scenario) ? after.querySelector('#edited') : null;
+            equal(scrolling.comparison.findChange(before, after), expected,
+                'Only a unique ACF plain-text transition can supply this fallback without a concurrent reorder.');
+        });
+    }
     for (const captured of [false, true]) {
         const mode = captured ? 'captured' : 'DOM';
         await check(`${mode}: adding and removing an authored attribute can strengthen a candidate`, async (scrolling, doc) => {
@@ -2457,6 +2509,6 @@ async function browserTests() {
 testInChromium('preview scrolling matches changed sections conservatively', async (t) => {
     const bundle = await browserBundle(t, new URL('./browser/preview-scroll.js', import.meta.url), 'previewScroll');
     await runChromiumTests(t, {
-        head: `<script src="${bundle}"></script>`, script: `(${browserTests.toString()})()`, count: 616, virtualTimeBudget: 60000,
+        head: `<script src="${bundle}"></script>`, script: `(${browserTests.toString()})()`, count: 630, virtualTimeBudget: 60000,
     });
 });

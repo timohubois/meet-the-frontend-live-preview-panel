@@ -5,7 +5,7 @@ import { createPreviewScroll } from '../preview/scroll.js';
 const refreshDelay = 275;
 
 // Share preview writes, frames and ownership, not editor-specific fields or save controls.
-export function createLivePreview(config, nativeEditor, { inlineLauncher, nativeLauncher } = {}) {
+export function createLivePreview(config, nativeEditor, { inlineLauncher, nativeLauncher, resolveRenderedRegions } = {}) {
     const strings = config.strings;
     const subjectId = config.termId ?? config.postId;
     const mainWindow = window;
@@ -30,7 +30,7 @@ export function createLivePreview(config, nativeEditor, { inlineLauncher, native
     let generation = 0;
     let refreshTimer;
     let refreshAt;
-    const frames = createPreviewFrame(view, scrolling, strings, report, config.comparisonExcludedSelectors);
+    const frames = createPreviewFrame(view, scrolling, strings, report, config.comparisonExcludedSelectors, resolveRenderedRegions);
     let followPending = false;
     let refreshTask;
     let candidate;
@@ -191,11 +191,11 @@ export function createLivePreview(config, nativeEditor, { inlineLauncher, native
         changed();
     }
 
-    async function loadFrame(address, version, values, stillMatches) {
+    async function loadFrame(address, version, { comparisonValues, rowSubmission, stillMatches }) {
         if (stillMatches) candidate = { version, stillMatches };
         try {
             await frames.load(address, () => previewActive && version === generation,
-                () => view.followChanges && followPending, values, () => pendingCheck?.promise);
+                () => view.followChanges && followPending, comparisonValues, () => pendingCheck?.promise, rowSubmission);
         } finally {
             if (pendingCheck) await pendingCheck.promise;
             candidate = undefined;
@@ -231,7 +231,7 @@ export function createLivePreview(config, nativeEditor, { inlineLauncher, native
                     throw Object.assign(new Error(result.message || strings.failed), { code: result.code });
                 }
                 if (previewActive && version === generation) {
-                    await loadFrame(result.url, version, result.comparisonValues, result.stillMatches);
+                    await loadFrame(result.url, version, result);
                 }
             } catch (error) {
                 if (previewActive && !nativeEditor.saving) reportFailure(error);

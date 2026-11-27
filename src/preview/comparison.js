@@ -1,14 +1,14 @@
-import { containsEntry, contentSnapshot, entryText, normalizedText, sourceDocument } from './snapshot.js';
-import { createRowMoveVerifier, inputRowMove } from './row-move.js';
+import { containsEntry, contentSnapshot, entryText, normalizedText, sameRowPosition, sourceDocument, subtreeSnapshot } from './snapshot.js';
+import { anchoredRowMove, createRowMoveVerifier, inputRowMove, resolvedRowMove } from './row-move.js';
 import { duplicateIds, markRowNavigationEchoes } from './row-navigation.js';
 
 // Comparison state belongs to one preview owner. Visibility is supporting evidence, not scroll presentation.
-export function createPreviewComparison(excludedSelectors = []) {
+export function createPreviewComparison(excludedSelectors = [], resolveRenderedRegions) {
     // PHP supplies the complete policy, including an intentional empty list.
     const selectors = Array.isArray(excludedSelectors) ? [...excludedSelectors] : [];
     const snapshots = new WeakMap();
     return {
-        capture(doc, values) {
+        capture(doc, values, rowSubmission) {
             try {
                 if (snapshots.has(doc)) return;
                 const source = sourceDocument(doc);
@@ -19,6 +19,8 @@ export function createPreviewComparison(excludedSelectors = []) {
                     source: sourceSnapshot,
                     dom: contentSnapshot(doc, doc, selectors),
                     values: values && structuredClone(values),
+                    rowSubmission: sourceSnapshot && rowSubmission,
+                    sourceDocument: rowSubmission || Object.values(values ?? {}).some((hint) => hint?.acfPlainText) ? source : null,
                 });
             } catch { /* An unreadable document must not block native output or scroll restoration. */ }
         },
@@ -33,6 +35,12 @@ export function createPreviewComparison(excludedSelectors = []) {
                 const transition = !!before.source !== !!after.source;
                 const move = inputRowMove(before.values, after.values,
                     captured && !edited && !inputOrderChanged(before.values, after.values));
+                if (resolveRenderedRegions && move && before.rowSubmission && after.rowSubmission) {
+                    try {
+                        const renderedRow = resolvedRowMove(before, after, move, previous, next, resolveRenderedRegions);
+                        if (renderedRow) return renderedRow;
+                    } catch { /* Optional render evidence cannot replace ordinary comparison when unreadable. */ }
+                }
                 const sourceChanges = captured ? changedCandidates(before.source, after.source, move, true) : [];
                 if (move?.boundaryGroups?.length) {
                     const meaningful = sourceChanges.filter((item) => !item.referenceOnly);
@@ -57,14 +65,52 @@ export function createPreviewComparison(excludedSelectors = []) {
                 const mayFollowConditionalContent = captured && edited && !evidenced.some((item) => item.source);
                 const eligible = evidenced.filter((item) => item.source || item.input || (!captured && !transition)
                     || (mayFollowConditionalContent && (item.kind === 'insert' || item.kind === 'delete')));
-                return selectChange(eligible, {
+                const target = selectChange(eligible, {
                     rowMove: !!move, excluded: after.source?.excluded ?? after.dom?.excluded,
                     canFollowLiveReorder: !captured && (edited || inputOrderChanged(before.values, after.values)),
                     canFollowLiveMove: !captured && !transition,
                 });
+                if (target) return target;
+                if (move?.groups.length && before.rowSubmission && after.rowSubmission) {
+                    return anchoredRowMove(before, after, move, previous, next, selectors, sourceChanges);
+                }
+                // A failed alignment may conceal an exact edit, but never override competing input evidence.
+                if (captured && !move && !eligible.some((item) => item.input)
+                    && !inputOrderChanged(before.values, after.values) && !rowOrderChanged(before, after)) {
+                    return exactTextEdit(before, after, previous, next, hints, sourceChanges, selectors);
+                }
+                return null;
             } catch { return null; } // Optional comparison must never prevent displaying native output.
         },
     };
+}
+
+function exactTextEdit(before, after, previous, next, [hint, ...otherHints], changes, selectors) {
+    if (!hint?.acfPlainText || otherHints.length || !hint.fullBefore || !hint.fullAfter
+        || !changes.some((change) => change.unresolved) || changes.some((change) => change.regionChange === 'reorder')) return null;
+    // A narrowed span can survive inside its replacement ("Service" → "Service team").
+    // Check exact full values across both pages, but only choose a target inside the same changed range.
+    const text = new Map();
+    function matches(entry, value) {
+        if (!entry) return [];
+        const children = entry.children.flatMap((child) => matches(child, value));
+        return children.length || normalizedText(entryText(entry, text)) !== value ? children : [entry];
+    }
+    function witness({ source, dom, sourceDocument }, doc, value, other) {
+        if (!dom || !sourceDocument?.body || !doc.body) return null;
+        const captured = contentSnapshot(sourceDocument, doc, selectors, sourceDocument.body)?.contentRoot;
+        const live = subtreeSnapshot(doc.body, dom.excluded);
+        const entries = matches(captured, value), onPage = matches(live, value);
+        if (entries.length !== 1 || onPage.length !== 1 || matches(captured, other).length || matches(live, other).length) return null;
+        const [entry] = matches(source.contentRoot, value), node = entry?.node;
+        return node?.isConnected && node === onPage[0].node && node === entries[0].node ? entry : null;
+    }
+    const old = witness(before, previous, hint.fullBefore, hint.fullAfter);
+    const current = witness(after, next, hint.fullAfter, hint.fullBefore);
+    const inRange = (entry, range) => range.some((root) => root === entry || containsEntry(root, entry));
+    if (!old || !current || old.tag !== current.tag || !changes.some((change) => change.unresolved
+        && inRange(old, change.oldRange) && inRange(current, change.newRange))) return null;
+    return current.node;
 }
 
 function corroborateCandidates(candidates, hints) {
@@ -249,15 +295,6 @@ function hasRenderedBox(node) {
 
 function renderedElement(entry) {
     return findMappedElement(entry, hasRenderedBox);
-}
-
-function sameRowPosition(before, after) {
-    // Only comparable boxes can disprove a move. Native disclosures and display:contents can be boxless.
-    if (!before?.getClientRects().length || !after.getClientRects().length) return false;
-    const a = before.getBoundingClientRect(), b = after.getBoundingClientRect();
-    const from = before.ownerDocument.defaultView, to = after.ownerDocument.defaultView;
-    return Math.abs((a.top + from.scrollY) - (b.top + to.scrollY)) < 1
-        && Math.abs((a.left + from.scrollX) - (b.left + to.scrollX)) < 1;
 }
 
 function renderedBoundary({ before, after, index }, excluded) {
@@ -734,6 +771,19 @@ function inputOrderChanged(before, after) {
     });
 }
 
+// A changed layout order is structural input even when no unique drag can explain it.
+function rowOrderChanged(before, after) {
+    const a = before.values, b = after.values;
+    const differs = (from, to) => Object.entries(from).some(([name, hint]) => hint?.type === 'row-order'
+        && (to[name]?.type !== hint.type || to[name].value !== hint.value));
+    if (a && b && (differs(a, b) || differs(b, a))) return true;
+    if (!before.rowSubmission || !after.rowSubmission) return false;
+    // The order hints omit disabled layouts, but a drag can still change their submitted positions.
+    const layouts = (entries) => entries.flatMap(([name]) => name.startsWith('acf[') && name.endsWith('[acf_fc_layout]') ? [name] : []);
+    const old = layouts(before.rowSubmission), next = layouts(after.rowSubmission);
+    return old.length !== next.length || old.some((name, i) => name !== next[i]);
+}
+
 function inputChanges(before, after) {
     if (!before || !after) return [];
     const changes = [];
@@ -752,7 +802,8 @@ function inputChanges(before, after) {
         const oldText = oldDoc ? entryText(oldContent) : old.value;
         const newText = newDoc ? entryText(newContent) : next.value;
         const a = normalizedText(oldText), b = normalizedText(newText);
-        if (a !== b) changes.push({ ...textTransition(a, b), type: 'text', fullBefore: a, fullAfter: b });
+        if (a !== b) changes.push({ ...textTransition(a, b), type: 'text', fullBefore: a, fullAfter: b,
+            acfPlainText: next.type === 'text' && old.acfPlainText && next.acfPlainText });
         if (!oldDoc) {
             const hint = spacingTransition(oldText, newText);
             if (hint) changes.push(hint);

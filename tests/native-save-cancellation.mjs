@@ -4,10 +4,10 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { withChromiumInput, withChromiumPage, testInChromium } from './helpers/chromium.mjs';
 import { sourceForVm, previewSourceForVm } from './helpers/modules.mjs';
-import { browserEditorExtensionsSource } from './helpers/editor-extensions.mjs';
+import { browserPreviewInputImports } from './helpers/preview-inputs.mjs';
 
-async function browserFixture(editorSource, nativeSource, extensionSource) {
-    const createEditorExtensions = new Function(`return (${extensionSource})(() => { throw new Error('ACF is disabled.'); });`)();
+async function browserFixture(editorSource, nativeSource, inputSource) {
+    const previewInputs = new Function(`return (${inputSource})(() => { throw new Error('ACF is disabled.'); });`)();
     const realJQuery = window.jQuery;
     window.BroadcastChannel = undefined;
     Object.defineProperty(navigator, 'locks', { value: { request: (name, options, run) => run({}) } });
@@ -47,7 +47,7 @@ async function browserFixture(editorSource, nativeSource, extensionSource) {
         const config = { available: true, endpoint: '/preview', base: 'base', strings: {} };
         native = new Function(`${nativeSource}\nreturn createNativeEditor;`)()(config, form);
         const initPreview = new Function('imports', `${editorSource}\nreturn initLivePreview;`)({
-            './editor-extensions.js': { createEditorExtensions },
+            ...previewInputs,
             '../panel/window.js': { createPreviewPanel: (strings, callbacks) => { options = callbacks; return view; } },
             '../preview/scroll.js': { createPreviewScroll: () => ({ remember() {} }) },
         });
@@ -95,7 +95,7 @@ const editorSource = await previewSourceForVm(new URL('../src/screens/classic-ed
 const nativeSource = await sourceForVm(new URL('../src/screens/classic-native-editor.js', import.meta.url));
 const jquery = process.env.WORDPRESS_ROOT
     ? await readFile(join(process.env.WORDPRESS_ROOT, 'wp-includes/js/jquery/jquery.js'), 'utf8') : '';
-const script = `(${browserFixture.toString()})(${JSON.stringify(editorSource)}, ${JSON.stringify(nativeSource)}, ${JSON.stringify(browserEditorExtensionsSource)});`;
+const script = `(${browserFixture.toString()})(${JSON.stringify(editorSource)}, ${JSON.stringify(nativeSource)}, ${JSON.stringify(browserPreviewInputImports)});`;
 const html = `<!doctype html><script src="data:text/javascript;base64,${Buffer.from(jquery).toString('base64')}"></script><body><script>${script.replace(/<\/script/gi, '<\\/script')}</script></body>`;
 
 testInChromium('native save cancellation with trusted Chromium input', { timeout: 30000 }, async (t) => withChromiumPage(html, ({ args, url }) =>

@@ -1,4 +1,4 @@
-import { childFlowText, containsEntry, contentSnapshot, entryText, isFlowBoundary, normalizedText, subtreeSnapshot } from './snapshot.js';
+import { childFlowText, comparisonRoot, containsEntry, contentSnapshot, entryText, isFlowBoundary, mappedPreviewNodes, normalizedText, sameRowPosition, subtreeSnapshot } from './snapshot.js';
 
 const CONFIRMED = 'confirmed';
 const DO_NOT_INFER = 'do-not-infer';
@@ -15,7 +15,7 @@ export function inputRowMove(before, after, orderOnly) {
     if (!next.moved || next.members !== old.members) return;
     const a = JSON.parse(old.value), b = JSON.parse(next.value);
     const from = a.indexOf(next.moved), to = b.indexOf(next.moved);
-    if (from === -1 || to === -1 || from === to || a.length !== b.length) return;
+    if (from === -1 || to === -1 || from === to || a.length !== b.length || new Set(a).size !== a.length) return;
     const siblings = a.filter((_, i) => i !== from);
     b.splice(to, 1);
     if (!siblings.every((item, i) => item === b[i])) return;
@@ -35,7 +35,7 @@ export function inputRowMove(before, after, orderOnly) {
         const crossed = siblings.slice(Math.min(from, to), Math.max(from, to)).map(groupsFor);
         if (crossed.every((labels) => labels.length)) boundaryGroups = crossed;
     }
-    return { from, offset: to - from, count: a.length, groups, elements, peerGroups, boundaryGroups };
+    return { key, order: a, from, offset: to - from, count: a.length, groups, elements, groupsFor, peerGroups, boundaryGroups };
 }
 
 function hasNoRowContent(order, row, values, html) {
@@ -419,8 +419,276 @@ export function createRowMoveVerifier(previous, next, move, { cleanSource, prese
     };
 }
 
+// Adapted regions are proposals, not permission to bypass the submitted move or visible layout checks.
+export function resolvedRowMove(before, after, move, previous, next, resolve) {
+    const { key, from, offset, order } = move, to = from + offset, reordered = order.slice();
+    reordered.splice(to, 0, ...reordered.splice(from, 1));
+    if (!sameRowSubmission(before, after, move, reordered)) return null;
+    const crossed = order.slice(Math.min(from, to), Math.max(from, to) + 1).filter((row) => row !== order[from]);
+    const rows = [order[from], ...crossed];
+    const a = verifiedRegionRoots(before, previous, key, order, rows, resolve);
+    const b = verifiedRegionRoots(after, next, key, reordered, rows, resolve);
+    if (!a || !b || a[0].length !== b[0].length) return null;
+
+    const lead = (roots, { source }) => roots.flatMap((root) => [root, ...root.querySelectorAll('h1,h2,h3,h4,h5,h6,p')])
+        .find((node) => /^(?:h[1-6]|p)$/.test(node.localName) && visibleRowWitness(node)
+            && (!source.excluded || !node.closest(source.excluded))) ?? roots[0];
+    const old = lead(a[0], before), current = lead(b[0], after);
+    if (sameRowPosition(old, current)) return null;
+
+    // Require the move in layout as well as DOM order, without opening disclosures.
+    const crossedOnScreen = a.slice(1).every((roots, i) => {
+        const neighbor = lead(roots, before), nextNeighbor = lead(b[i + 1], after);
+        const oldPair = (offset > 0 ? [old, neighbor] : [neighbor, old]).map((node) => node.getBoundingClientRect());
+        const newPair = (offset > 0 ? [nextNeighbor, current] : [current, nextNeighbor]).map((node) => node.getBoundingClientRect());
+        return [['bottom', 'top'], ['right', 'left']].some(([end, start]) =>
+            [oldPair, newPair].every(([first, last]) => first[end] <= last[start] + 1));
+    });
+    return crossedOnScreen ? current : null;
+}
+
+function verifiedRegionRoots({ sourceDocument, source, values }, doc, subject, order, affected, resolve) {
+    if (!sourceDocument || !source) return null;
+    // One optional proposal per captured response, keyed by submitted row identity.
+    // Each region is an ordered list of [captured element, live element] pairs.
+    const regions = resolve({ sourceDocument, document: doc, values, subject, order });
+    if (!regions) return null;
+    const mapped = mappedPreviewNodes(doc), root = comparisonRoot(doc), result = new Map();
+    let lastSource, lastLive;
+    for (const row of order) {
+        const pairs = regions.get(row);
+        if (!pairs) continue;
+        if (!pairs.length) return null;
+        const required = affected.includes(row), nodes = [];
+        for (const [captured, live] of pairs) {
+            if (!captured?.isConnected || captured.ownerDocument !== sourceDocument || !live?.isConnected
+                || live.ownerDocument !== doc || mapped.get(captured.getAttribute('data-mtflpp-node')) !== live
+                || mapped.get(captured.parentElement?.getAttribute('data-mtflpp-node')) !== live.parentElement) return null;
+            const follows = (earlier, later) => !earlier || (earlier.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING);
+            if (!follows(lastSource, captured) || !follows(lastLive, live)
+                || (nodes.length && (captured.previousElementSibling !== lastSource || live.previousElementSibling !== lastLive))) return null;
+            if (required && (!root?.contains(live) || !visibleRowWitness(live) || (source.excluded && live.closest(source.excluded)))) return null;
+            lastSource = captured;
+            lastLive = live;
+            nodes.push(live);
+        }
+        if (required) result.set(row, nodes);
+    }
+    return affected.every((row) => result.has(row)) ? affected.map((row) => result.get(row)) : null;
+}
+
+// Follow an unchanged author-text witness across a crossed row, without rebuilding a row's markup.
+export function anchoredRowMove(before, after, move, previous, next, selectors, sourceChanges) {
+    const { from, offset, order } = move, to = from + offset;
+    const first = Math.min(from, to), last = Math.max(from, to);
+    const reordered = order.slice();
+    reordered.splice(to, 0, ...reordered.splice(from, 1));
+    if (!sameRowSubmission(before, after, move, reordered)) return null;
+
+    const groups = order.map((row, i) => i === from ? move.groups : move.groupsFor(row));
+    const labels = new Set(groups.flat(2));
+    // Check uniqueness across the page, while requiring the actual witness inside the normal comparison root.
+    const docs = [previous, next], main = docs.map(comparisonRoot);
+    const sources = [before.sourceDocument, after.sourceDocument];
+    const snapshots = [...sources.map((doc, i) => contentSnapshot(doc, docs[i], selectors, doc.body)),
+        ...docs.map((doc) => contentSnapshot(doc, doc, selectors, doc.body))];
+    if (snapshots.some((snapshot) => !snapshot)) return null;
+    const anchors = snapshots.map((root) => uniqueRowAnchors(root, labels));
+    const points = new Map();
+    for (const label of labels) {
+        const hits = anchors.map((map) => map.get(label));
+        if (hits.some((hit) => !hit)) continue;
+        const entries = hits.map(({ entry }) => entry);
+        const substantive = hits.every((hit) => hit.substantive);
+        if (!docs.every((_, i) => {
+            const { node } = entries[i], excluded = snapshots[i].excluded;
+            return node === entries[i + 2].node && main[i]?.contains(node)
+                && (substantive
+                    ? visibleRowWitness(node) && liveTextMatches(entries[i], entries[i], label, excluded, true)
+                    : liveTextMatches(entries[i], entries[i], label, excluded));
+        })) continue;
+        points.set(label, { entries, substantive });
+    }
+
+    const witnesses = groups.map((alternatives) => [...new Set(alternatives.filter((labels) =>
+        labels.every((label) => points.has(label))).flat())].map((label) => points.get(label)).filter(({ substantive }) => substantive));
+    const crossed = witnesses.slice(first, last + 1).flatMap((row, i) => i + first === from ? [] : row);
+    if (!witnesses[from].length || !crossed.length) return null;
+
+    // All available author witnesses must agree with the submitted order in both source and live output.
+    const orders = [];
+    for (const [phase, snapshot] of snapshots.entries()) {
+        const positions = new Map();
+        orders.push(positions);
+        function visit(entry) {
+            positions.set(entry, positions.size);
+            entry.children.forEach(visit);
+        }
+        visit(snapshot);
+        let end = -1;
+        for (const row of phase % 2 ? reordered : order) {
+            const at = witnesses[order.indexOf(row)].map(({ entries }) => positions.get(entries[phase]));
+            if (at.some((position) => position <= end)) return null;
+            if (at.length) end = Math.max(...at);
+        }
+    }
+
+    for (const row of witnesses) {
+        // A row that emits several siblings may move as a unit, but its witnessed copy must not reshuffle.
+        const ordered = row.slice().sort((a, b) => orders[0].get(a.entries[0]) - orders[0].get(b.entries[0]));
+        if (ordered.some(({ entries }, i) => i && orders[1].get(ordered[i - 1].entries[1]) >= orders[1].get(entries[1]))) return null;
+    }
+    if (!consistentWitnesses(witnesses[from], crossed)) return null;
+
+    const includes = (range, entry) => range?.some((root) => belongsTo(root, entry));
+    const observedMove = ({ oldRange, newRange }) => witnesses[from].some(({ entries: [a, b] }) => includes(oldRange, a) && includes(newRange, b))
+        && crossed.some(({ entries: [a, b] }) => includes(oldRange, a) && includes(newRange, b));
+    if (sourceChanges.some((change) => !change.rowNavigationEcho && competingOrderChange(change) && !observedMove(change))) return null;
+    const targets = witnesses[from].filter(({ entries: [a, b] }) => !sameRowPosition(a.node, b.node)
+        && crossed.some(({ entries: [c, d] }) => [['top', 'bottom'], ['left', 'right']].some(([head, tail]) => {
+            const before = (offset > 0 ? [a, c] : [c, a]).map(({ node }) => node.getBoundingClientRect());
+            const after = (offset > 0 ? [d, b] : [b, d]).map(({ node }) => node.getBoundingClientRect());
+            return [before, after].every(([start, end]) => start[tail] <= end[head] + 1);
+        })));
+    const target = targets.find(({ entries }) => /^h[1-6]$/.test(entries[1].tag)) ?? targets[0];
+    return target?.entries[1].node ?? null;
+}
+
+// Disprove the anchor move with evidence we can match, without assigning every sibling to a row.
+function consistentWitnesses(moved, crossed) {
+    const witnesses = [...moved, ...crossed];
+    function collection(phase) {
+        const entries = witnesses.map(({ entries }) => entries[phase]);
+        let parent = entries[0].parent;
+        while (parent && !entries.every((entry) => containsEntry(parent, entry))) parent = parent.parent;
+        if (!parent) return;
+        const branches = entries.map((entry) => parent.children.find((child) => belongsTo(child, entry)));
+        const moving = new Set(branches.slice(0, moved.length));
+        if (branches.some((branch) => !branch) || branches.slice(moved.length).some((branch) => moving.has(branch))) return;
+        return { parent, branches, moving };
+    }
+    const collections = [0, 1, 2, 3].map(collection);
+    if (collections.some((item) => !item)) return false;
+    for (const i of [0, 1]) {
+        const source = collections[i], live = collections[i + 2], cache = new Map();
+        if (source.parent.node !== live.parent.node || source.branches.some((branch, j) =>
+            branch.node !== live.branches[j].node || normalizedText(entryText(branch, cache)) !== normalizedText(entryText(live.branches[j], cache)))) return false;
+    }
+
+    function stableKeys({ parent, moving }) {
+        const keys = new Map(), text = new Map();
+        let index = 0;
+        for (const child of parent.children) {
+            const moves = moving.has(child), copy = normalizedText(entryText(child, text));
+            function add(parts) {
+                const key = JSON.stringify(parts);
+                keys.set(key, keys.has(key) ? null : { index: index++, moves });
+            }
+            if (copy) add([child.tag, copy]);
+            function media(entry) {
+                if (entry.media?.some(Boolean)) add([entry.tag, ...entry.media]);
+                entry.children.forEach(media);
+            }
+            media(child);
+        }
+        return keys;
+    }
+    for (const i of [0, 2]) {
+        const old = stableKeys(collections[i]), next = stableKeys(collections[i + 1]), last = new Map();
+        for (const [key, origin] of old) {
+            const destination = next.get(key);
+            if (!origin || !destination) continue;
+            // Neither the moved nor stationary content may independently reorder or exchange known media.
+            const { moves, index } = destination;
+            if (moves !== origin.moves || index <= (last.get(moves) ?? -1)) return false;
+            last.set(moves, index);
+        }
+    }
+    return true;
+}
+
+function competingOrderChange(change) {
+    if (change.moved || change.regionChange === 'reorder') return true;
+    // Do not infer a second collection's order from an unresolved range or from labels alone.
+    const collection = ({ tag }) => tag === 'ul' || tag === 'ol' || tag === 'select';
+    if (change.oldRange?.some(collection) && change.newRange?.some(collection)) return true;
+    if (!change.before && !(change.oldRange?.length && change.newRange?.length)) return false;
+    for (let entry = change.after; entry; entry = entry.parent) if (collection(entry)) return true;
+    return false;
+}
+
+function sameRowSubmission(before, after, { key, order, from, offset }, reordered) {
+    const orders = ['row-order', 'gallery-order', 'order'];
+    for (const name of new Set([...Object.keys(before.values), ...Object.keys(after.values)])) {
+        if (name === key) continue;
+        const old = before.values[name], next = after.values[name];
+        if ((orders.includes(old?.type) || orders.includes(next?.type))
+            && (old?.type !== next?.type || old.value !== next.value || old.members !== next.members)) return false;
+    }
+
+    // Only Classic's ACF layout-order hint describes contiguous named groups in the request.
+    const prefix = 'acf-layout-order:', suffix = '[acf_fc_layout]';
+    if (!key.startsWith(prefix)) return false;
+    const field = key.slice(prefix.length);
+    if (order.some((row) => typeof row !== 'string' || !row.startsWith(field + '[') || !row.endsWith(suffix))) return false;
+    function rowPrefix(name) {
+        const end = name.startsWith(field + '[') ? name.indexOf(']', field.length + 1) : -1;
+        return end !== -1 && name[end + 1] === '[' ? name.slice(0, end + 1) : '';
+    }
+    const sameOrder = (a, b) => a.length === b.length && a.every((row, i) => row === b[i]);
+    function split(entries, expected) {
+        const prefixes = new Map(), disabled = new Set();
+        for (const [name, value] of entries) {
+            const prefix = rowPrefix(name);
+            if (!prefix) continue;
+            if (name === prefix + suffix) {
+                if (prefixes.has(prefix)) return null;
+                prefixes.set(prefix, name);
+            }
+            if (name === prefix + '[acf_fc_layout_disabled]' && value === '1') disabled.add(prefix + suffix);
+        }
+        const rows = new Map(), outside = [], observed = [];
+        let previous;
+        for (const pair of entries) {
+            const row = prefixes.get(rowPrefix(pair[0]));
+            if (!row) { outside.push(pair); previous = null; continue; }
+            if (previous !== row) {
+                if (rows.has(row)) return null;
+                observed.push(row);
+                outside.push(null); // Preserve the groups' positions among non-row inputs.
+                rows.set(row, []);
+            }
+            rows.get(row).push(pair);
+            previous = row;
+        }
+        return sameOrder(observed.filter((row) => !disabled.has(row)), expected) ? { rows, outside, observed } : null;
+    }
+    const a = split(before.rowSubmission, order), b = split(after.rowSubmission, reordered);
+    const moved = order[from];
+    // Disabled rows do not render, but their full submitted order and values still have to agree.
+    if (!a || !b || !sameOrder(a.observed.filter((row) => row !== moved), b.observed.filter((row) => row !== moved))) return false;
+    const html = new Map(), to = from + offset;
+    const crossed = new Set(order.slice(Math.min(from, to), Math.max(from, to) + 1));
+    function sameEntries(old, next, rotated = false) {
+        return old.length === next.length && old.every((pair, index) => {
+            const item = next[index];
+            if (!pair || !item) return pair === item;
+            const [name, value] = pair;
+            if (name !== item[0]) return false;
+            if (value === item[1]) return true;
+            if (!rotated) return false;
+            const a = before.values[name], b = after.values[name];
+            // Allow serialization of the same parsed markup, but keep every text node and attribute.
+            return a?.type === 'html' && b?.type === 'html' && a.value === value && b.value === item[1]
+                && rowFieldText(a, html)?.document.isEqualNode(rowFieldText(b, html)?.document ?? null);
+        });
+    }
+    return sameEntries(a.outside, b.outside) && a.observed.every((row) =>
+        sameEntries(a.rows.get(row), b.rows.get(row), crossed.has(row)));
+}
+
 function belongsTo(row, entry) {
-    return row === entry || containsEntry(row, entry);
+    return !!entry && (row === entry || containsEntry(row, entry));
 }
 
 function inLiveRow(row, node, excluded) {
@@ -429,8 +697,19 @@ function inLiveRow(row, node, excluded) {
     return true;
 }
 
-function liveTextMatches(row, { node }, label, excluded) {
-    return inLiveRow(row, node, excluded) && normalizedText(liveRowText(node, excluded)) === label;
+function visibleRowWitness(node) {
+    if (!node?.getClientRects().length || node.closest('[hidden]') || node.checkVisibility?.({
+        visibilityProperty: true, opacityProperty: true, contentVisibilityAuto: true,
+    }) === false) return false;
+    for (let child = node; child.parentElement; child = child.parentElement) {
+        const parent = child.parentElement;
+        if (parent.matches('details:not([open])') && child !== parent.querySelector(':scope > summary')) return false;
+    }
+    return true;
+}
+
+function liveTextMatches(row, { node }, label, excluded, visibleOnly = false) {
+    return inLiveRow(row, node, excluded) && normalizedText(liveRowText(node, excluded, visibleOnly)) === label;
 }
 
 function liveAnchorMatches(row, { node, tag }, key, excluded) {
@@ -447,15 +726,19 @@ function suppressesRowSubtree(node, style = node.ownerDocument.defaultView.getCo
         && (node.hasAttribute('hidden') || style.contentVisibility === 'hidden'));
 }
 
-function liveRowText(node, excluded) {
-    if (excluded && node.matches(excluded)) return '';
+function liveRowText(node, excluded, visibleOnly = false) {
+    if ((excluded && node.matches(excluded)) || (visibleOnly && node.hasAttribute('hidden'))) return '';
     const style = node.ownerDocument.defaultView.getComputedStyle(node);
     if (suppressesRowSubtree(node, style)) return '';
+    if (visibleOnly && node.matches('details:not([open])')) {
+        const summary = node.querySelector(':scope > summary');
+        return summary ? liveRowText(summary, excluded, true) : '';
+    }
     // Visibility is inherited but a descendant can override it. Test the element supplying each text node.
     let text = '';
     for (const child of node.childNodes) {
         if (child.nodeType === 3 && style.visibility === 'visible') text += child.textContent;
-        else if (child.nodeType === 1) text += liveRowText(child, excluded);
+        else if (child.nodeType === 1) text += liveRowText(child, excluded, visibleOnly);
     }
     return childFlowText(node.localName, text);
 }

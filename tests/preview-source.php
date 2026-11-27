@@ -63,6 +63,7 @@ $makePreview = static function (bool $requested) use ($file): FrontendPreview {
         'previewSiteId' => get_current_blog_id(),
         'previewToken' => 'source-token',
         'sourceRequested' => $requested,
+        'rowEvidence' => new PreviewRowEvidence(),
         'source' => new WP_Post((object) ['ID' => 123]),
     ];
     foreach ($properties as $name => $value) {

@@ -57,7 +57,7 @@ npm test
 
 Edit authored assets in `src/`, not generated files in `build/`. Browser tests require Chromium. PHP integration fixtures require a disposable WordPress installation; never run destructive uninstall checks against a project database.
 
-See [development and release instructions](docs/development.md), [architecture and compatibility](docs/architecture.md), and [integration hooks](docs/integrations.md).
+See [development and release instructions](docs/development.md), [architecture and compatibility](docs/architecture.md), and [comparison exclusions](docs/integrations.md).
 
 ## License
 

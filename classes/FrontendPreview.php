@@ -2,6 +2,10 @@
 
 namespace MeetTheFrontendLivePreviewPanel;
 
+use MeetTheFrontendLivePreviewPanel\Compatibility\Acf;
+use MeetTheFrontendLivePreviewPanel\Compatibility\CoreBlocks;
+use MeetTheFrontendLivePreviewPanel\Compatibility\Timber;
+use MeetTheFrontendLivePreviewPanel\Compatibility\Yoast;
 use WP_Post;
 
 /** Authorize preview reads and render only the selected source on the frontend. */
@@ -14,12 +18,18 @@ final class FrontendPreview
     private bool $isolated = false;
     private bool $saved = false;
     private bool $sourceRequested = false;
+    private bool $rowMarkersRequested = false;
     private bool $postsPage = false;
     private ?string $savedPostsPageTitle = null;
 
     public function __construct(
         private readonly string $file,
-        private readonly LivePreview $livePreview
+        private readonly LivePreview $livePreview,
+        private readonly Acf $acf = new Acf(),
+        private readonly CoreBlocks $coreBlocks = new CoreBlocks(),
+        private readonly PreviewRowEvidence $rowEvidence = new PreviewRowEvidence(),
+        private readonly Timber $timber = new Timber(),
+        private readonly Yoast $yoast = new Yoast()
     ) {
         add_action('init', [$this, 'authorizePreview'], 20);
     }
@@ -122,6 +132,7 @@ final class FrontendPreview
         $this->source = sanitize_post($source);
         $this->saved = $saved;
         $this->sourceRequested = isset($_GET['mtflpp_source']) && $_GET['mtflpp_source'] === '1';
+        $this->rowMarkersRequested = isset($_GET['mtflpp_row_markers']) && $_GET['mtflpp_row_markers'] === '1';
         $this->postsPage = self::isConfiguredPostsPage(get_post($postId));
         add_action('template_redirect', [$this, 'checkPreviewTarget'], -1);
         if (!$this->postsPage) {
@@ -137,20 +148,12 @@ final class FrontendPreview
         add_filter('get_post_metadata', [$this, 'readRevisionMeta'], 10, 4);
         add_filter('get_the_terms', [$this, 'readTerms'], 10, 3);
 
-        /**
-         * Bind optional reads only after core has authorized and selected the preview source.
-         *
-         * Live and saved previews have separate actions; neither can select another source.
-         *
-         * @param array $context Original post and authorized source identities; unrelated posts stay untouched.
-         */
-        // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.DynamicHooknameFound -- Both names are prefixed.
-        do_action($this->saved
-            ? 'mtflpp_frontend_saved_preview_source_selected'
-            : 'mtflpp_frontend_live_preview_source_selected', [
-                'post' => ['id' => $this->previewPostId],
-                'source' => ['id' => $this->source->ID],
-            ]);
+        $postId = $this->previewPostId;
+        $sourceId = $this->source->ID;
+        $this->acf->bindPreview($postId, $sourceId, $this->saved);
+        $this->coreBlocks->bindPreview($postId, $sourceId, $this->saved);
+        $this->timber->bindPreview($postId, $sourceId, $this->saved);
+        $this->yoast->bindPreview($postId, $sourceId, $this->saved);
     }
 
     private function isPreviewPost(mixed $postId): bool
@@ -272,6 +275,10 @@ final class FrontendPreview
         // Editors have already authorized this preview. Leave other posts and later site policies alone.
         add_filter('post_password_required', [$this, 'requirePostPassword'], 0, 2);
 
+        if (!$this->saved && $this->sourceRequested && $this->rowMarkersRequested) {
+            // Row evidence may decorate this matched, authorized following document only.
+            $this->rowEvidence->markPreview($this->source->ID);
+        }
         (new PreviewDocument($this->file, $this->previewToken))->enhance($this->isolated, $this->sourceRequested);
     }
 }

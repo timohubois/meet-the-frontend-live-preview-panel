@@ -1,7 +1,6 @@
 import { createNativeEditor } from './screens/classic-native-editor.js';
 import { initLivePreview } from './screens/classic-editor.js';
 import { showStartupError } from './panel/startup-error.js';
-import './compatibility/acf-editor.js';
 import './panel/panel.css';
 
 const config = window.meetTheFrontendLivePreviewPanel;

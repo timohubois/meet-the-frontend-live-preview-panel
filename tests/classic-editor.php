@@ -35,12 +35,6 @@ $originalPostId = $GLOBALS['post_ID'] ?? null;
 $admins = get_users(['role' => 'administrator', 'fields' => 'ID', 'number' => 1]);
 $check($admins !== [], 'The fixture needs a site administrator.');
 $posts = [];
-$configs = [];
-$captureConfig = static function (array $config) use (&$configs): array {
-    $configs[] = [$config['postId'], $config['postTitle']];
-    return $config;
-};
-add_filter('mtflpp_classic_editor_preview_config', $captureConfig);
 register_post_type('mtflpp_hidden', ['public' => false, 'publicly_queryable' => false]);
 try {
     wp_set_current_user((int) $admins[0]);
@@ -70,7 +64,12 @@ try {
     $GLOBALS['post'] = $wrapper;
     $check($hasLauncher($wrapper) && $hasPanel(), 'Replacing global post with a same-post wrapper must be safe.');
     do_action('admin_enqueue_scripts', 'post.php');
-    $check($configs === [[$postId, $post->post_title]], 'Preview configuration must use the core post.');
+    $inline = implode("\n", wp_scripts()->get_data('meet-the-frontend-live-preview-panel', 'before'));
+    $config = json_decode(substr($inline, strpos($inline, ' = ') + 3, -1), true, 512, JSON_THROW_ON_ERROR);
+    $check(
+        [$config['postId'], $config['postTitle']] === [$postId, $post->post_title],
+        'Enqueued preview configuration must use the core post.'
+    );
     if (class_exists(\Timber\Timber::class)) {
         $timber = \Timber\Timber::get_post($postId);
         $GLOBALS['post'] = $timber;
@@ -108,7 +107,6 @@ try {
     $GLOBALS['post'] = $originalPost;
     $GLOBALS['post_ID'] = $originalPostId;
     $GLOBALS['current_screen'] = $originalScreen;
-    remove_filter('mtflpp_classic_editor_preview_config', $captureConfig);
     foreach ($posts as $id) {
         wp_delete_post($id, true);
     }

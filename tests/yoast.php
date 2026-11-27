@@ -29,21 +29,15 @@ foreach (['wp_query', 'wp_the_query', 'post'] as $key) {
 }
 $hooks = [];
 $previewHooks = [
-    'mtflpp_live_preview_form_values', 'mtflpp_live_preview_custom_fields_initialized',
-    'mtflpp_live_preview_preparation_error', 'mtflpp_frontend_live_preview_source_selected',
-    'mtflpp_frontend_saved_preview_source_selected',
     'the_preview', 'get_post_metadata', 'get_the_terms', 'wpseo_breadcrumb_links', 'wpseo_breadcrumb_indexables',
     'wpseo_should_save_indexable', 'shutdown',
 ];
 foreach ($previewHooks as $hook) {
     $hooks[$hook] = isset($GLOBALS['wp_filter'][$hook]) ? clone $GLOBALS['wp_filter'][$hook] : null;
-    if (str_starts_with($hook, 'mtflpp_')) {
-        remove_all_filters($hook);
-    }
 }
 $adapter = new YoastAdapter();
 $live = new LivePreview();
-$frontend = new FrontendPreview(dirname(__DIR__) . '/meet-the-frontend-live-preview-panel.php', $live);
+$frontend = new FrontendPreview(dirname(__DIR__) . '/meet-the-frontend-live-preview-panel.php', $live, yoast: $adapter);
 $posts = $terms = [];
 $user = 0;
 $mainTaxonomy = 'category';

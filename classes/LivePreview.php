@@ -3,6 +3,7 @@
 namespace MeetTheFrontendLivePreviewPanel;
 
 use MeetTheFrontendLivePreviewPanel\Compatibility\Acf;
+use MeetTheFrontendLivePreviewPanel\Compatibility\Yoast;
 use WP_Error;
 use WP_Post;
 use WP_REST_Request;
@@ -28,8 +29,11 @@ final class LivePreview
     /** @var \WeakMap<WP_REST_Request, array> */
     private \WeakMap $restSaves;
 
-    public function __construct()
-    {
+    public function __construct(
+        private readonly Acf $acf = new Acf(),
+        private readonly PreviewRowEvidence $rowEvidence = new PreviewRowEvidence(),
+        private readonly Yoast $yoast = new Yoast()
+    ) {
         $this->httpPostRequests = new \WeakMap();
         $this->restSaves = new \WeakMap();
         add_filter('rest_allowed_cors_headers', [$this, 'rememberHttpMethod'], 10, 2);
@@ -442,6 +446,7 @@ final class LivePreview
         try {
             return $this->preparePreviewWrite($request);
         } finally {
+            $this->rowEvidence->clearSaveEvidence();
             $_FILES = $originalFiles;
             self::$preparingPreview = false;
         }
@@ -518,6 +523,12 @@ final class LivePreview
         if ($rowText) {
             $result['rowDisplayText'] = $rowText;
         }
+        // Evidence describes the accepted snapshot and opts this destination into marking.
+        $rowMarkers = $this->rowEvidence->rowMarkers($revisionId, $input);
+        if ($rowMarkers && $result['url']) {
+            $result['rowMarkers'] = $rowMarkers;
+            $result['url'] = add_query_arg('mtflpp_row_markers', '1', $result['url']);
+        }
         return new WP_REST_Response($result);
     }
 
@@ -556,7 +567,7 @@ final class LivePreview
         return $result;
     }
 
-    /** Validate and resolve display fields before any preview writes or integration hooks. */
+    /** Validate and resolve display fields before preparing the isolated write. */
     private function previewFields(WP_Post $post, array $input): array|WP_Error
     {
         $dates = $this->previewDates($post, $input);
@@ -655,82 +666,74 @@ final class LivePreview
         // Native form-save hooks read $_POST; scope both preparation and saving to this operation.
         // phpcs:ignore WordPress.Security.NonceVerification.Missing -- REST nonce verified by preparePreview().
         $originalPost = $_POST;
-        $revisionId = 0;
-        $seed = null;
-        $preparationError = null;
-        $context = ['post' => ['id' => $postId], 'source' => null];
         try {
-            /**
-             * Extend unslashed native form values, or reject them with WP_Error.
-             * Preserve earlier errors. Context identities do not select the write target.
-             *
-             * @param array|WP_Error $payload Native form values or a prior error.
-             * @param array          $context Post identity, null source and untrusted unslashed input.
-             */
-            $payload = apply_filters('mtflpp_live_preview_form_values', $payload, $context + ['input' => $input]);
-            if (is_wp_error($payload)) {
-                $preparationError = $payload;
-                return $payload;
-            }
-            $payload = wp_slash($payload);
-            $seed = function (int $revisionId) use ($postId, $fields, &$context): void {
-                // A native save callback can update this revision again. Seed only once per preview request.
-                if ($context['source'] !== null || !$this->ownsRevision($postId, $revisionId)) {
-                    return;
-                }
-                $context['source'] = ['id' => $revisionId];
-                $this->seedPreviewMeta($postId, $revisionId, $fields);
-                if (!$this->ownsRevision($postId, $revisionId)) {
-                    return;
-                }
-                $this->writePreviewFields($revisionId, $fields);
-            };
-            add_action('save_post_revision', $seed, 0);
-            $_POST = $payload;
-            $revisionId = $this->writeRevision($postId, $payload);
-        } finally {
-            if ($seed !== null) {
-                remove_action('save_post_revision', $seed, 0);
-            }
-            $_POST = $originalPost;
-            if (!is_wp_error($revisionId) && $revisionId) {
-                $context['source'] = ['id' => (int) $revisionId];
-            }
             try {
-                /**
-                 * Verify integration saves; preserve any earlier error. Also runs after rejection or exceptions.
-                 * Use the preparation_finished action to release state even if a verifier throws.
-                 *
-                 * @param WP_Error|null $error   A prior integration error, or null.
-                 * @param array         $context Post and source identities, with a null source if none was established.
-                 */
-                $saveError = apply_filters('mtflpp_live_preview_preparation_error', $preparationError, $context);
+                $payload = $this->acf->preparePayload($payload, $input);
+                if (is_wp_error($payload)) {
+                    return $payload;
+                }
+                $error = $this->yoast->preparePrimaryTerms($postId, $input);
+                if ($error) {
+                    return $error;
+                }
+                $payload = wp_slash($payload);
+                $seeded = false;
+                $seed = function (int $revisionId) use ($postId, $fields, $input, &$seeded): void {
+                    // Native save callbacks can update the same revision again. Seed only once.
+                    if ($seeded || !$this->ownsRevision($postId, $revisionId)) {
+                        return;
+                    }
+                    $seeded = true;
+                    $this->seedPreviewMeta($postId, $revisionId, $fields);
+                    if (!$this->ownsRevision($postId, $revisionId)) {
+                        return;
+                    }
+                    $this->acf->beginRevisionWrite($revisionId);
+                    $this->rowEvidence->observeSave($revisionId, $input);
+                    $this->yoast->savePrimaryTerms($revisionId, $postId);
+                    if ($this->ownsRevision($postId, $revisionId)) {
+                        $this->writePreviewFields($revisionId, $fields);
+                    }
+                };
+                add_action('save_post_revision', $seed, 0);
+                $_POST = $payload;
+                try {
+                    $revisionId = $this->writeRevision($postId, $payload);
+                } finally {
+                    remove_action('save_post_revision', $seed, 0);
+                    $_POST = $originalPost;
+                }
+                if (is_wp_error($revisionId)) {
+                    return new WP_Error('mtflpp_preview_failed', $revisionId->get_error_message(), ['status' => 400]);
+                }
+                if (!$revisionId || !$this->ownsRevision($postId, $revisionId)) {
+                    return $this->revisionUnavailable();
+                }
+                $error = $this->acf->verifySave($revisionId);
             } finally {
-                /**
-                 * Release integration state after verification, including when a verifier throws.
-                 * Form values and native revision hooks are restored; files remain hidden and nested writes blocked.
-                 *
-                 * @param array $context Post and source identities, with a null source if none was established.
-                 */
-                do_action('mtflpp_live_preview_preparation_finished', $context);
+                // Release the native ACF guards before any Yoast verification reads.
+                $_POST = $originalPost;
+                $this->acf->resetSave();
             }
+            $error ??= $this->yoast->verifySave($revisionId);
+            if ($error) {
+                return $error;
+            }
+            return $this->ownsRevision($postId, $revisionId) ? $revisionId : $this->revisionUnavailable();
+        } finally {
+            $_POST = $originalPost;
+            $this->yoast->resetSave();
+            $this->rowEvidence->stopObserving();
         }
-        if (is_wp_error($revisionId)) {
-            return new WP_Error('mtflpp_preview_failed', $revisionId->get_error_message(), ['status' => 400]);
-        }
-        if ($saveError) {
-            return $saveError;
-        }
-        $revisionId = (int) $revisionId;
-        if (!$revisionId || !$this->ownsRevision($postId, $revisionId)) {
-            return new WP_Error(
-                'mtflpp_revision_unavailable',
-                __('We couldn’t prepare the preview.', 'meet-the-frontend-live-preview-panel'),
-                ['status' => 409]
-            );
-        }
+    }
 
-        return $revisionId;
+    private function revisionUnavailable(): WP_Error
+    {
+        return new WP_Error(
+            'mtflpp_revision_unavailable',
+            __('We couldn’t prepare the preview.', 'meet-the-frontend-live-preview-panel'),
+            ['status' => 409]
+        );
     }
 
     /** Revision authors identify the editor/owner, not the post's selected author. */
@@ -832,16 +835,6 @@ final class LivePreview
                 add_metadata('post', $revisionId, $key, wp_slash(maybe_unserialize($value)));
             }
         }
-        /**
-         * Saved custom-field values are available as the preview's starting point.
-         * Submitted changes and native save hooks still follow; this is not preview-ready.
-         *
-         * @param array $context Core-owned post and initialized source identities.
-         */
-        do_action('mtflpp_live_preview_custom_fields_initialized', [
-            'post' => ['id' => $postId],
-            'source' => ['id' => $revisionId],
-        ]);
     }
 
     private function ownsRevision(int $postId, int $revisionId): bool

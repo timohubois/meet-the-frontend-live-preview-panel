@@ -119,8 +119,7 @@ try {
     }
     // A false update result can also mean unchanged. Seed the same author before core attempts its update.
     $sameAuthorCalls = 0;
-    $sameAuthor = static function (array $context) use ($admin, $check, &$sameAuthorCalls): void {
-        $id = $context['source']['id'];
+    $sameAuthor = static function (int $id) use ($admin, $check, &$sameAuthorCalls): void {
         ++$sameAuthorCalls;
         update_metadata('post', $id, LivePreview::AUTHOR_META, $admin);
         $check(
@@ -128,12 +127,12 @@ try {
             'The fixture must exercise the native unchanged-value return.'
         );
     };
-    add_action('mtflpp_live_preview_custom_fields_initialized', $sameAuthor);
+    add_action('save_post_revision', $sameAuthor, -1);
     try {
         $check($prepare($input)->get_status() === 200, 'Identical persisted values must not be treated as failures.');
         $check($sameAuthorCalls > 0, 'The unchanged-value fixture must actually run before snapshot persistence.');
     } finally {
-        remove_action('mtflpp_live_preview_custom_fields_initialized', $sameAuthor);
+        remove_action('save_post_revision', $sameAuthor, -1);
     }
     $keys = [LivePreview::AUTHOR_META, LivePreview::DATE_META, LivePreview::TERMS_META];
     $recordChurn = static function ($metaId, int $id, string $key) use ($sourceId, $keys, $check): void {

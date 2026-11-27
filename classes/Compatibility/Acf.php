@@ -24,32 +24,13 @@ final class Acf
     private bool $readOnly = false;
     private ?Closure $restoreTaxonomyLoad = null;
 
-    public function __construct()
-    {
-        new AcfTerm();
-        add_filter('mtflpp_classic_editor_preview_config', [$this, 'configureEditor']);
-        add_filter('mtflpp_block_editor_preview_config', [$this, 'configureEditor']);
-        add_filter('mtflpp_classic_editor_preview_script_dependencies', [$this, 'addEditorDependencies']);
-        add_filter('mtflpp_block_editor_preview_script_dependencies', [$this, 'addEditorDependencies']);
-        add_filter('mtflpp_live_preview_form_values', [$this, 'preparePayload'], 10, 2);
-        add_action('mtflpp_live_preview_custom_fields_initialized', [$this, 'beginRevisionWrite']);
-        add_filter('mtflpp_live_preview_preparation_error', [$this, 'verifySave'], 10, 2);
-        add_action('mtflpp_live_preview_preparation_finished', [$this, 'resetSave'], PHP_INT_MIN, 0);
-        add_action('mtflpp_frontend_live_preview_source_selected', fn (array $context) => $this->bindPreview(
-            $context['post']['id'],
-            $context['source']['id']
-        ));
-        add_action('mtflpp_frontend_saved_preview_source_selected', fn (array $context) => $this->bindPreview(
-            $context['post']['id'],
-            $context['source']['id'],
-            true
-        ));
-    }
-
-    public function configureEditor(array $config): array
+    public function configureEditor(array &$config, array &$dependencies): void
     {
         if (!$this->isAvailable()) {
-            return $config;
+            return;
+        }
+        if (wp_script_is('acf-input', 'registered')) {
+            $dependencies[] = 'acf-input';
         }
         $config['acfEnabled'] = true;
         $config['strings']['acfRefreshing'] = __(
@@ -68,18 +49,6 @@ final class Acf
             'The preview can’t read your custom fields.',
             'meet-the-frontend-live-preview-panel'
         );
-        return $config;
-    }
-
-    public function addEditorDependencies(array $dependencies): array
-    {
-        return array_merge($dependencies, $this->editorDependencies());
-    }
-
-    /** Load ACF's field JavaScript API before either editor entry point. */
-    public function editorDependencies(): array
-    {
-        return $this->isAvailable() && wp_script_is('acf-input', 'registered') ? ['acf-input'] : [];
     }
 
     public function isAvailable(): bool
@@ -137,13 +106,8 @@ final class Acf
     }
 
     /** Extend an authorized, unslashed REST payload using ACF's normal form context. */
-    public function preparePayload(array|WP_Error $payload, array $context): array|WP_Error
+    public function preparePayload(array $payload, array $input): array|WP_Error
     {
-        $this->resetSave();
-        if (is_wp_error($payload)) {
-            return $payload;
-        }
-        $input = $context['input'];
         $this->saving = array_key_exists('acf', $input);
         if (!$this->saving) {
             return $payload;
@@ -171,12 +135,12 @@ final class Acf
     }
 
     /** Scope guards to the owned source, including native post-meta block saves without form fields. */
-    public function beginRevisionWrite(array $context): void
+    public function beginRevisionWrite(int $revisionId): void
     {
         if (!$this->isAvailable()) {
             return;
         }
-        $this->writeId = $context['source']['id'];
+        $this->writeId = $revisionId;
         $this->clearRevisionCache($this->writeId);
         add_filter('acf/connect_attachment_to_post', [$this, 'allowAttachmentParent'], PHP_INT_MAX, 3);
         add_action('acf/save_post', [$this, 'recordSave'], PHP_INT_MAX);
@@ -367,29 +331,18 @@ final class Acf
     }
 
     /** The coordinator still owns and verifies the exact preview revision. */
-    public function verifySave(?WP_Error $error, array $context): ?WP_Error
+    public function verifySave(int $revisionId): ?WP_Error
     {
-        $revisionId = $context['source']['id'] ?? 0;
-        try {
-            if ($error) {
-                return $error;
-            }
-            $saved = !$this->saving || ($revisionId && $revisionId === $this->savedId);
-            if ($saved && $revisionId && $revisionId === $this->writeId && $this->savedTerms) {
-                update_metadata('post', $revisionId, self::TERMS_META, $this->savedTerms);
-                $saved = get_metadata('post', $revisionId, self::TERMS_META, true) === $this->savedTerms;
-            }
-            if (!$saved) {
-                return new WP_Error(
-                    'mtflpp_acf_not_saved',
-                    __('We couldn’t add your field changes to the preview.', 'meet-the-frontend-live-preview-panel'),
-                    ['status' => 409]
-                );
-            }
-            return null;
-        } finally {
-            $this->resetSave();
+        $saved = !$this->saving || $revisionId === $this->savedId;
+        if ($saved && $revisionId === $this->writeId && $this->savedTerms) {
+            update_metadata('post', $revisionId, self::TERMS_META, $this->savedTerms);
+            $saved = get_metadata('post', $revisionId, self::TERMS_META, true) === $this->savedTerms;
         }
+        return $saved ? null : new WP_Error(
+            'mtflpp_acf_not_saved',
+            __('We couldn’t add your field changes to the preview.', 'meet-the-frontend-live-preview-panel'),
+            ['status' => 409]
+        );
     }
 
     /** Bind only an authorized source; saved history must also reject redirected ACF writes. */

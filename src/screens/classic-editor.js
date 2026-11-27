@@ -1,4 +1,6 @@
-import { createEditorExtensions } from './editor-extensions.js';
+import { guardPreviewInputs, submittedValues } from './preview-inputs.js';
+import { setupClassicEditorAcf } from '../compatibility/acf-editor.js';
+import { addRowMarkers, requestRowMarkers, resolveRowRegions } from '../preview/row-evidence.js';
 import { createLivePreview } from '../preview/live-preview.js';
 
 // Classic fields and native form controls stay outside the shared preview lifecycle.
@@ -6,27 +8,32 @@ export function initLivePreview(config, nativeEditor, inlineLauncher) {
     const form = document.getElementById('post');
     if (!config || !form) return;
     let capturing = false;
-    let extensions;
+    const inputs = guardPreviewInputs(config);
+    let acf;
     const editors = new Set();
     let destroyed = false;
     nativeEditor.title = document.getElementById('title')?.value ?? config.postTitle;
     function capturePreview(followChanges) {
+        if (destroyed) throw new Error('This editor session has ended.');
         capturing = true;
         let values;
         try {
             window.tinymce?.triggerSave();
             values = new FormData(form);
         } finally { capturing = false; }
-        const core = new URLSearchParams();
+        const data = new URLSearchParams();
         for (const [name, value] of values) {
-            if (typeof value === 'string' && ['post_title', 'content', 'excerpt'].includes(name)) core.append(name, value);
+            if (typeof value === 'string' && ['post_title', 'content', 'excerpt'].includes(name)) data.append(name, value);
         }
-        // Extension capture appends to this body; freeze core semantics before it is extended.
-        const coreValues = Object.fromEntries([...core].map(([key, value]) => [
+        const coreValues = Object.fromEntries([...data].map(([key, value]) => [
             key, { type: key === 'post_title' ? 'text' : 'html', value },
         ]));
-        const data = extensions.capture(core, values);
-        const comparisonValues = extensions.comparisonValues(data, coreValues);
+        inputs.run(() => acf?.appendFormFields(data, values));
+        if (inputs.error) throw inputs.error;
+        let hints = submittedValues(data, coreValues, form);
+        try { hints = acf?.comparisonValues(hints, data) ?? hints; }
+        catch { /* Optional hints do not prevent a valid preview. */ }
+        const comparisonValues = Object.fromEntries(hints);
         const rowFields = new Set();
         if (followChanges) for (const hint of Object.values(comparisonValues)) {
             if (hint?.type !== 'row-order' || !hint.fieldsByRow) continue;
@@ -37,37 +44,46 @@ export function initLivePreview(config, nativeEditor, inlineLauncher) {
         data.set('base', config.base);
         // PHP can truncate large forms; keep the optional hint after the required baseline.
         if (rowFields.size) data.set('mtflpp_row_text_fields', JSON.stringify([...rowFields]));
-        return { data, comparisonValues, rowFields };
+        // Preserve the actual submitted controls (including hidden and repeated values), not optional evidence.
+        const rowSubmission = followChanges && Object.values(comparisonValues).some((hint) => hint?.type === 'row-order')
+            ? [...data].filter(([name]) => !['base', '_acf_nonce', 'mtflpp_row_text_fields'].includes(name))
+            : undefined;
+        if (followChanges && config.previewRowEvidence) requestRowMarkers(data);
+        return { data, comparisonValues, rowFields, rowSubmission };
     }
     nativeEditor.preparePreview = async (followChanges) => {
-        const { data, comparisonValues, rowFields } = capturePreview(followChanges);
+        const { data, comparisonValues, rowFields, rowSubmission } = capturePreview(followChanges);
         const response = await fetch(config.endpoint, {
             method: 'POST', credentials: 'same-origin',
             headers: { 'X-WP-Nonce': config.nonce }, body: data,
         });
         const result = await response.json();
         if (!response.ok) throw Object.assign(new Error(result.message || config.strings.failed), { code: result.code });
-        const { rowDisplayText, ...preview } = result;
         const displayValues = { ...comparisonValues };
         for (const name of rowFields) {
-            const formatted = rowDisplayText?.[name];
+            const formatted = result.rowDisplayText?.[name];
             if (typeof formatted === 'string') displayValues[name] = { ...displayValues[name], formatted };
         }
-        return { ...preview, comparisonValues: displayValues, stillMatches: () => {
+        if (followChanges && config.previewRowEvidence) addRowMarkers(displayValues, result.rowMarkers);
+        return { url: result.url, comparisonValues: displayValues, rowSubmission, stillMatches: () => {
             const current = capturePreview(followChanges);
             return current.data.toString() === data.toString() && (!followChanges
                 || JSON.stringify(current.comparisonValues) === JSON.stringify(comparisonValues));
         } };
     };
-    const preview = createLivePreview(config, nativeEditor, { inlineLauncher });
+    const preview = createLivePreview(config, nativeEditor, {
+        inlineLauncher,
+        resolveRenderedRegions: config.previewRowEvidence ? resolveRowRegions : undefined,
+    });
     function handleChange(notify) {
         if (capturing || destroyed) return;
-        const reason = extensions?.filter('previewPauseReason', '') || extensions?.error?.message;
+        const waiting = inputs.run(() => acf && !acf.ready);
+        const reason = inputs.error?.message || (waiting ? config.strings.acfRefreshing : '');
         const becameReady = nativeEditor.ready === false && !reason;
         nativeEditor.ready = !reason;
         nativeEditor.notReady = reason;
         nativeEditor.notReadyState = 'paused';
-        if (extensions?.error) preview.resume(extensions.error);
+        if (inputs.error) preview.resume(inputs.error);
         else if (reason) preview.pause(reason, 'paused');
         else if (becameReady) preview.resume();
         else notify();
@@ -82,8 +98,8 @@ export function initLivePreview(config, nativeEditor, inlineLauncher) {
         return preview.pending;
     };
     nativeEditor.onPreview = (error, saved) => {
-        error = extensions.filter('nativePreviewHandoffError', error, saved);
-        preview.resume(extensions.error || error);
+        const acfError = inputs.run(() => acf?.nativePreviewError(error, saved));
+        preview.resume(inputs.error || error || acfError);
     };
     function watchEditor(editor) {
         if (destroyed || !editor || editors.has(editor)) return;
@@ -104,14 +120,14 @@ export function initLivePreview(config, nativeEditor, inlineLauncher) {
         changed();
     }
     nativeEditor.onSaveCancelled = cancelNativeSave;
-    extensions = createEditorExtensions('mtflpp.classicEditor.previewSetup', {
+    acf = inputs.run(() => setupClassicEditorAcf({
         config, form, changed, acfFieldChanged, watchEditor, cancelNativeSave,
-    });
+    }));
     const destroyNative = nativeEditor.destroy;
     nativeEditor.destroy = () => {
         if (destroyed) return;
         destroyed = true;
-        extensions.destroy();
+        try { acf?.destroy(); } catch { /* Continue releasing native editor listeners. */ }
         form.removeEventListener('input', onFieldChange);
         form.removeEventListener('change', onFieldChange, true);
         form.removeEventListener('click', onSaveClick, true);
@@ -125,7 +141,7 @@ export function initLivePreview(config, nativeEditor, inlineLauncher) {
     };
     function onPageHide(event) { if (!event.persisted) nativeEditor.destroy(); }
     window.addEventListener('pagehide', onPageHide);
-    nativeEditor.isValidating = () => extensions.filter('nativeSaveValidationPending', false);
+    nativeEditor.isValidating = () => inputs.run(() => acf?.isValidating()) ?? false;
     function onFieldChange(event) {
         if (event.target.name === 'post_title') preview.setTitle(event.target.value);
         if (['post_title', 'content', 'excerpt'].includes(event.target.name)) changed(event);
@@ -172,5 +188,5 @@ export function initLivePreview(config, nativeEditor, inlineLauncher) {
     form.addEventListener('click', onSaveClick, true);
     form.addEventListener('submit', onSaveSubmit, true);
     changed();
-    if (!extensions.error) preview.start();
+    if (!inputs.error) preview.start();
 }

@@ -26,18 +26,19 @@ $originalUser = get_current_user_id();
 $originalGet = $_GET;
 $hooks = [];
 $previewHooks = [
-    'mtflpp_frontend_live_preview_source_selected', 'mtflpp_frontend_saved_preview_source_selected',
     'the_preview', 'get_post_metadata', 'get_the_terms',
     'timber/post/import_data', 'timber/post/class', 'shutdown',
 ];
 foreach ($previewHooks as $hook) {
     $hooks[$hook] = isset($GLOBALS['wp_filter'][$hook]) ? clone $GLOBALS['wp_filter'][$hook] : null;
 }
-remove_all_actions('mtflpp_frontend_live_preview_source_selected');
-remove_all_actions('mtflpp_frontend_saved_preview_source_selected');
 $adapter = new TimberAdapter();
 $live = new LivePreview();
-$frontend = new FrontendPreview(dirname(__DIR__) . '/meet-the-frontend-live-preview-panel.php', $live);
+$frontend = new FrontendPreview(
+    dirname(__DIR__) . '/meet-the-frontend-live-preview-panel.php',
+    $live,
+    timber: $adapter
+);
 $posts = $terms = [];
 $user = 0;
 register_taxonomy('mtflpp_timber_topic', 'post', ['public' => true, 'show_in_rest' => true]);

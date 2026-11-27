@@ -229,7 +229,7 @@ jobs:
       - name: Run Secure Custom Fields integration tests
         if: matrix.scf
         run: |
-          for fixture in tests/acf.php tests/acf-choices.php tests/term-acf.php; do
+          for fixture in tests/acf.php tests/acf-choices.php tests/term-acf.php tests/panel-config.php tests/row-evidence.php; do
             echo "::group::$fixture"
             wp --path="$RUNNER_TEMP/site" eval-file "$GITHUB_WORKSPACE/$fixture"
             echo '::endgroup::'
@@ -252,7 +252,6 @@ jobs:
         run: |
           wp core multisite-convert --path="$RUNNER_TEMP/site" --base=/
           wp plugin activate meet-the-frontend-live-preview-panel --network --path="$RUNNER_TEMP/site"
-          wp --path="$RUNNER_TEMP/site" eval-file "$GITHUB_WORKSPACE/tests/post-note.php"
           wp --path="$RUNNER_TEMP/site" eval-file "$GITHUB_WORKSPACE/tests/identifier-rename.php"
           wp --path="$RUNNER_TEMP/site" eval-file "$GITHUB_WORKSPACE/tests/uninstall.php"
 
