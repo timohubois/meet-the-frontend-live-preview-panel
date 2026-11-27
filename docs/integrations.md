@@ -69,18 +69,21 @@ while (have_posts()) {
     the_post();
     $rows = function_exists('get_field') ? get_field('sections', get_the_ID()) : [];
     echo '<main>';
-    foreach ($rows ?: [] as $row) {
-        if (($row['acf_fc_layout'] ?? '') !== 'text') {
+    foreach (is_array($rows) ? $rows : [] as $row) {
+        if (!is_array($row) || ($row['acf_fc_layout'] ?? null) !== 'text') {
             continue;
         }
 
+        $heading = $row['heading'] ?? null;
+        $body = $row['body'] ?? null;
         $html = sprintf(
             '<h2>%s</h2><p>%s</p>',
-            esc_html($row['heading'] ?? ''),
-            esc_html($row['body'] ?? '')
+            esc_html(is_string($heading) ? $heading : ''),
+            esc_html(is_string($body) ? $body : '')
         );
 
-        echo apply_filters('ExampleTheme/renderRow', $html, $row);
+        $filteredHtml = apply_filters('ExampleTheme/renderRow', $html, $row);
+        echo is_string($filteredHtml) ? $filteredHtml : $html;
     }
     echo '</main>';
 }
@@ -91,6 +94,7 @@ get_footer();
 - **`$html`** is the finished HTML string for **one row**. It can contain one
   top-level element or several siblings, like the heading and paragraph above.
   It is not the whole page, a template filename, or an already-printed result.
+  If a callback returns a non-string value, the example prints the original HTML.
 - **`$row`** is the formatted associative array returned by ACF for that same row.
   Here it contains `acf_fc_layout`, `heading`, and `body`. Pass the original array,
   or a copy that keeps **all** its keys. Do not pass the row number, request data,
