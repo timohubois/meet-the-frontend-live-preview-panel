@@ -22,14 +22,11 @@ $originalPost = $GLOBALS['post'] ?? null;
 $originalQuery = $GLOBALS['wp_query'];
 $originalHooks = [];
 $previewHooks = [
-    'mtflpp_frontend_live_preview_source_selected', 'mtflpp_frontend_saved_preview_source_selected',
     'the_preview', 'get_post_metadata', 'shutdown',
 ];
 foreach ($previewHooks as $hook) {
     $originalHooks[$hook] = isset($GLOBALS['wp_filter'][$hook]) ? clone $GLOBALS['wp_filter'][$hook] : null;
 }
-remove_all_actions('mtflpp_frontend_live_preview_source_selected');
-remove_all_actions('mtflpp_frontend_saved_preview_source_selected');
 $type = WP_Block_Type_Registry::get_instance()->get_registered('core/post-excerpt');
 $check(
     $type && $type->render_callback === 'render_block_core_post_excerpt',
@@ -38,7 +35,11 @@ $check(
 $originalRenderer = $type->render_callback;
 $core = new CoreBlocks();
 $live = new LivePreview();
-$frontend = new FrontendPreview(dirname(__DIR__) . '/meet-the-frontend-live-preview-panel.php', $live);
+$frontend = new FrontendPreview(
+    dirname(__DIR__) . '/meet-the-frontend-live-preview-panel.php',
+    $live,
+    coreBlocks: $core
+);
 $posts = [];
 $user = 0;
 $block = static fn (int $id, array $attributes = []): WP_Block => new WP_Block([

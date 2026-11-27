@@ -42,31 +42,26 @@ foreach ($previewHooks as $hook) {
 }
 $livePreview = new LivePreview();
 $preview = new FrontendPreview(dirname(__DIR__) . '/meet-the-frontend-live-preview-panel.php', $livePreview);
-$sources = [];
-$observeSource = static function (array $context, bool $readOnly) use ($check, &$sources): void {
-    $check(
-        array_keys($context) === ['post', 'source']
-        && array_keys($context['post']) === ['id'] && array_keys($context['source']) === ['id'],
-        'Source events must expose identities only; the hook name identifies live versus saved preview.'
-    );
-    $sources[] = [$context['post']['id'], $context['source']['id'], $readOnly];
-};
-$observeLiveSource = static fn (array $context) => $observeSource($context, false);
-$observeSavedSource = static fn (array $context) => $observeSource($context, true);
-add_action('mtflpp_frontend_live_preview_source_selected', $observeLiveSource, 20);
-add_action('mtflpp_frontend_saved_preview_source_selected', $observeSavedSource, 20);
 $dieHandler = static fn () => static function ($message, $title, $args): void {
     throw new RuntimeException('mtflpp_denied_' . (int) ($args['response'] ?? 0));
 };
 add_filter('wp_die_handler', $dieHandler, PHP_INT_MAX);
-$denied = static function (array $query) use ($preview, $check, &$sources): void {
-    $before = count($sources);
+$denied = static function (array $query) use ($preview, $check, $previewHooks): void {
+    $before = array_map(
+        static fn (string $hook): array => $GLOBALS['wp_filter'][$hook]->callbacks ?? [],
+        $previewHooks
+    );
     $_GET = $query;
     try {
         $preview->authorizePreview();
     } catch (RuntimeException $error) {
         $check($error->getMessage() === 'mtflpp_denied_403', 'Denied previews must return HTTP 403.');
-        $check(count($sources) === $before, 'Denied requests must never bind compatibility reads.');
+        foreach ($previewHooks as $index => $hook) {
+            $check(
+                ($GLOBALS['wp_filter'][$hook]->callbacks ?? []) === $before[$index],
+                'Denied requests cannot bind reads.'
+            );
+        }
         return;
     }
     throw new RuntimeException('An unauthorized preview was accepted.');
@@ -338,7 +333,6 @@ try {
     $coreBlocks = is_array($renderer) ? $renderer[0] : null;
     $check($coreBlocks instanceof CoreBlocks, 'The real bootstrap must bind the native block compatibility owner.');
     $check(str_contains($excerptBlock(), 'Internal live excerpt'), 'Live core excerpts must use the selected source.');
-    $check(end($sources) === [$postId, $internalId, false], 'Live-source context must not be read-only.');
     $check(
         apply_filters('timber/post/import_data', ['post_title' => 'Saved title'], $post)['post_title']
             === ($hasTimber2 ? 'Internal live preview' : 'Saved title'),
@@ -472,7 +466,6 @@ try {
         'The native Post Excerpt block must render the selected historical excerpt.'
     );
     $check($rendered->ID === $postId, 'The parent identity must remain stable.');
-    $check(end($sources) === [$postId, $revisionId, true], 'History must expose the selected read-only source.');
     $import = ['ID' => $postId, 'custom' => 'Keep me'];
     $expected = $hasTimber2 ? $import + [
         'post_title' => 'Historical title', 'post_content' => 'Historical content',
@@ -555,7 +548,6 @@ try {
         'Current saved selection must not retain the historical block excerpt.'
     );
     $check($preview->readPost(clone $post)->post_title === $post->post_title, 'Current-post source failed.');
-    $check(end($sources) === [$postId, $postId, true], 'Current saved sources must also be read-only.');
     $check(
         apply_filters('timber/post/import_data', ['post_title' => $post->post_title], $post)['post_title']
             === $post->post_title,
@@ -579,8 +571,6 @@ try {
     }
     $_GET = $originalGet;
     remove_filter('wp_die_handler', $dieHandler, PHP_INT_MAX);
-    remove_action('mtflpp_frontend_live_preview_source_selected', $observeLiveSource, 20);
-    remove_action('mtflpp_frontend_saved_preview_source_selected', $observeSavedSource, 20);
     remove_action('init', [$preview, 'authorizePreview'], 20);
     remove_action('template_redirect', [$preview, 'checkPreviewTarget'], -1);
     foreach ($originalHooks as $hook => $callbacks) {

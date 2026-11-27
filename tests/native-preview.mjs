@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
 import { sourceForVm, previewSourceForVm } from './helpers/modules.mjs';
-import { editorExtensionsFixture } from './helpers/editor-extensions.mjs';
+import { previewInputImports } from './helpers/preview-inputs.mjs';
 import { acfStrings } from './helpers/panel-strings.mjs';
 import test from 'node:test';
 import vm from 'node:vm';
@@ -284,7 +284,7 @@ for (const [saved, structural, blocked] of [[true, true, true], [false, true, fa
             navigator: { locks: { request: () => { requests++; return new Promise(() => {}); } } },
         };
         context.imports = {
-            './editor-extensions.js': editorExtensionsFixture(context, {
+            ...previewInputImports(context, {
                 initAcf: () => ({ hasStructuralPaginationChanges: () => structural, destroy() {} }),
             }),
             '../panel/window.js': { createPreviewPanel: (strings, options) => { callbacks = options; return view; } },

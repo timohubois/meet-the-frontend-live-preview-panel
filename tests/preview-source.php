@@ -4,6 +4,7 @@
 
 namespace MeetTheFrontendLivePreviewPanel;
 
+use MeetTheFrontendLivePreviewPanel\Compatibility\Flynt;
 use ReflectionClass;
 use ReflectionProperty;
 use RuntimeException;
@@ -63,6 +64,7 @@ $makePreview = static function (bool $requested) use ($file): FrontendPreview {
         'previewSiteId' => get_current_blog_id(),
         'previewToken' => 'source-token',
         'sourceRequested' => $requested,
+        'flynt' => new Flynt(),
         'source' => new WP_Post((object) ['ID' => 123]),
     ];
     foreach ($properties as $name => $value) {
@@ -246,17 +248,12 @@ try {
             PreviewSourceFixture::$target = $target;
             $preview = $makePreview($requested);
             $level = ob_get_level();
-            $attached = did_action('mtflpp_frontend_live_preview_following');
             $preview->checkPreviewTarget();
             $check(
                 has_action('wp_head', 'wp_post_preview_js') === ($target ? false : 1),
                 'Only matched panel previews skip native tab naming, with or without source capture.'
             );
             $expected = $requested && $target;
-            $check(
-                did_action('mtflpp_frontend_live_preview_following') - $attached === (int) $expected,
-                'Render integrations run only on the matched following document.'
-            );
             $check(
                 (($GLOBALS['wp_filter']['wp_template_enhancement_output_buffer'] ?? null)
                     != $originalHooks['wp_template_enhancement_output_buffer']) === $expected,

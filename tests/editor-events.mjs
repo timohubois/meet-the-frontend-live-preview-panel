@@ -2,10 +2,10 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { runChromiumTests, testInChromium } from './helpers/chromium.mjs';
 import { sourceForVm, previewSourceForVm } from './helpers/modules.mjs';
-import { browserEditorExtensionsSource } from './helpers/editor-extensions.mjs';
+import { browserPreviewInputImports } from './helpers/preview-inputs.mjs';
 
-async function browserTests(editorSource, initAcf, nativeSource, extensionSource) {
-    const createEditorExtensions = new Function('initAcf', `return (${extensionSource})(initAcf);`)(initAcf);
+async function browserTests(editorSource, initAcf, nativeSource, inputSource) {
+    const previewInputs = new Function('initAcf', `return (${inputSource})(initAcf);`)(initAcf);
     const realJQuery = window.jQuery;
     const results = [];
     const equal = (actual, expected) => {
@@ -110,7 +110,7 @@ async function browserTests(editorSource, initAcf, nativeSource, extensionSource
         const createPanel = (strings, callbacks) => { options = callbacks; return view; };
         const createScroll = () => ({ remember() {} });
         const initPreview = new Function('imports', `${editorSource}\nreturn initLivePreview;`)({
-            './editor-extensions.js': { createEditorExtensions },
+            ...previewInputs,
             '../panel/window.js': { createPreviewPanel: createPanel },
             '../preview/scroll.js': { createPreviewScroll: createScroll },
         });
@@ -505,7 +505,7 @@ testInChromium('native editor events and ACF compatibility boundaries', async (t
     })) : [];
     await runChromiumTests(t, {
         head: `<script>window.quicktagsL10n = new Proxy({}, { get: (target, key) => key });</script>${wordpressScripts.join('')}`,
-        script: `(${browserTests.toString()})(${JSON.stringify(editorSource)}, (await import(${JSON.stringify(acfUrl)})).initAcf, ${JSON.stringify(nativeSource)}, ${JSON.stringify(browserEditorExtensionsSource)})`,
+        script: `(${browserTests.toString()})(${JSON.stringify(editorSource)}, (await import(${JSON.stringify(acfUrl)})).initAcf, ${JSON.stringify(nativeSource)}, ${JSON.stringify(browserPreviewInputImports)})`,
         count: process.env.WORDPRESS_ROOT ? 26 : 23,
     });
 });

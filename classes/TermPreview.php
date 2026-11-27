@@ -2,6 +2,10 @@
 
 namespace MeetTheFrontendLivePreviewPanel;
 
+use MeetTheFrontendLivePreviewPanel\Compatibility\AcfTerm;
+use MeetTheFrontendLivePreviewPanel\Compatibility\CoreBlocks;
+use MeetTheFrontendLivePreviewPanel\Compatibility\Timber;
+use MeetTheFrontendLivePreviewPanel\Compatibility\Yoast;
 use WP_Error;
 use WP_REST_Request;
 use WP_REST_Server;
@@ -13,8 +17,13 @@ final class TermPreview
     /** @var \WeakMap<WP_REST_Request, true> HTTP requests whose original method was not POST. */
     private \WeakMap $nonPostRequests;
 
-    public function __construct(private readonly string $file)
-    {
+    public function __construct(
+        private readonly string $file,
+        private readonly AcfTerm $acf = new AcfTerm(),
+        private readonly CoreBlocks $coreBlocks = new CoreBlocks(),
+        private readonly Timber $timber = new Timber(),
+        private readonly Yoast $yoast = new Yoast()
+    ) {
         $this->nonPostRequests = new \WeakMap();
         add_filter('rest_allowed_cors_headers', [$this, 'rememberHttpMethod'], 10, 2);
         add_action('rest_api_init', [$this, 'registerRoutes']);
@@ -95,14 +104,7 @@ final class TermPreview
         // Core's term-save filters expect slashed input. Never invoke the term write path.
         $name = sanitize_term_field('name', wp_slash($request['name']), $term->term_id, $term->taxonomy, 'db');
         $description = wp_slash($request['description']);
-        /**
-         * Supply the editor's sanitization result when its native save filters are absent in REST.
-         *
-         * @param ?string $sanitized Slashed result, or null to use the native term-save filters.
-         * @param string  $description Slashed input.
-         * @param WP_Term $term Saved term being previewed.
-         */
-        $sanitized = apply_filters('mtflpp_term_preview_pre_sanitize_description', null, $description, $term);
+        $sanitized = $this->yoast->sanitizeTermDescription($description, $term);
         $fields = [
             'name' => wp_unslash($name),
             'description' => wp_unslash($sanitized ?? sanitize_term_field(
@@ -115,7 +117,7 @@ final class TermPreview
         ];
         // Internal integrations can contribute request-local display data, never a destination or token.
         $input = $request->get_json_params() ?? $request->get_body_params();
-        $data = apply_filters('mtflpp_term_preview_data', [], $term, $input);
+        $data = $this->acf->prepare($term, $input);
         if (is_wp_error($data)) {
             return $data;
         }
@@ -218,12 +220,10 @@ final class TermPreview
             $preview->category_description = $preview->description;
         }
         $wp_query->queried_object = $preview;
-        // Internal adapters receive detached display and routing terms only after the authorized archive matches.
-        do_action('mtflpp_frontend_term_preview_source_selected', [
-            'term' => clone $preview,
-            'saved' => clone $queried,
-            'data' => $source['data'] ?? [],
-        ]);
+        $this->acf->bind($queried->term_id, $source['data'] ?? []);
+        $this->coreBlocks->bindTermPreview($preview, $queried);
+        $this->timber->bindTermPreview($preview, $queried);
+        $this->yoast->bindTermPreview($preview);
         (new PreviewDocument($this->file, $source['token']))->enhance($isolated, $capture);
     }
 }

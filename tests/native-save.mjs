@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import vm from 'node:vm';
 import { sourceForVm, previewSourceForVm } from './helpers/modules.mjs';
-import { editorExtensionsFixture } from './helpers/editor-extensions.mjs';
+import { previewInputImports } from './helpers/preview-inputs.mjs';
 
 const source = await previewSourceForVm(new URL('../src/screens/classic-editor.js', import.meta.url));
 const flush = async () => { for (let i = 0; i < 40; i++) await Promise.resolve(); };
@@ -31,7 +31,7 @@ async function fixture({ visible = true, pending = true } = {}) {
         fetch: () => { requests++; return new Promise((resolve) => { finishRequest = resolve; }); },
     };
     context.imports = {
-        './editor-extensions.js': editorExtensionsFixture(context),
+        ...previewInputImports(context),
         '../panel/window.js': { createPreviewPanel: (strings, callbacks) => { options = callbacks; return view; } },
         '../preview/scroll.js': { createPreviewScroll: () => ({ remember() {} }) },
     };

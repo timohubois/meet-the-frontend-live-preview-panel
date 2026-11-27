@@ -13,7 +13,7 @@ $check = static function (bool $valid, string $message): void {
         throw new RuntimeException(esc_html($message));
     }
 };
-$adapter = (new ReflectionClass(Flynt::class))->newInstanceWithoutConstructor();
+$adapter = new Flynt();
 $html = "<h2><span>Heading</span></h2>\n<p>Copy</p>";
 $key = str_repeat('a', 64);
 $data = ['__mtflpp_flynt_row' => $key];

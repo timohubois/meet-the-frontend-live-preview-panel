@@ -2,6 +2,11 @@
 
 namespace MeetTheFrontendLivePreviewPanel;
 
+use MeetTheFrontendLivePreviewPanel\Compatibility\Acf;
+use MeetTheFrontendLivePreviewPanel\Compatibility\CoreBlocks;
+use MeetTheFrontendLivePreviewPanel\Compatibility\Flynt;
+use MeetTheFrontendLivePreviewPanel\Compatibility\Timber;
+use MeetTheFrontendLivePreviewPanel\Compatibility\Yoast;
 use WP_Post;
 
 /** Authorize preview reads and render only the selected source on the frontend. */
@@ -19,7 +24,12 @@ final class FrontendPreview
 
     public function __construct(
         private readonly string $file,
-        private readonly LivePreview $livePreview
+        private readonly LivePreview $livePreview,
+        private readonly Acf $acf = new Acf(),
+        private readonly CoreBlocks $coreBlocks = new CoreBlocks(),
+        private readonly Flynt $flynt = new Flynt(),
+        private readonly Timber $timber = new Timber(),
+        private readonly Yoast $yoast = new Yoast()
     ) {
         add_action('init', [$this, 'authorizePreview'], 20);
     }
@@ -137,20 +147,12 @@ final class FrontendPreview
         add_filter('get_post_metadata', [$this, 'readRevisionMeta'], 10, 4);
         add_filter('get_the_terms', [$this, 'readTerms'], 10, 3);
 
-        /**
-         * Bind optional reads only after core has authorized and selected the preview source.
-         *
-         * Live and saved previews have separate actions; neither can select another source.
-         *
-         * @param array $context Original post and authorized source identities; unrelated posts stay untouched.
-         */
-        // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.DynamicHooknameFound -- Both names are prefixed.
-        do_action($this->saved
-            ? 'mtflpp_frontend_saved_preview_source_selected'
-            : 'mtflpp_frontend_live_preview_source_selected', [
-                'post' => ['id' => $this->previewPostId],
-                'source' => ['id' => $this->source->ID],
-            ]);
+        $postId = $this->previewPostId;
+        $sourceId = $this->source->ID;
+        $this->acf->bindPreview($postId, $sourceId, $this->saved);
+        $this->coreBlocks->bindPreview($postId, $sourceId, $this->saved);
+        $this->timber->bindPreview($postId, $sourceId, $this->saved);
+        $this->yoast->bindPreview($postId, $sourceId, $this->saved);
     }
 
     private function isPreviewPost(mixed $postId): bool
@@ -274,7 +276,7 @@ final class FrontendPreview
 
         if (!$this->saved && $this->sourceRequested) {
             // Rendering adapters may decorate this matched, authorized following document only.
-            do_action('mtflpp_frontend_live_preview_following', $this->source->ID);
+            $this->flynt->markPreview($this->source->ID);
         }
         (new PreviewDocument($this->file, $this->previewToken))->enhance($this->isolated, $this->sourceRequested);
     }

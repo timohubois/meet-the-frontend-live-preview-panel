@@ -9,26 +9,13 @@ use WP_Term;
 /** Normalize a native ACF term form into an in-memory metadata overlay, not a term save. */
 final class AcfTerm
 {
-    public function __construct()
-    {
-        add_filter('mtflpp_term_editor_preview_config', [$this, 'configureEditor']);
-        add_filter('mtflpp_term_editor_preview_script_dependencies', [$this, 'addEditorDependencies'], 10, 2);
-        add_filter('mtflpp_term_preview_data', [$this, 'prepare'], 10, 3);
-        add_action('mtflpp_frontend_term_preview_source_selected', [$this, 'bind']);
-    }
-
-    public function configureEditor(array $config): array
+    public function configureEditor(array &$config, array &$dependencies): void
     {
         if (function_exists('acf_get_field_type') && wp_script_is('acf-input', 'registered')) {
             $config['acfTermEnabled'] = true;
             $config['strings']['acfUnavailable'] = $this->unavailable()->get_error_message();
+            $dependencies[] = 'acf-input';
         }
-        return $config;
-    }
-
-    public function addEditorDependencies(array $dependencies, array $context): array
-    {
-        return empty($context['config']['acfTermEnabled']) ? $dependencies : [...$dependencies, 'acf-input'];
     }
 
     private function unavailable(): WP_Error
@@ -40,10 +27,10 @@ final class AcfTerm
         );
     }
 
-    public function prepare(array|WP_Error $data, WP_Term $term, array $input): array|WP_Error
+    public function prepare(WP_Term $term, array $input): array|WP_Error
     {
-        if (is_wp_error($data) || !array_key_exists('acf', $input)) {
-            return $data;
+        if (!array_key_exists('acf', $input)) {
+            return [];
         }
         if (
             !function_exists('acf_get_field_type') || !is_array($input['acf'])
@@ -78,7 +65,7 @@ final class AcfTerm
             return $this->unavailable();
         }
         if (!$values) {
-            return $data;
+            return [];
         }
         // Native ACF save handlers see slashed form input, including JSON inside fields such as Google Map.
         $values = wp_slash($values);
@@ -87,7 +74,7 @@ final class AcfTerm
         }
 
         try {
-            return array_replace($data, $this->capture($id, $values));
+            return $this->capture($id, $values);
         } catch (\TypeError | \ValueError) {
             return $this->unavailable();
         }
@@ -232,13 +219,12 @@ final class AcfTerm
         }
     }
 
-    public function bind(array $context): void
+    public function bind(int $termId, array $data): void
     {
-        $overlay = $context['data']['acf'] ?? [];
+        $overlay = $data['acf'] ?? [];
         if (!$overlay || !function_exists('acf_decode_post_id')) {
             return;
         }
-        $termId = $context['saved']->term_id;
         $site = get_current_blog_id();
         $matches = static function ($target) use ($termId, $site): bool {
             if (get_current_blog_id() !== $site) {
@@ -264,7 +250,7 @@ final class AcfTerm
                 static fn ($item): bool => $item !== null
             ) : $value;
         }, PHP_INT_MAX, 2);
-        $assignments = $context['data']['acfTerms'] ?? [];
+        $assignments = $data['acfTerms'] ?? [];
         if ($assignments) {
             $loadSelection = static function ($value, $target, $field) use ($matches, $assignments) {
                 if ($field['type'] !== 'taxonomy' || empty($field['load_terms']) || !$matches($target)) {

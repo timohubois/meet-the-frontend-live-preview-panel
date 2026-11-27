@@ -2,6 +2,10 @@
 
 namespace MeetTheFrontendLivePreviewPanel;
 
+use MeetTheFrontendLivePreviewPanel\Compatibility\Acf;
+use MeetTheFrontendLivePreviewPanel\Compatibility\AcfTerm;
+use MeetTheFrontendLivePreviewPanel\Compatibility\Flynt;
+use MeetTheFrontendLivePreviewPanel\Compatibility\Yoast;
 use WP_Post;
 
 /** Own the shared admin window's configuration, assets, presentation and common labels. */
@@ -14,89 +18,45 @@ final class Panel
         'table.xdebug-error',
     ];
 
-    public function __construct(private readonly string $file)
-    {
+    public function __construct(
+        private readonly string $file,
+        private readonly Acf $acf = new Acf(),
+        private readonly AcfTerm $acfTerm = new AcfTerm(),
+        private readonly Flynt $flynt = new Flynt(),
+        private readonly Yoast $yoast = new Yoast()
+    ) {
     }
 
     public function enqueue(string $entry, array $config, array $dependencies = []): void
     {
-        $screen = match ($entry) {
-            'classic-editor' => 'classic_editor',
-            'block-editor' => 'block_editor',
-            'revision-browser' => 'revision_browser',
-            'term-editor' => null,
-        };
-        if ($screen === null) {
-            $context = [
-                'term' => ['id' => (int) $config['termId'], 'taxonomy' => $config['taxonomy']],
-                'source' => null,
-            ];
-            $config = apply_filters('mtflpp_term_editor_preview_config', $config, $context);
-            /**
-             * Filter comparison exclusions for term previews. Return an empty array for no exclusions.
-             *
-             * @param string[] $selectors Complete default policy, including Xdebug diagnostic tables.
-             * @param array    $context   Core-owned term identity; no source has been selected.
-             */
-            $selectors = apply_filters(
-                'mtflpp_term_preview_comparison_excluded_selectors',
-                self::COMPARISON_EXCLUDED_SELECTORS,
-                $context
-            );
-        } else {
-            $context = ['post' => ['id' => (int) $config['postId']], 'source' => null];
-            /**
-             * Extend this screen's configuration; preserve core identity and integrity values.
-             *
-             * Only the selected screen's filter runs: mtflpp_classic_editor_preview_config,
-             * mtflpp_block_editor_preview_config or mtflpp_revision_browser_preview_config.
-             *
-             * @param array $config  Screen configuration, including postId and strings.
-             * @param array $context Core-owned post identity; no source has been selected.
-             */
-            $config = apply_filters("mtflpp_{$screen}_preview_config", $config, $context);
-            $postId = $context['post']['id'];
-            if ($postId && PublicRedirect::isAvailable(get_post($postId))) {
-                $config['publicRedirect'] = [
-                    'endpoint' => PublicRedirect::endpoint($postId),
-                    'nonce' => wp_create_nonce('wp_rest'),
-                ];
-            }
-            /**
-             * Filter comparison exclusions for post previews. Return an empty array for no exclusions.
-             *
-             * @param string[] $selectors Complete default policy, including Xdebug diagnostic tables.
-             * @param array    $context   Core-owned post identity; no source has been selected.
-             */
-            $selectors = apply_filters(
-                'mtflpp_preview_comparison_excluded_selectors',
-                self::COMPARISON_EXCLUDED_SELECTORS,
-                $context
-            );
+        if ($entry === 'classic-editor' || $entry === 'block-editor') {
+            $this->acf->configureEditor($config, $dependencies);
         }
+        if ($entry === 'classic-editor') {
+            $this->flynt->configureEditor($config);
+        } elseif ($entry === 'block-editor') {
+            $this->yoast->configureEditor($config);
+        } elseif ($entry === 'term-editor') {
+            $this->acfTerm->configureEditor($config, $dependencies);
+        }
+        $postId = (int) ($config['postId'] ?? 0);
+        if ($postId && PublicRedirect::isAvailable(get_post($postId))) {
+            $config['publicRedirect'] = [
+                'endpoint' => PublicRedirect::endpoint($postId),
+                'nonce' => wp_create_nonce('wp_rest'),
+            ];
+        }
+        /**
+         * Exclude non-author output from change detection. Return an empty array for no exclusions.
+         *
+         * @param string[] $selectors Complete list of CSS selectors, including defaults.
+         * @param string   $screen    classic-editor, block-editor, revision-browser or term-editor.
+         */
+        $selectors = apply_filters('Mtflpp/previewComparisonExclusions', self::COMPARISON_EXCLUDED_SELECTORS, $entry);
         $config['comparisonExcludedSelectors'] = is_array($selectors) && !array_filter(
             $selectors,
             static fn ($selector): bool => !is_string($selector) || trim($selector) === ''
         ) ? array_values($selectors) : self::COMPARISON_EXCLUDED_SELECTORS;
-        if ($screen === null) {
-            $dependencies = apply_filters(
-                'mtflpp_term_editor_preview_script_dependencies',
-                $dependencies,
-                $context + ['config' => $config]
-            );
-        } else {
-            /**
-             * Register integration scripts and add their handles so setup runs before the panel entry.
-             *
-             * @param string[] $dependencies Additional script dependencies; preserve existing handles.
-             * @param array    $context      Post identity, null source and filtered screen config.
-             */
-            $dependencies = apply_filters(
-                "mtflpp_{$screen}_preview_script_dependencies",
-                $dependencies,
-                $context + ['config' => $config]
-            );
-        }
         $asset = require dirname($this->file) . '/build/' . $entry . '.asset.php';
         wp_enqueue_style(
             'meet-the-frontend-live-preview-panel',

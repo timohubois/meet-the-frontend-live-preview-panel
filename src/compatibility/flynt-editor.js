@@ -1,25 +1,18 @@
-import { addAction } from '@wordpress/hooks';
-
-const namespace = 'meet-the-frontend-live-preview-panel/flynt';
 const attribute = 'data-mtflpp-evidence-flynt-row';
 
-addAction('mtflpp.classicEditor.previewSetup', namespace, ({ config, hooks }) => {
-    if (!config.flyntRows) return;
-    hooks.addFilter('previewFormBody', namespace, (body, _values, followingParams) => {
-        if (followingParams && [...body.keys()].some((name) => name.startsWith('acf[') && name.endsWith('[acf_fc_layout]'))) {
-            followingParams.set('mtflpp_row_markers', '1');
-        }
-        return body;
-    }, 20);
-    hooks.addFilter('previewResponseComparisonValues', namespace, (values, response) => {
-        if (!response.rowMarkers) return values;
-        return Object.fromEntries(Object.entries(values).map(([key, hint]) => [
-            key, hint?.type === 'row-order' && response.rowMarkers[key]
-                ? { ...hint, flyntMarkers: response.rowMarkers[key] } : hint,
-        ]));
-    });
-    hooks.addFilter('previewRenderedRegions', namespace, (proposal, context) => proposal ?? resolveFlyntRegions(context));
-});
+export function requestFlyntRowMarkers(body) {
+    for (const name of body.keys()) if (name.startsWith('acf[') && name.endsWith('[acf_fc_layout]')) {
+        body.set('mtflpp_row_markers', '1');
+        return;
+    }
+}
+
+export function addFlyntRowMarkers(values, markers) {
+    if (!markers) return;
+    for (const [key, hint] of Object.entries(values)) {
+        if (hint?.type === 'row-order' && markers[key]) values[key] = { ...hint, flyntMarkers: markers[key] };
+    }
+}
 
 export function resolveFlyntRegions({ sourceDocument, document, values, subject, order }) {
     const markers = values[subject]?.flyntMarkers;

@@ -50,7 +50,7 @@ The Timber integration supports post previews, including changes to taxonomy ass
 
 Yoast SEO support previews changes to post breadcrumbs when you edit primary-term selections in the Block Editor, and changes to the default archive breadcrumb when you edit a term name. It does not preview SEO titles, meta descriptions or analysis scores.
 
-Flynt is not required and has no separate integration.
+Flynt is optional. In the Classic Editor, the plugin can use matching Flynt components to help follow an ACF Flexible Content row after it is dragged. If the preview cannot verify the match, normal change detection still applies.
 
 = Can I preview older revisions? =
 

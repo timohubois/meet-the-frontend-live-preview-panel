@@ -34,24 +34,7 @@ final class CoreBlocks
     private ?WP_Post $post = null;
     private ?WP_Post $displayPost = null;
 
-    public function __construct()
-    {
-        add_action('mtflpp_frontend_live_preview_source_selected', fn (array $context) => $this->bindPreview(
-            $context['post']['id'],
-            $context['source']['id']
-        ));
-        add_action('mtflpp_frontend_saved_preview_source_selected', fn (array $context) => $this->bindPreview(
-            $context['post']['id'],
-            $context['source']['id'],
-            true
-        ));
-        add_action('mtflpp_frontend_term_preview_source_selected', fn (array $context) => $this->bindTermPreview(
-            $context['term'],
-            $context['saved']
-        ));
-    }
-
-    private function bindTermPreview(WP_Term $term, WP_Term $saved): void
+    public function bindTermPreview(WP_Term $term, WP_Term $saved): void
     {
         $this->unbindTermPreview();
         $this->term = clone $term;

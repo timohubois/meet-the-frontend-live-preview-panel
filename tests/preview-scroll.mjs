@@ -3,7 +3,7 @@ import { browserBundle, runChromiumTests, testInChromium } from './helpers/chrom
 async function browserTests() {
     const { createPreviewScroll, createPreviewComparison, visibleTarget } = window.previewScroll;
     const results = [];
-    // Model the PHP configuration; editor-extensions.php separately verifies the complete shipped policy.
+    // Model the PHP configuration; panel-config.php separately verifies the complete shipped policy.
     const defaults = ['script', 'style', 'noscript', 'template', 'link', 'meta', 'nav',
         '[role="navigation"]', '[aria-live]', 'input[type="hidden"]', 'table.xdebug-error'];
     async function check(name, run, excludedSelectors = defaults) {

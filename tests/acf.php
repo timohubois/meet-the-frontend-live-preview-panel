@@ -589,34 +589,26 @@ try {
     $assertGuardsReleased();
     $unchanged($revisionId);
 
-    $throwVerifier = static function ($error, array $context) use ($revisionId) {
-        if (($context['source']['id'] ?? 0) === $revisionId) {
-            throw new RuntimeException('Fixture exception before the ACF verifier');
+    // The integration's verification writes the accepted Load Terms overlay after native saving.
+    $throwVerifier = static function ($check, int $id, string $key) use ($revisionId) {
+        if ($id === $revisionId && $key === '_mtflpp_acf_preview_term_assignments') {
+            throw new RuntimeException('Fixture exception while verifying the ACF term overlay');
         }
-        return $error;
+        return $check;
     };
-    $afterCleanup = false;
-    $finish = static function (array $context) use ($assertGuardsReleased, $revisionId, &$afterCleanup): void {
-        if (($context['source']['id'] ?? 0) === $revisionId) {
-            $assertGuardsReleased();
-            $afterCleanup = true;
-        }
-    };
-    add_filter('mtflpp_live_preview_preparation_error', $throwVerifier, 5, 2);
-    add_action('mtflpp_live_preview_preparation_finished', $finish);
+    add_filter('update_post_metadata', $throwVerifier, 10, 3);
     try {
         $send($postId, $data);
-        $check(false, 'The fixture must throw before ACF can verify.');
+        $check(false, 'The fixture must throw during ACF verification.');
     } catch (RuntimeException $exception) {
         $check(
-            $exception->getMessage() === 'Fixture exception before the ACF verifier',
+            $exception->getMessage() === 'Fixture exception while verifying the ACF term overlay',
             'Unexpected verifier error.'
         );
     } finally {
-        remove_filter('mtflpp_live_preview_preparation_error', $throwVerifier, 5);
-        remove_action('mtflpp_live_preview_preparation_finished', $finish);
+        remove_filter('update_post_metadata', $throwVerifier);
     }
-    $check($afterCleanup, 'An early verifier exception must still trigger ACF cleanup.');
+    $assertGuardsReleased();
     $unchanged($revisionId);
     $check($send($postId, $data)->get_status() === 200, 'A sequential preview must recover after verifier failure.');
 

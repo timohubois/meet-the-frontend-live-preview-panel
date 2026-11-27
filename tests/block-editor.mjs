@@ -3,7 +3,7 @@ import { webcrypto } from 'node:crypto';
 import test from 'node:test';
 import vm from 'node:vm';
 import { sourceForVm, previewSourceForVm } from './helpers/modules.mjs';
-import { editorExtensionsFixture } from './helpers/editor-extensions.mjs';
+import { previewInputImports } from './helpers/preview-inputs.mjs';
 
 // ES modules are strict in production, including receipt cleanup on rejected native saves.
 const source = `"use strict";\n${await sourceForVm(new URL('../src/screens/block-editor.js', import.meta.url))}`;
@@ -14,7 +14,7 @@ const deferred = () => {
     return { promise, resolve, reject };
 };
 
-function fixture({ ready = true, loaded = true, available = true, route = '/wp/v2/posts/123', acfEnabled = false, taxonomies = {}, yoastPrimaryTaxonomies = [], extend, browserAcf = true, revisions = false } = {}) {
+function fixture({ ready = true, loaded = true, available = true, route = '/wp/v2/posts/123', acfEnabled = false, taxonomies = {}, yoastPrimaryTaxonomies = [], failAcfSave = false, browserAcf = true, revisions = false } = {}) {
     const calls = { pauses: [], pauseStates: [], suspensions: [], resumes: [], titles: [], changes: 0, requests: [], contentReads: 0 };
     const acfFields = { ready: true, saved: 0, destroyed: false, waitAfterSave: false,
         entries: new URLSearchParams({ 'acf[field_test]': 'Unsaved ACF', _acf_nonce: 'acf-nonce' }) };
@@ -75,18 +75,21 @@ function fixture({ ready = true, loaded = true, available = true, route = '/wp/v
             '@wordpress/hooks': { addFilter: (name, scope, callback) => { assert.equal(name, 'editor.preSavePost'); filter = callback; }, removeFilter: () => { filter = null; } },
         },
     };
-    context.imports['./editor-extensions.js'] = editorExtensionsFixture(context, {
+    Object.assign(context.imports, previewInputImports(context, {
         createBlockEditorAcf(changed) {
             acfChanged = changed;
             return {
                 get ready() { return acfFields.ready; }, observe() {},
-                saved() { acfFields.saved++; acfFields.ready = !acfFields.waitAfterSave; },
+                saved() {
+                    if (failAcfSave) throw new Error('ACF refresh failed');
+                    acfFields.saved++;
+                    acfFields.ready = !acfFields.waitAfterSave;
+                },
                 capture: () => acfFields.entries,
                 destroy: () => { acfFields.destroyed = true; },
             };
         },
-    });
-    extend?.(context.imports['./editor-extensions.js'].hooks);
+    }));
     const native = vm.runInNewContext(`${source}\ncreateBlockEditor`, context)(config);
     native.connect({
         pause: (text, state) => { calls.pauses.push(text); calls.pauseStates.push(state); return pending; },
@@ -163,103 +166,30 @@ test('block comparison values are frozen at capture and never sent to the endpoi
     h.native.destroy();
 });
 
-test('an empty ACF capture preserves another integration’s JSON scalar types', async () => {
-    const h = fixture({ acfEnabled: true, extend(wpHooks) {
-        wpHooks.addAction('mtflpp.blockEditor.previewSetup', 'vendor/values', ({ hooks }) => {
-            hooks.addFilter('additionalPreviewValues', 'vendor/values', (values) => ({
-                ...values, vendor_enabled: false, vendor_count: 0, vendor_note: null,
-            }));
-        });
-    } });
+test('empty ACF capture keeps the Block Editor on JSON transport', async () => {
+    const h = fixture({ acfEnabled: true });
     h.acfFields.entries = new URLSearchParams();
     await h.native.preparePreview();
     const { data, body } = h.calls.requests.at(-1);
     assert.equal(body, undefined);
-    assert.equal(data.vendor_enabled, false);
-    assert.equal(data.vendor_count, 0);
-    assert.equal(data.vendor_note, null);
+    assert.equal(data.content, h.state.content);
     h.native.destroy();
 });
 
-const noteExample = await sourceForVm(new URL('../docs/examples/post-note/preview.js', import.meta.url));
-for (const transport of ['JSON', 'peer form', 'ACF form']) {
-    test(`post-note example composes with a typed contributor over ${transport}`, async () => {
-        const h = fixture({ acfEnabled: transport === 'ACF form', extend(wpHooks) {
-            wpHooks.addAction('mtflpp.blockEditor.previewSetup', 'vendor/choice', ({ hooks }) => {
-                hooks.addFilter('additionalPreviewValues', 'vendor/choice', (values, editor) => {
-                    const choice = editor.getEditedPostAttribute('choice');
-                    return choice === undefined ? values : { ...values, vendor_choice: JSON.stringify(choice) };
-                }, 5);
-                if (transport === 'peer form') hooks.addFilter('previewFormBody', 'vendor/choice', (body) => {
-                    body ??= new URLSearchParams();
-                    body.append('vendor_list[]', 'first');
-                    body.append('vendor_list[]', '');
-                    return body;
-                });
-            });
-            vm.runInNewContext(noteExample, { wp: { hooks: wpHooks } });
-        } });
-        const before = h.calls.changes;
-        h.state.savedMeta = { example_post_note: 'Saved note', unrelated: 'Original' };
-        h.state.meta = { ...h.state.savedMeta, unrelated: 'Do not send' };
-        await h.emit();
-        assert.equal(h.calls.changes, before, 'editing unrelated meta must not contribute the saved note');
-        h.state.meta.example_post_note = `Editor's C:\\draft 🧪`;
-        await h.emit();
-        assert.equal(h.calls.changes, before + 1);
-        assert.equal(h.calls.contentReads, 0, 'observing edited meta must not serialize core content');
-        async function capture() {
-            await h.native.preparePreview();
-            const { body, data } = h.calls.requests.at(-1);
-            assert.equal(!!body, transport !== 'JSON');
-            return body ?? new Map(Object.entries(data));
-        }
-        for (const choice of [false, 'false', 0, '0', null, '', ['first', '']]) {
-            h.state.choice = choice;
-            const fields = await capture();
-            assert.equal(fields.get('example_post_note'), h.state.meta.example_post_note);
-            assert.equal(fields.get('vendor_choice'), JSON.stringify(choice));
-            assert.equal(fields.has('unrelated'), false);
-            if (transport === 'peer form') assert.deepEqual(fields.getAll('vendor_list[]'), ['first', '']);
-            if (transport === 'ACF form') assert.equal(fields.get('acf[field_test]'), 'Unsaved ACF');
-        }
-        h.state.meta.example_post_note = '';
-        await h.emit();
-        assert.equal((await capture()).get('example_post_note'), '');
-        h.state.meta.example_post_note = h.state.savedMeta.example_post_note;
-        await h.emit();
-        assert.equal(h.calls.changes, before + 3, 'reverting the note must remove the contribution and refresh');
-        assert.equal((await capture()).has('example_post_note'), false);
-        delete h.state.meta.example_post_note;
-        assert.equal((await capture()).has('example_post_note'), false);
-        h.state.meta.example_post_note = null;
-        const requests = h.calls.requests.length;
-        await assert.rejects(capture(), { code: 'mtflpp_integration_failed' });
-        assert.equal(h.calls.requests.length, requests, 'an invalid note must not become an empty form value');
-        h.native.destroy();
-    });
-}
-
-test('an integration failure after an acknowledged meta-box save never rejects WordPress saving', async () => {
-    let cleaned = 0;
-    const h = fixture({ extend(hooks) {
-        hooks.addAction('mtflpp.blockEditor.previewSetup', 'vendor/failure', ({ hooks, onDestroy }) => {
-            hooks.addAction('nativeMetaboxSaveAcknowledged', 'vendor/failure', () => { throw new Error('Adapter save observer failed'); });
-            onDestroy(() => cleaned++);
-        });
-    } });
+test('failed ACF refresh after an acknowledged meta-box save never rejects WordPress saving', async () => {
+    const h = fixture({ acfEnabled: true, failAcfSave: true });
     const response = {};
     const result = await h.request({ url: 'http://site.test/wp-admin/post.php?meta-box-loader=1', method: 'POST', body: h.metaBody() }, async (options) => {
         h.cookies.set(`mtflpp_preview_${options.body.get('mtflpp_preview')}`, `${h.config.base}.${'c'.repeat(64)}`);
         return response;
     });
     await flush();
-    assert.equal(result, response, 'preserve the original native response');
+    assert.equal(result, response);
     assert.equal(h.config.base, 'c'.repeat(64));
     assert.equal(h.native.ready, false);
     assert.equal(h.calls.resumes.at(-1).code, 'mtflpp_integration_failed');
-    h.native.destroy(); h.native.destroy();
-    assert.equal(cleaned, 1);
+    h.native.destroy();
+    assert.equal(h.acfFields.destroyed, true);
 });
 
 test('missing browser ACF APIs leave a controlled preview error and native saves intact', async () => {
@@ -810,6 +740,27 @@ test('destroy detaches observers and leaves middleware inert', async () => {
     h.native.destroy();
     const options = { path: h.config.postRoute, method: 'PUT' };
     await h.request(options, async (received) => { assert.equal(received, options); return {}; });
+});
+
+test('a native meta-box save that finishes after destroy does not restart ACF observation', async () => {
+    const h = fixture({ acfEnabled: true });
+    const response = {};
+    const started = deferred();
+    const finish = deferred();
+    const save = h.request({ url: 'http://site.test/wp-admin/post.php?meta-box-loader=1', method: 'POST', body: h.metaBody() }, async ({ body }) => {
+        started.resolve(body.get('mtflpp_preview'));
+        await finish.promise;
+        h.cookies.set(`mtflpp_preview_${body.get('mtflpp_preview')}`, `${h.config.base}.${'c'.repeat(64)}`);
+        return response;
+    });
+    const token = await started.promise;
+    h.native.destroy();
+    finish.resolve();
+    assert.equal(await save, response, 'WordPress still receives the original response');
+    assert.equal(h.config.base, 'c'.repeat(64), 'the in-flight native save acknowledgement remains valid');
+    assert.equal(h.cookies.has(`mtflpp_preview_${token}`), false);
+    assert.equal(h.acfFields.destroyed, true);
+    assert.equal(h.acfFields.saved, 0, 'do not restart ACF observation after editor teardown');
 });
 
 async function previewFixture({ ready = true, notReady = 'Return to post', notReadyState = 'paused', pending, idle = Promise.resolve() } = {}) {

@@ -2,7 +2,6 @@
 
 namespace MeetTheFrontendLivePreviewPanel\Compatibility;
 
-use WP_Error;
 use WP_HTML_Processor;
 use WP_HTML_Tag_Processor;
 
@@ -16,22 +15,11 @@ final class Flynt
     private array $fields = [];
     private array $rendered = [];
 
-    public function __construct()
-    {
-        add_filter('mtflpp_classic_editor_preview_config', [$this, 'configureEditor']);
-        add_filter('mtflpp_live_preview_form_values', [$this, 'prepare'], 20, 2);
-        add_action('mtflpp_live_preview_custom_fields_initialized', [$this, 'observeSave']);
-        add_action('mtflpp_live_preview_preparation_finished', [$this, 'stopObserving']);
-        add_filter('mtflpp_live_preview_response', [$this, 'addRowMarkers'], 10, 3);
-        add_action('mtflpp_frontend_live_preview_following', [$this, 'markPreview']);
-    }
-
-    public function configureEditor(array $config): array
+    public function configureEditor(array &$config): void
     {
         if ($this->available()) {
             $config['flyntRows'] = true;
         }
-        return $config;
     }
 
     private function available(): bool
@@ -40,22 +28,15 @@ final class Flynt
             && acf_get_field_type('flexible_content');
     }
 
-    public function prepare(array|WP_Error $payload, array $context): array|WP_Error
+    public function clearSaveEvidence(): void
     {
         $this->fields = [];
-        if (
-            is_array($payload) && !empty($payload['acf']) && ($context['input']['mtflpp_row_markers'] ?? '') === '1'
-            && $this->available()
-        ) {
-            $this->writing = -1;
-        }
-        return $payload;
     }
 
-    public function observeSave(array $context): void
+    public function observeSave(int $sourceId, array $input): void
     {
-        if ($this->writing === -1) {
-            $this->writing = (int) $context['source']['id'];
+        if (!empty($input['acf']) && ($input['mtflpp_row_markers'] ?? '') === '1' && $this->available()) {
+            $this->writing = $sourceId;
             // Observe the actual rows and storage path just before ACF's native type update at priority 10.
             add_filter('acf/update_value/type=flexible_content', [$this, 'savedField'], 9, 3);
         }
@@ -83,11 +64,12 @@ final class Flynt
         return $value;
     }
 
-    public function addRowMarkers(array $result, int $sourceId, array $input): array
+    public function rowMarkers(int $sourceId, array $input): array
     {
         if (!$this->fields || !is_array($input['acf'] ?? null)) {
-            return $result;
+            return [];
         }
+        $result = [];
         try {
             $key = self::snapshotKey($sourceId);
             $matches = [];
@@ -99,12 +81,12 @@ final class Flynt
                 [$fieldKey, $path, $name, $rows] = $match;
                 $markers = $this->orderedMarkers($sourceId, $key, $fieldKey, $path, $name, $rows);
                 if ($markers) {
-                    $result['rowMarkers']['acf-layout-order:' . $path] = $markers;
+                    $result['acf-layout-order:' . $path] = $markers;
                 }
             }
         } catch (\Throwable) {
             // Rendered row hints must never turn an accepted preview write into an error.
-            unset($result['rowMarkers']);
+            return [];
         }
         return $result;
     }

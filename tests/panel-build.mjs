@@ -46,7 +46,7 @@ for (const entry of adminEntries) {
             .map((match) => match[1]);
         assert.deepEqual(dependencies, [
             'react-jsx-runtime', ...(entry === 'block-editor' ? ['wp-api-fetch'] : []),
-            'wp-components', 'wp-data', 'wp-element', ...(['classic-editor', 'block-editor'].includes(entry) ? ['wp-hooks'] : []),
+            'wp-components', 'wp-data', 'wp-element', ...(entry === 'block-editor' ? ['wp-hooks'] : []),
             'wp-notices', 'wp-preferences', 'wp-primitives',
         ]);
         assert.match(asset, /'version'\s*=>\s*'[a-f0-9]+'/);

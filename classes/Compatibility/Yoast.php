@@ -23,34 +23,11 @@ final class Yoast
     private string $savedTermName = '';
     private int|string|null $termBreadcrumbKey = null;
 
-    public function __construct()
-    {
-        add_filter('mtflpp_block_editor_preview_config', [$this, 'configureEditor'], 10, 2);
-        add_filter('mtflpp_term_preview_pre_sanitize_description', [$this, 'sanitizeTermDescription'], 10, 3);
-        add_filter('mtflpp_live_preview_form_values', [$this, 'preparePayload'], 10, 2);
-        add_action('mtflpp_live_preview_custom_fields_initialized', fn (array $context) =>
-            $this->savePrimaryTerms($context['source']['id'], $context['post']['id']));
-        add_filter('mtflpp_live_preview_preparation_error', [$this, 'verifySave'], 10, 2);
-        add_action('mtflpp_frontend_live_preview_source_selected', fn (array $context) => $this->bindPreview(
-            $context['post']['id'],
-            $context['source']['id']
-        ));
-        add_action('mtflpp_frontend_saved_preview_source_selected', fn (array $context) => $this->bindPreview(
-            $context['post']['id'],
-            $context['source']['id'],
-            true
-        ));
-        add_action('mtflpp_frontend_term_preview_source_selected', fn (array $context) => $this->bindTermPreview(
-            $context['term']
-        ));
-    }
-
-    public function configureEditor(array $config, array $context): array
+    public function configureEditor(array &$config): void
     {
         if ($this->isAvailable()) {
-            $config['yoastPrimaryTaxonomies'] = $this->primaryTaxonomies($context['post']['id']);
+            $config['yoastPrimaryTaxonomies'] = $this->primaryTaxonomies((int) $config['postId']);
         }
-        return $config;
     }
 
     public function isAvailable(): bool
@@ -59,13 +36,13 @@ final class Yoast
             && class_exists('WPSEO_Options') && class_exists('WPSEO_Taxonomy_Meta');
     }
 
-    public function sanitizeTermDescription(?string $sanitized, string $description, WP_Term $term): ?string
+    public function sanitizeTermDescription(string $description, WP_Term $term): ?string
     {
         if (
-            $sanitized !== null || !function_exists('YoastSEO')
+            !function_exists('YoastSEO')
             || !method_exists('WPSEO_Taxonomy', 'custom_category_descriptions_allow_html')
         ) {
-            return $sanitized;
+            return null;
         }
 
         // Yoast swaps these save filters on the taxonomy admin screen, not in REST.
@@ -89,7 +66,7 @@ final class Yoast
         }
     }
 
-    private function bindTermPreview(WP_Term $term): void
+    public function bindTermPreview(WP_Term $term): void
     {
         $this->unbindTermPreview();
         if (!$this->isAvailable() || \WPSEO_Taxonomy_Meta::get_term_meta($term, $term->taxonomy, 'bctitle')) {
@@ -167,14 +144,10 @@ final class Yoast
         return $result;
     }
 
-    public function preparePayload(array|WP_Error $payload, array $context): array|WP_Error
+    public function preparePrimaryTerms(int $postId, array $input): ?WP_Error
     {
-        $input = $context['input'];
-        $postId = $context['post']['id'];
-        $this->pending = [];
-        $this->pendingPostId = 0;
-        if (is_wp_error($payload) || !array_key_exists('yoast_primary_terms', $input)) {
-            return $payload;
+        if (!array_key_exists('yoast_primary_terms', $input)) {
+            return null;
         }
         if (!$this->isAvailable() || !is_string($input['yoast_primary_terms'])) {
             return $this->invalidInput();
@@ -184,7 +157,7 @@ final class Yoast
             return $this->invalidInput();
         }
         $allowed = $this->primaryTaxonomies($postId);
-        // Core has already validated this map before invoking preparation hooks.
+        // Core has already validated this map.
         $terms = isset($input['terms']) ? json_decode($input['terms'], true) : [];
         foreach (get_object_vars($primary) as $taxonomy => $id) {
             if (!in_array($taxonomy, $allowed, true)) {
@@ -220,7 +193,7 @@ final class Yoast
             $this->pending[$taxonomy] = $id;
         }
         $this->pendingPostId = $postId;
-        return $payload;
+        return null;
     }
 
     private function invalidInput(): WP_Error
@@ -243,31 +216,25 @@ final class Yoast
         }
     }
 
-    public function verifySave(?WP_Error $error, array $context): ?WP_Error
+    public function verifySave(int $revisionId): ?WP_Error
     {
-        $revisionId = $context['source']['id'] ?? 0;
-        try {
-            if ($error) {
-                return $error;
+        foreach ($this->pending as $taxonomy => $id) {
+            $key = self::META_PREFIX . $taxonomy;
+            if (!metadata_exists('post', $revisionId, $key) || (int) get_post_meta($revisionId, $key, true) !== $id) {
+                return new WP_Error(
+                    'mtflpp_yoast_primary_not_saved',
+                    __('We couldn’t prepare the primary-term preview.', 'meet-the-frontend-live-preview-panel'),
+                    ['status' => 409]
+                );
             }
-            foreach ($this->pending as $taxonomy => $id) {
-                $key = self::META_PREFIX . $taxonomy;
-                if (
-                    !$revisionId || !metadata_exists('post', $revisionId, $key)
-                    || (int) get_post_meta($revisionId, $key, true) !== $id
-                ) {
-                    return new WP_Error(
-                        'mtflpp_yoast_primary_not_saved',
-                        __('We couldn’t prepare the primary-term preview.', 'meet-the-frontend-live-preview-panel'),
-                        ['status' => 409]
-                    );
-                }
-            }
-            return null;
-        } finally {
-            $this->pending = [];
-            $this->pendingPostId = 0;
         }
+        return null;
+    }
+
+    public function resetSave(): void
+    {
+        $this->pending = [];
+        $this->pendingPostId = 0;
     }
 
     public function bindPreview(int $postId, int $sourceId, bool $saved = false): void

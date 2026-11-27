@@ -3,6 +3,7 @@
 namespace MeetTheFrontendLivePreviewPanel;
 
 use MeetTheFrontendLivePreviewPanel\Compatibility\Acf;
+use MeetTheFrontendLivePreviewPanel\Compatibility\AcfTerm;
 use MeetTheFrontendLivePreviewPanel\Compatibility\CoreBlocks;
 use MeetTheFrontendLivePreviewPanel\Compatibility\Flynt;
 use MeetTheFrontendLivePreviewPanel\Compatibility\Timber;
@@ -14,18 +15,20 @@ final class Plugin
     public function __construct(string $file)
     {
         new Migrations();
-        new Acf();
-        new CoreBlocks();
-        new Flynt();
-        new Timber();
-        new Yoast();
+        $acf = new Acf();
+        $acfTerm = new AcfTerm();
+        $coreBlocks = new CoreBlocks();
+        $flynt = new Flynt();
+        $timber = new Timber();
+        $yoast = new Yoast();
+
         new PublicRedirect();
-        $livePreview = new LivePreview();
-        $frontendPreview = new FrontendPreview($file, $livePreview);
-        $panel = new Panel($file);
+        $livePreview = new LivePreview($acf, $flynt, $yoast);
+        $frontendPreview = new FrontendPreview($file, $livePreview, $acf, $coreBlocks, $flynt, $timber, $yoast);
+        $panel = new Panel($file, $acf, $acfTerm, $flynt, $yoast);
         new ClassicEditor($livePreview, $panel);
         new BlockEditor($livePreview, $panel);
-        new TermEditor(new TermPreview($file), $panel);
+        new TermEditor(new TermPreview($file, $acfTerm, $coreBlocks, $timber, $yoast), $panel);
         new RevisionBrowser($frontendPreview, $panel);
     }
 }
