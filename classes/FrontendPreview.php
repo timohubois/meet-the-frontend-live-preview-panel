@@ -272,6 +272,10 @@ final class FrontendPreview
         // Editors have already authorized this preview. Leave other posts and later site policies alone.
         add_filter('post_password_required', [$this, 'requirePostPassword'], 0, 2);
 
+        if (!$this->saved && $this->sourceRequested) {
+            // Rendering adapters may decorate this matched, authorized following document only.
+            do_action('mtflpp_frontend_live_preview_following', $this->source->ID);
+        }
         (new PreviewDocument($this->file, $this->previewToken))->enhance($this->isolated, $this->sourceRequested);
     }
 }

@@ -24,16 +24,7 @@ export function contentSnapshot(doc, live, excludedSelectors, root = comparisonR
         try { root.matches(selector); return true; }
         catch { return false; }
     }).join(', ');
-    let targets;
-    if (doc !== live) {
-        targets = new Map();
-        for (const node of live.querySelectorAll('[data-mtflpp-node]')) {
-            const key = node.getAttribute('data-mtflpp-node');
-            // Cloned markers are ambiguous; never silently choose the first matching widget.
-            targets.set(key, targets.has(key) ? null : node);
-        }
-    }
-    const contentRoot = subtreeSnapshot(root, excluded, targets);
+    const contentRoot = subtreeSnapshot(root, excluded, doc !== live ? mappedPreviewNodes(live) : undefined);
     if (!contentRoot) return null;
     // Ancestor attributes can control layout; their unrelated siblings/text are not preview content.
     let snapshot = contentRoot;
@@ -47,6 +38,16 @@ export function contentSnapshot(doc, live, excludedSelectors, root = comparisonR
     snapshot.excluded = excluded;
     snapshot.contentRoot = contentRoot;
     return snapshot;
+}
+
+export function mappedPreviewNodes(doc) {
+    const targets = new Map();
+    for (const node of doc.querySelectorAll('[data-mtflpp-node]')) {
+        const key = node.getAttribute('data-mtflpp-node');
+        // Cloned markers are ambiguous; never silently choose the first matching widget.
+        targets.set(key, targets.has(key) ? null : node);
+    }
+    return targets;
 }
 
 export function subtreeSnapshot(root, excluded, targets) {
@@ -83,7 +84,7 @@ function presentationAttributes(node) {
     const attributes = [];
     for (const { name, value } of node.attributes) {
         // Keep authored accessibility/identity values eligible; normalize reference churn separately.
-        if (name === 'data-mtflpp-node' || name.startsWith('on')
+        if (name === 'data-mtflpp-node' || name.startsWith('data-mtflpp-evidence-') || name.startsWith('on')
             || /(?:^|-)(nonce|token)(?:-|$)/.test(name)) continue;
         // Media sources are normalized separately, so loading a declared lazy source is not an edit.
         if (/^(?:data-)?(?:src|srcset|poster|sizes|bg)$/.test(name)) continue;

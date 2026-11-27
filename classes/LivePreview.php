@@ -518,7 +518,8 @@ final class LivePreview
         if ($rowText) {
             $result['rowDisplayText'] = $rowText;
         }
-        return new WP_REST_Response($result);
+        // Optional response evidence must describe the source just written by this request.
+        return new WP_REST_Response(apply_filters('mtflpp_live_preview_response', $result, $revisionId, $input));
     }
 
     /** Use only submitted body values and the native, non-shortcode WYSIWYG formatting steps. */

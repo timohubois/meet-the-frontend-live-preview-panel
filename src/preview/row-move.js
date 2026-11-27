@@ -1,4 +1,4 @@
-import { childFlowText, comparisonRoot, containsEntry, contentSnapshot, entryText, isFlowBoundary, normalizedText, sameRowPosition, subtreeSnapshot } from './snapshot.js';
+import { childFlowText, comparisonRoot, containsEntry, contentSnapshot, entryText, isFlowBoundary, mappedPreviewNodes, normalizedText, sameRowPosition, subtreeSnapshot } from './snapshot.js';
 
 const CONFIRMED = 'confirmed';
 const DO_NOT_INFER = 'do-not-infer';
@@ -417,6 +417,64 @@ export function createRowMoveVerifier(previous, next, move, { cleanSource, prese
         const boundary = spacerBoundary(rotation);
         if (moved || boundary) return { moved, boundary, pairs };
     };
+}
+
+// Adapted regions are proposals, not permission to bypass the submitted move or visible layout checks.
+export function resolvedRowMove(before, after, move, previous, next, resolve) {
+    const { key, from, offset, order } = move, to = from + offset, reordered = order.slice();
+    reordered.splice(to, 0, ...reordered.splice(from, 1));
+    if (!sameRowSubmission(before, after, move, reordered)) return null;
+    const crossed = order.slice(Math.min(from, to), Math.max(from, to) + 1).filter((row) => row !== order[from]);
+    const rows = [order[from], ...crossed];
+    const a = verifiedRegionRoots(before, previous, key, order, rows, resolve);
+    const b = verifiedRegionRoots(after, next, key, reordered, rows, resolve);
+    if (!a || !b || a[0].length !== b[0].length) return null;
+
+    const lead = (roots, { source }) => roots.flatMap((root) => [root, ...root.querySelectorAll('h1,h2,h3,h4,h5,h6,p')])
+        .find((node) => /^(?:h[1-6]|p)$/.test(node.localName) && visibleRowWitness(node)
+            && (!source.excluded || !node.closest(source.excluded))) ?? roots[0];
+    const old = lead(a[0], before), current = lead(b[0], after);
+    if (sameRowPosition(old, current)) return null;
+
+    // Require the move in layout as well as DOM order, without opening disclosures.
+    const crossedOnScreen = a.slice(1).every((roots, i) => {
+        const neighbor = lead(roots, before), nextNeighbor = lead(b[i + 1], after);
+        const oldPair = (offset > 0 ? [old, neighbor] : [neighbor, old]).map((node) => node.getBoundingClientRect());
+        const newPair = (offset > 0 ? [nextNeighbor, current] : [current, nextNeighbor]).map((node) => node.getBoundingClientRect());
+        return [['bottom', 'top'], ['right', 'left']].some(([end, start]) =>
+            [oldPair, newPair].every(([first, last]) => first[end] <= last[start] + 1));
+    });
+    return crossedOnScreen ? current : null;
+}
+
+function verifiedRegionRoots({ sourceDocument, source, values }, doc, subject, order, affected, resolve) {
+    if (!sourceDocument || !source) return null;
+    // One optional proposal per captured response, keyed by submitted row identity.
+    // Each region is an ordered list of [captured element, live element] pairs.
+    const regions = resolve({ sourceDocument, document: doc, values, subject, order });
+    if (!regions) return null;
+    const mapped = mappedPreviewNodes(doc), root = comparisonRoot(doc), result = new Map();
+    let lastSource, lastLive;
+    for (const row of order) {
+        const pairs = regions.get(row);
+        if (!pairs) continue;
+        if (!pairs.length) return null;
+        const required = affected.includes(row), nodes = [];
+        for (const [captured, live] of pairs) {
+            if (!captured?.isConnected || captured.ownerDocument !== sourceDocument || !live?.isConnected
+                || live.ownerDocument !== doc || mapped.get(captured.getAttribute('data-mtflpp-node')) !== live
+                || mapped.get(captured.parentElement?.getAttribute('data-mtflpp-node')) !== live.parentElement) return null;
+            const follows = (earlier, later) => !earlier || (earlier.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING);
+            if (!follows(lastSource, captured) || !follows(lastLive, live)
+                || (nodes.length && (captured.previousElementSibling !== lastSource || live.previousElementSibling !== lastLive))) return null;
+            if (required && (!root?.contains(live) || !visibleRowWitness(live) || (source.excluded && live.closest(source.excluded)))) return null;
+            lastSource = captured;
+            lastLive = live;
+            nodes.push(live);
+        }
+        if (required) result.set(row, nodes);
+    }
+    return affected.every((row) => result.has(row)) ? affected.map((row) => result.get(row)) : null;
 }
 
 // Follow an unchanged author-text witness across a crossed row, without rebuilding a row's markup.

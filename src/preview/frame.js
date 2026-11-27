@@ -13,8 +13,8 @@ function redirectedHtmlPath(doc, requested) {
 }
 
 // Own iframe loading and optional HTML enhancements, not the source's writes or selection lifecycle.
-export function createPreviewFrame(view, scrolling, strings, report, excludedSelectors = []) {
-    const comparison = createPreviewComparison(excludedSelectors);
+export function createPreviewFrame(view, scrolling, strings, report, excludedSelectors = [], resolveRenderedRegions) {
+    const comparison = createPreviewComparison(excludedSelectors, resolveRenderedRegions);
     let activeFrame;
     let activeDocument;
     let followedTarget;

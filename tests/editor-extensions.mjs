@@ -428,26 +428,35 @@ test('classic following requests native formatting only for submitted rich-text 
         name: field, localName: 'textarea', classList: { contains: () => field !== label },
     }));
     const h = classicFixture(({ hooks }) => {
-        hooks.addFilter('previewFormBody', 'vendor/rows', (body, values) => {
+        hooks.addFilter('previewFormBody', 'vendor/rows', (body, values, followingParams) => {
             for (const [field, value] of values) body.append(field, value);
+            followingParams?.set('vendor_following', '1');
             return body;
         });
         hooks.addFilter('previewComparisonValues', 'vendor/rows', (values) => values.set('rows', {
             type: 'row-order', fieldsByRow: { a: [name, label, 'vendor[missing]'], b: [name] },
         }));
+        hooks.addFilter('previewResponseComparisonValues', 'vendor/rows', (values, response) => ({
+            ...values, rows: { ...values.rows, vendorEvidence: response.vendorEvidence },
+        }));
     }, [[name, raw], [label, 'Label'], [other, 'Unrelated']], controls,
-    { rowDisplayText: { [name]: formatted, [other]: '<p>Unrelated</p>' } });
+    { rowDisplayText: { [name]: formatted, [other]: '<p>Unrelated</p>' }, vendorEvidence: 'example' });
     const { comparisonValues, ...preview } = await h.native.preparePreview(true);
     assert.deepEqual(JSON.parse(h.requests[0].get('mtflpp_row_text_fields')), [name]);
-    assert.deepEqual([...h.requests[0].keys()].slice(-2), ['base', 'mtflpp_row_text_fields'],
+    assert.deepEqual([...h.requests[0].keys()].slice(-3), ['base', 'mtflpp_row_text_fields', 'vendor_following'],
         'If PHP truncates the extras, the required baseline still arrives.');
     assert.equal(h.requests[0].get(name), raw);
     assert.equal(comparisonValues[name].value, raw);
     assert.equal(comparisonValues[name].formatted, formatted);
     assert.equal(comparisonValues[other].formatted, undefined);
     assert.equal(preview.rowDisplayText, undefined);
+    assert.equal(comparisonValues.rows.vendorEvidence, 'example');
+    assert.equal(preview.vendorEvidence, undefined);
+    assert.equal(preview.rowSubmission.some(([field]) => field === 'vendor_following'), false);
     const disabled = await h.native.preparePreview(false);
     assert.equal(h.requests[1].has('mtflpp_row_text_fields'), false);
+    assert.equal(h.requests[1].has('vendor_following'), false);
+    assert.equal(disabled.comparisonValues.rows.vendorEvidence, undefined);
     assert.equal(disabled.comparisonValues[name].formatted, undefined);
     h.native.destroy();
 });

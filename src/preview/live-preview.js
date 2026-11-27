@@ -5,7 +5,7 @@ import { createPreviewScroll } from '../preview/scroll.js';
 const refreshDelay = 275;
 
 // Share preview writes, frames and ownership, not editor-specific fields or save controls.
-export function createLivePreview(config, nativeEditor, { inlineLauncher, nativeLauncher } = {}) {
+export function createLivePreview(config, nativeEditor, { inlineLauncher, nativeLauncher, resolveRenderedRegions } = {}) {
     const strings = config.strings;
     const subjectId = config.termId ?? config.postId;
     const mainWindow = window;
@@ -30,7 +30,7 @@ export function createLivePreview(config, nativeEditor, { inlineLauncher, native
     let generation = 0;
     let refreshTimer;
     let refreshAt;
-    const frames = createPreviewFrame(view, scrolling, strings, report, config.comparisonExcludedSelectors);
+    const frames = createPreviewFrame(view, scrolling, strings, report, config.comparisonExcludedSelectors, resolveRenderedRegions);
     let followPending = false;
     let refreshTask;
     let candidate;

@@ -78,9 +78,9 @@ Compatibility is explicit, not hidden inside the preview engine:
 | `Compatibility/Acf.php` and `src/compatibility/acf*.js` | Post-local form values, native ACF save verification, revision value-cache invalidation, selected-source field reads and saved-history write guards; browser events and legacy meta-box coordination. | ACF is optional. Support depends on ACF's field/revision APIs; this is not support for every field type, options pages, related entities or a complete historical site snapshot. |
 | `Compatibility/Timber.php` and `TimberPost.php` | Overlays title/content/excerpt, live author and publication dates through `timber/post/import_data`. Uses the public post-class hook to delegate native `terms()` with the authorized post's selections, covering `post.category`, categories, tags and custom taxonomies. Preserves parent identity, other import data and unrelated posts. | The term bridge replaces only the standard `Timber\Post` class for the selected live post; theme-specific subclasses stay untouched. It adapts only the term query inside that call, never shared relationship caches or other posts. Native relationship-dependent query modes remain saved. No Twig renderer or theme changes. Normal metadata and ACF reads retain their respective owners. |
 | `Compatibility/Yoast.php` and `src/compatibility/yoast.js` | Validates native primary-term selections, stores them only on the owned live revision, and adapts the selected post's primary metadata and breadcrumb links. Uses Yoast's native renderer and parent breadcrumb surface. | Optional; existing Gutenberg controls only. Changes the configured main-taxonomy trail, preserves custom titles and parent hierarchy, and blocks lazy saves of this post's indexable/primary models. Bulk metadata, indexed repositories, other posts and saved-history taxonomy behavior stay native. No analysis-score, SEO title or meta-description capture. |
+| `Compatibility/Flynt.php` | Marks component roots in authorized live post previews that request source capture. An optional response map links the submitted ACF row controls to markers from the matching temporary snapshot; `src/compatibility/flynt-editor.js` turns them into regions for the shared verifier. | Editor-to-preview following for verified Flexible Content reorders only. No public markup changes, wrappers, subfield matching or editor navigation. Unmarked or ambiguous output retains ordinary following. |
 
-Flynt is a local test theme, not a plugin integration or runtime requirement. A
-compatibility class identifies a deliberate integration, not a guarantee across all
+A compatibility class identifies a deliberate integration, not a guarantee across all
 versions of that dependency. Add a concrete owner and regression tests when adding
 third-party behavior; do not put its hooks in the shared preview owners or introduce a generic
 integration registry. The shared comparison-exclusion defaults are configuration policy, not an
@@ -88,7 +88,7 @@ adaptation of dependency rendering/read/write APIs: they may identify recognizab
 output such as Xdebug diagnostics, while the matcher itself stays dependency-neutral.
 `Plugin.php` instantiates the built-in owners without passing compatibility objects into editors. Owners contribute assets/configuration and browser
 behavior through the same WordPress hooks that external plugins and themes can use.
-Compatibility setup is imported by the browser entry points, not the core screen modules.
+Compatibility setup is imported by the browser entry points, not the core screen modules. For rendered-region following, the Classic adapter can contribute optional parameters after the required form body, enrich the accepted comparison snapshot, and propose captured/live regions through the editor's scoped hooks. Core still verifies the submitted reorder, mapping, visibility and position before following; it treats integration evidence attributes as non-presentational.
 
 ## WordPress Posts page
 

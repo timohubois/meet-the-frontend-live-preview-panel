@@ -1,9 +1,9 @@
 import { containsEntry, contentSnapshot, entryText, normalizedText, sameRowPosition, sourceDocument, subtreeSnapshot } from './snapshot.js';
-import { anchoredRowMove, createRowMoveVerifier, inputRowMove } from './row-move.js';
+import { anchoredRowMove, createRowMoveVerifier, inputRowMove, resolvedRowMove } from './row-move.js';
 import { duplicateIds, markRowNavigationEchoes } from './row-navigation.js';
 
 // Comparison state belongs to one preview owner. Visibility is supporting evidence, not scroll presentation.
-export function createPreviewComparison(excludedSelectors = []) {
+export function createPreviewComparison(excludedSelectors = [], resolveRenderedRegions) {
     // PHP supplies the complete policy, including an intentional empty list.
     const selectors = Array.isArray(excludedSelectors) ? [...excludedSelectors] : [];
     const snapshots = new WeakMap();
@@ -35,6 +35,12 @@ export function createPreviewComparison(excludedSelectors = []) {
                 const transition = !!before.source !== !!after.source;
                 const move = inputRowMove(before.values, after.values,
                     captured && !edited && !inputOrderChanged(before.values, after.values));
+                if (resolveRenderedRegions && move && before.rowSubmission && after.rowSubmission) {
+                    try {
+                        const renderedRow = resolvedRowMove(before, after, move, previous, next, resolveRenderedRegions);
+                        if (renderedRow) return renderedRow;
+                    } catch { /* Optional render evidence cannot replace ordinary comparison when unreadable. */ }
+                }
                 const sourceChanges = captured ? changedCandidates(before.source, after.source, move, true) : [];
                 if (move?.boundaryGroups?.length) {
                     const meaningful = sourceChanges.filter((item) => !item.referenceOnly);

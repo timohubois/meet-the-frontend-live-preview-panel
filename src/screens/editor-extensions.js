@@ -28,15 +28,20 @@ export function createEditorExtensions(setupAction, context) {
                 return result;
             } catch (error) { failed(error); return value; }
         },
+        optional(name, value, ...args) {
+            if (destroyed || failure) return value;
+            try { return hooks.applyFilters(name, value, ...args); }
+            catch { return value; } // Following evidence must never block native preview output.
+        },
         action(name, ...args) {
             if (destroyed || failure) return;
             try { hooks.doAction(name, ...args); }
             catch (error) { failed(error); }
         },
-        capture(body, values = null) {
+        capture(body, values = null, followingParams = null) {
             if (destroyed && !failure) failed(new Error('This editor session has ended.'));
             const original = body === null ? null : new URLSearchParams(body);
-            const result = extensions.filter('previewFormBody', body, values);
+            const result = extensions.filter('previewFormBody', body, values, followingParams);
             if (result !== null && !(result instanceof URLSearchParams)) {
                 failed(new TypeError('Preview capture must return URLSearchParams or null.'));
             }

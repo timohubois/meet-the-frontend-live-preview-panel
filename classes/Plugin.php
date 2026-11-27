@@ -4,6 +4,7 @@ namespace MeetTheFrontendLivePreviewPanel;
 
 use MeetTheFrontendLivePreviewPanel\Compatibility\Acf;
 use MeetTheFrontendLivePreviewPanel\Compatibility\CoreBlocks;
+use MeetTheFrontendLivePreviewPanel\Compatibility\Flynt;
 use MeetTheFrontendLivePreviewPanel\Compatibility\Timber;
 use MeetTheFrontendLivePreviewPanel\Compatibility\Yoast;
 
@@ -15,6 +16,7 @@ final class Plugin
         new Migrations();
         new Acf();
         new CoreBlocks();
+        new Flynt();
         new Timber();
         new Yoast();
         new PublicRedirect();

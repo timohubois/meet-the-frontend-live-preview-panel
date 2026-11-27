@@ -25,7 +25,8 @@ export function initLivePreview(config, nativeEditor, inlineLauncher) {
         const coreValues = Object.fromEntries([...core].map(([key, value]) => [
             key, { type: key === 'post_title' ? 'text' : 'html', value },
         ]));
-        const data = extensions.capture(core, values);
+        const followingParams = followChanges ? new URLSearchParams() : null;
+        const data = extensions.capture(core, values, followingParams);
         const comparisonValues = extensions.comparisonValues(data, coreValues);
         const rowFields = new Set();
         if (followChanges) for (const hint of Object.values(comparisonValues)) {
@@ -37,34 +38,39 @@ export function initLivePreview(config, nativeEditor, inlineLauncher) {
         data.set('base', config.base);
         // PHP can truncate large forms; keep the optional hint after the required baseline.
         if (rowFields.size) data.set('mtflpp_row_text_fields', JSON.stringify([...rowFields]));
-        return { data, comparisonValues, rowFields };
+        // Preserve the actual submitted controls (including hidden and repeated values), not optional evidence.
+        const rowSubmission = followChanges && Object.values(comparisonValues).some((hint) => hint?.type === 'row-order')
+            ? [...data].filter(([name]) => !['base', '_acf_nonce', 'mtflpp_row_text_fields'].includes(name))
+            : undefined;
+        for (const [name, value] of followingParams ?? []) if (!data.has(name)) data.append(name, value);
+        return { data, comparisonValues, rowFields, rowSubmission };
     }
     nativeEditor.preparePreview = async (followChanges) => {
-        const { data, comparisonValues, rowFields } = capturePreview(followChanges);
+        const { data, comparisonValues, rowFields, rowSubmission } = capturePreview(followChanges);
         const response = await fetch(config.endpoint, {
             method: 'POST', credentials: 'same-origin',
             headers: { 'X-WP-Nonce': config.nonce }, body: data,
         });
         const result = await response.json();
         if (!response.ok) throw Object.assign(new Error(result.message || config.strings.failed), { code: result.code });
-        const { rowDisplayText, ...preview } = result;
         const displayValues = { ...comparisonValues };
-        // Keep this local to scroll comparison. Preserve field occurrence order, including
-        // hidden values that do not supply comparison hints.
-        const rowSubmission = followChanges && Object.values(comparisonValues).some((hint) => hint?.type === 'row-order')
-            ? [...data].filter(([name]) => !['base', '_acf_nonce', 'mtflpp_row_text_fields'].includes(name))
-            : undefined;
         for (const name of rowFields) {
-            const formatted = rowDisplayText?.[name];
+            const formatted = result.rowDisplayText?.[name];
             if (typeof formatted === 'string') displayValues[name] = { ...displayValues[name], formatted };
         }
-        return { ...preview, comparisonValues: displayValues, rowSubmission, stillMatches: () => {
+        const evidence = followChanges
+            ? extensions.optional('previewResponseComparisonValues', displayValues, result)
+            : displayValues;
+        return { url: result.url, comparisonValues: evidence ?? displayValues, rowSubmission, stillMatches: () => {
             const current = capturePreview(followChanges);
             return current.data.toString() === data.toString() && (!followChanges
                 || JSON.stringify(current.comparisonValues) === JSON.stringify(comparisonValues));
         } };
     };
-    const preview = createLivePreview(config, nativeEditor, { inlineLauncher });
+    const preview = createLivePreview(config, nativeEditor, {
+        inlineLauncher,
+        resolveRenderedRegions: (context) => extensions?.optional('previewRenderedRegions', null, context),
+    });
     function handleChange(notify) {
         if (capturing || destroyed) return;
         const reason = extensions?.filter('previewPauseReason', '') || extensions?.error?.message;

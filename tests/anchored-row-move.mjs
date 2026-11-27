@@ -1,7 +1,7 @@
 import { browserBundle, runChromiumTests, testInChromium } from './helpers/chromium.mjs';
 
 async function checkCases() {
-    const { createPreviewComparison, createPreviewScroll } = window.previewScroll;
+    const { createPreviewComparison, createPreviewScroll, resolveFlyntRegions } = window.previewScroll;
     const excluded = ['meta', 'script', 'style', 'input[type="hidden"]'];
     const titles = {
         A: 'First authored heading', B: 'Second authored heading', C: 'Third authored heading',
@@ -40,14 +40,18 @@ async function checkCases() {
             ],
         };
     }
+    const marker = (letter, changed) => (changed ? 'f' : 'a').repeat(63) + 'ABCD'.indexOf(letter);
     function markup(order, changed, scenario) {
+        const marked = scenario.startsWith('marked ');
+        const useText = scenario === 'marked stale snapshot uses text';
+        const rowMarker = (letter, index) => marked ? ' data-mtflpp-evidence-flynt-row="' + marker(letter, changed) + ':' + index + '"' : '';
         return (
             '<div style="height:1000px">Above</div><div id="rows">' +
             [...order]
                 .map((letter) => {
                     const text = scenario === 'second media-only swap' && ['C', 'D'].includes(letter)
                         ? 'Shared caption ' + image(letter === 'C' ? 'red' : 'blue')
-                        : titles[scenario === 'duplicate output' && letter === 'D' ? 'A' : letter];
+                        : (marked && !useText) || scenario === 'resolved vendor row' ? 'Shared heading' : titles[scenario === 'duplicate output' && letter === 'D' ? 'A' : letter];
                     const other =
                         letter === 'A' && changed
                             ? '<div class="upped"><div><span>New render ornament</span></div></div>'
@@ -64,7 +68,12 @@ async function checkCases() {
                     const media = scenario.startsWith('crossed media') && ['A', 'B'].includes(letter)
                         ? image((letter === 'A') !== (changed && scenario === 'crossed media swapped independently') ? 'red' : 'blue')
                             + image(letter === 'A' ? 'green' : 'purple') : '';
-                    const row = '<section data-row="' + letter + '"' + id + hidden + '>' + heading + media + other + '</section>';
+                    const row = '<section data-row="' + letter + '"' + id + hidden + rowMarker(letter, 0) + '>' + heading + media + other + '</section>';
+                    if (marked && !useText && letter === 'A') {
+                        if (changed && scenario === 'marked duplicate render') return row + row;
+                        const split = row + '<section' + rowMarker(letter, 1) + '><p>Shared copy</p></section>';
+                        return scenario === 'marked hidden target' && changed ? '<details><summary>More</summary>' + split + '</details>' : split;
+                    }
                     if (!scenario.startsWith('split ') || letter !== 'B') return row;
                     const detail = '<section data-detail="B"><h2>' +
                         (scenario === 'split unverified sibling' ? 'No field witness' : detailTitle) + '</h2></section>';
@@ -165,6 +174,15 @@ async function checkCases() {
         'spacing edit outside moved collection',
         'reordered across non-row input',
         'CSS order disagrees',
+        'resolved vendor row',
+        'marked split row with duplicate text',
+        'marked stale snapshot',
+        'marked stale snapshot uses text',
+        'marked duplicate render',
+        'marked wrong live node',
+        'marked hidden target',
+        'marked CSS order disagrees',
+        'marked concurrent edit',
     ];
     const results = [];
     for (const name of cases) {
@@ -191,8 +209,20 @@ async function checkCases() {
                 const x = disabled('X', name === 'disabled row value changed' ? 'edited' : 'unchanged'), y = disabled('Y');
                 afterValues.submission.splice(2, 0, ...(name === 'disabled rows independently reshuffled' ? [...y, ...x] : [...x, ...y]));
             }
+            if (name === 'resolved vendor row') for (const values of [beforeValues, afterValues]) {
+                values[field].fieldsByRow = Object.fromEntries([...from].map((letter) => [layout(letter), []]));
+            }
+            if (name.startsWith('marked ')) {
+                for (const [values, changed] of [[beforeValues, false], [afterValues, true]]) {
+                    if (name !== 'marked stale snapshot uses text') {
+                        values[field].fieldsByRow = Object.fromEntries([...from].map((letter) => [layout(letter), []]));
+                    }
+                    values[field].flyntMarkers = Object.fromEntries([...from].map((letter) =>
+                        [layout(letter), marker(letter, changed && !name.startsWith('marked stale snapshot'))]));
+                }
+            }
             const entries = afterValues.submission;
-            if (name === 'unrelated authored edit') entries[1][1] = 'another';
+            if (['unrelated authored edit', 'marked concurrent edit'].includes(name)) entries[1][1] = 'another';
             if (name === 'authored edit in moved row') entries.find(([name]) => name === title('A'))[1] = 'changed';
             if (name === 'unhinted hidden setting edit') entries.find(([name]) => name === path('A') + '[hidden_setting]')[1] = 'disabled';
             if (name === 'change a concurrent gallery') {
@@ -241,6 +271,8 @@ async function checkCases() {
                 'runtime relocated witness': "document.querySelector('[data-row=B]').append(document.querySelector('[data-row=A] h2'))",
                 'hidden live': "document.querySelector('[data-row=A]').hidden=true",
                 'CSS order disagrees': "document.querySelector('#rows').style.cssText='display:flex;flex-direction:column-reverse'",
+                'marked CSS order disagrees': "document.querySelector('#rows').style.cssText='display:flex;flex-direction:column-reverse'",
+                'marked wrong live node': "document.querySelector('[data-row=A]').setAttribute('data-mtflpp-node','duplicate')",
                 'missing live row': "document.querySelector('[data-row=A]').remove()",
                 'split runtime detaches sibling': "document.querySelector('[data-row=D]').append(document.querySelector('[data-detail=B]'))",
                 'runtime rewritten witness': "document.querySelector('[data-row=A] h2').textContent='Not the same row'",
@@ -253,7 +285,11 @@ async function checkCases() {
             const after = await doc(output, true, name, scripts[name], name !== 'missing captured HTML');
             if (name.startsWith('spacing edit') && (before.querySelector('.spacing').innerText !== 'AlphaBeta'
                 || after.querySelector('.spacing').innerText !== 'Alpha Beta')) throw Error('The edit must change visible spacing');
-            const comparison = createPreviewComparison(excluded),
+            const vendorRegions = ({ sourceDocument, document }) => new Map([...from].map((letter) => {
+                const selector = `[data-row=${letter}]`;
+                return [layout(letter), [[sourceDocument.querySelector(selector), document.querySelector(selector)]]];
+            }));
+            const comparison = createPreviewComparison(excluded, name === 'resolved vendor row' ? vendorRegions : resolveFlyntRegions),
                 scrolling = createPreviewScroll();
             const { submission: oldRequest, ...oldHints } = beforeValues;
             const { submission: nextRequest, ...nextHints } = afterValues;
@@ -263,6 +299,7 @@ async function checkCases() {
             const shouldFollow = [
                 'markup churn down', 'markup churn up', 'across two rows', 'equivalent rich text serialization', 'visible disclosure summary',
                 'split crossed row', 'split moved row', 'split unverified sibling', 'crossed media stays with rows', 'disabled rows crossed',
+                'resolved vendor row', 'marked split row with duplicate text', 'marked stale snapshot uses text',
             ].includes(name);
             const baseline = createPreviewComparison(excluded);
             baseline.capture(before, oldHints);
@@ -295,5 +332,5 @@ async function checkCases() {
 }
 testInChromium('a submitted row rotation follows verified rendered text through markup churn', async (t) => {
     const bundle = await browserBundle(t, new URL('./browser/preview-scroll.js', import.meta.url), 'previewScroll');
-    await runChromiumTests(t, { head: `<script src="${bundle}"></script>`, script: `(${checkCases.toString()})()`, count: 50 });
+    await runChromiumTests(t, { head: `<script src="${bundle}"></script>`, script: `(${checkCases.toString()})()`, count: 59 });
 });
