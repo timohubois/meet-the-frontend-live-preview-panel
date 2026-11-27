@@ -89,7 +89,7 @@ try {
     $check(apply_filters($renderer, $html, []) === $html, 'Ordinary renders are not marked.');
     $plain = $send(false);
     $check($plain->get_status() === 200 && !isset($plain->get_data()['rowMarkers']), 'No evidence without opt-in.');
-    foreach ([null, '', ' ', ['name' => $renderer]] as $invalid) {
+    foreach ([null, false, '', ' ', ['name' => $renderer], (object) ['name' => $renderer]] as $invalid) {
         $selection = $invalid;
         $config = [];
         $evidence->configureEditor($config);
@@ -120,12 +120,20 @@ try {
     $evidence->markPreview($sourceId);
     $accepted = get_field($field, $sourceId);
     $check($accepted[0]['label'] === "Second's row", 'ACF must read the reordered snapshot.');
+    foreach ([null, false, (object) ['html' => $html]] as $invalidHtml) {
+        $check(
+            apply_filters($renderer, $invalidHtml, $accepted[0]) === $invalidHtml,
+            'Non-string HTML must pass through unchanged even with a marked row.'
+        );
+    }
     $updated = apply_filters($renderer, $html, $accepted[0]);
     $attribute = ' data-mtflpp-evidence-row="' . $marker . ':';
     $expected = '<h2' . $attribute . '0"><span>Heading</span></h2>' . "\n" . '<p' . $attribute . '1">Copy</p>';
     $check($updated === $expected, 'Mark existing roots only, with no wrapper or descendant changes.');
     $check(apply_filters($renderer, $html) === $html, 'A renderer without a row argument stays unmarked.');
-    $check(apply_filters($renderer, $html, 'not a row') === $html, 'A non-array row stays unmarked.');
+    foreach ([null, false, 'not a row', (object) $accepted[0]] as $invalidRow) {
+        $check(apply_filters($renderer, $html, $invalidRow) === $html, 'A non-array row stays unmarked.');
+    }
     $check(
         apply_filters($renderer, $html, ['label' => $accepted[0]['label']]) === $html,
         'Rebuilt rows stay unmarked.'

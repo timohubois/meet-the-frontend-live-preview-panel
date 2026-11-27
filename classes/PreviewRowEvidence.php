@@ -33,6 +33,17 @@ final class PreviewRowEvidence
         if (Flynt::isAvailable()) {
             return Flynt::addRenderedRowFilter(...);
         }
+        $filter = $this->customRowRenderFilter();
+        if ($filter === null) {
+            return null;
+        }
+        return static function (callable $mark) use ($filter): void {
+            add_filter($filter, $mark, PHP_INT_MAX, 2);
+        };
+    }
+
+    private function customRowRenderFilter(): ?string
+    {
         /**
          * Choose a filter that receives one ACF row's HTML and its formatted row array.
          *
@@ -41,12 +52,7 @@ final class PreviewRowEvidence
         // Mtflpp is the plugin's public hook prefix; Plugin Check does not infer slash-delimited prefixes.
         // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound
         $filter = apply_filters('Mtflpp/previewRowRenderFilter', null);
-        if (!is_string($filter) || $filter === '' || trim($filter) !== $filter) {
-            return null;
-        }
-        return static function (callable $mark) use ($filter): void {
-            add_filter($filter, $mark, PHP_INT_MAX, 2);
-        };
+        return is_string($filter) && $filter !== '' && trim($filter) === $filter ? $filter : null;
     }
 
     public function clearSaveEvidence(): void
@@ -195,15 +201,18 @@ final class PreviewRowEvidence
         };
         add_filter('acf/format_value/type=flexible_content', $format, PHP_INT_MAX, 3);
         $register(function (mixed $html, mixed $row = null) use ($site): mixed {
-            return get_current_blog_id() === $site ? $this->markRow($html, $row) : $html;
+            if (!is_string($html) || !is_array($row) || get_current_blog_id() !== $site) {
+                return $html;
+            }
+            return $this->markRow($html, $row);
         });
         add_filter('wp_template_enhancement_output_buffer', [$this, 'discardDuplicates'], PHP_INT_MAX - 1);
     }
 
-    private function markRow(mixed $html, mixed $data): mixed
+    private function markRow(string $html, array $row): string
     {
-        $marker = is_array($data) ? ($data[self::ROW_DATA] ?? null) : null;
-        if (!is_string($html) || !is_string($marker) || !preg_match('/^[a-f0-9]{64}$/D', $marker)) {
+        $marker = $row[self::ROW_DATA] ?? null;
+        if (!is_string($marker) || !preg_match('/^[a-f0-9]{64}$/D', $marker)) {
             return $html;
         }
         $this->rendered[$marker] = ($this->rendered[$marker] ?? 0) + 1;

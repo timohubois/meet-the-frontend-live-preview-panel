@@ -41,9 +41,10 @@ change detection cannot identify the moved row. This only adds evidence for
 Classic Editor reorders; it does not add support for new kinds of unsaved data.
 
 Flynt sites use the built-in adapter directly and do not call this filter. On
-other sites, the filter starts at `null` (no custom renderer). Return one theme
-or plugin hook name to opt in. Reuse a hook with the signature `($html, $row)` or
-add one where you render each row.
+other sites, the filter starts at `null` (no custom renderer). Your callback can
+declare a `?string` return type: return one theme or plugin hook name to opt in,
+or `null` to leave custom evidence off. Reuse a hook with the signature
+`($html, $row)` or add one where you render each row.
 
 ### Example: a theme with an ACF sections field
 
@@ -98,8 +99,10 @@ get_footer();
 Call the render filter **once per row**. In an eligible live preview, the panel
 adds a private marker to the formatted ACF array and uses your render filter to
 copy it to the HTML's top-level elements. Your theme does not create the marker.
-The panel still verifies the reorder before scrolling; missing or ambiguous
-evidence falls back to normal change detection. Ordinary page renders are unchanged.
+If the hook doesn't receive a string and an array, the panel leaves its result
+unchanged. The panel still verifies the reorder before scrolling; missing or
+ambiguous evidence falls back to normal change detection. Ordinary page renders
+are unchanged.
 
 The other built-in adaptations are wired directly to the preview owners. There
 is no public save or preview lifecycle hook. The former `mtflpp_` PHP hooks and

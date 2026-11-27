@@ -14,7 +14,7 @@ final class Flynt
     {
         add_filter(
             'Flynt/renderComponent',
-            static fn ($html, $componentName = null, $row = null) => $mark($html, $row),
+            static fn (mixed $html, mixed $componentName = null, mixed $row = null): mixed => $mark($html, $row),
             PHP_INT_MAX,
             3
         );
