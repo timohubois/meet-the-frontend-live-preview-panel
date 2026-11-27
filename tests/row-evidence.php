@@ -2,6 +2,7 @@
 
 /** Run with `wp eval-file tests/row-evidence.php` on a disposable single site with ACF Pro or SCF. */
 
+use MeetTheFrontendLivePreviewPanel\Compatibility\Flynt;
 use MeetTheFrontendLivePreviewPanel\LivePreview;
 use MeetTheFrontendLivePreviewPanel\PreviewRowEvidence;
 
@@ -19,6 +20,7 @@ $check = static function (bool $condition, string $message): void {
     }
 };
 $check(!class_exists('Flynt\\Api'), 'Run the fixture without a Flynt theme so it can test both modes.');
+$check(Flynt::rowMarkerRegistration() === null, 'The adapter is unavailable without the Flynt theme.');
 require_once ABSPATH . 'wp-admin/includes/user.php';
 $originalUser = get_current_user_id();
 $postId = $user = 0;
@@ -81,7 +83,7 @@ try {
         return rest_do_request($request);
     };
 
-    $evidence = new PreviewRowEvidence();
+    $evidence = new PreviewRowEvidence(Flynt::rowMarkerRegistration(...));
     $config = [];
     $evidence->configureEditor($config);
     $check(($config['previewRowEvidence'] ?? false) === true, 'A renderer can opt in through the public filter.');
@@ -158,7 +160,7 @@ try {
     class_alias($flyntApi::class, 'Flynt\\Api');
     $selections = [];
     $config = [];
-    $evidence = new PreviewRowEvidence();
+    $evidence = new PreviewRowEvidence(Flynt::rowMarkerRegistration(...));
     $evidence->configureEditor($config);
     $check(($config['previewRowEvidence'] ?? false) === true, 'Flynt opts in without a public filter callback.');
     $response = $send(true);

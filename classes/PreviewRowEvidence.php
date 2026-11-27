@@ -3,7 +3,6 @@
 namespace MeetTheFrontendLivePreviewPanel;
 
 use Closure;
-use MeetTheFrontendLivePreviewPanel\Compatibility\Flynt;
 use WP_HTML_Processor;
 use WP_HTML_Tag_Processor;
 
@@ -16,6 +15,11 @@ final class PreviewRowEvidence
     private int $writing = 0;
     private array $fields = [];
     private array $rendered = [];
+
+    /** @param (Closure(): ?Closure)|null $resolveBuiltInRenderer Resolve after the theme has loaded. */
+    public function __construct(private readonly ?Closure $resolveBuiltInRenderer = null)
+    {
+    }
 
     public function configureEditor(array &$config): void
     {
@@ -30,8 +34,9 @@ final class PreviewRowEvidence
         if (!function_exists('acf_get_field_type') || !acf_get_field_type('flexible_content')) {
             return null;
         }
-        if (Flynt::isAvailable()) {
-            return Flynt::addRenderedRowFilter(...);
+        $builtIn = $this->resolveBuiltInRenderer?->__invoke();
+        if ($builtIn !== null) {
+            return $builtIn;
         }
         $filter = $this->customRowRenderFilter();
         if ($filter === null) {
