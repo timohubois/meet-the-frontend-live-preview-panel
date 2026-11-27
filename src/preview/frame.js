@@ -25,7 +25,7 @@ export function createPreviewFrame(view, scrolling, strings, report, excludedSel
         cancelLoad?.();
     }
 
-    function load(nextAddress, isCurrent, followChanges = () => false, comparisonValues, beforeReveal) {
+    function load(nextAddress, isCurrent, followChanges = () => false, comparisonValues, beforeReveal, rowSubmission) {
         const url = new URL(nextAddress);
         if (url.protocol !== 'https:' && url.protocol !== 'http:') {
             throw Object.assign(new Error(strings.failed), { code: 'mtflpp_preview_unsupported_url' });
@@ -93,7 +93,8 @@ export function createPreviewFrame(view, scrolling, strings, report, excludedSel
                 // The next following load establishes a fresh baseline without retroactively capturing old output.
                 // Native navigation is not a new editor submission and receives no old hints.
                 if (doc) {
-                    if (view.followChanges) comparison.capture(doc, replacing ? comparisonValues : undefined);
+                    if (view.followChanges) comparison.capture(doc, replacing ? comparisonValues : undefined,
+                        replacing ? rowSubmission : undefined);
                     // Keep page-boundary scrolling from moving the separate preview canvas.
                     doc.documentElement.style.setProperty('overscroll-behavior', 'contain', 'important');
                 }

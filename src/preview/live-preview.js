@@ -191,11 +191,11 @@ export function createLivePreview(config, nativeEditor, { inlineLauncher, native
         changed();
     }
 
-    async function loadFrame(address, version, values, stillMatches) {
+    async function loadFrame(address, version, { comparisonValues, rowSubmission, stillMatches }) {
         if (stillMatches) candidate = { version, stillMatches };
         try {
             await frames.load(address, () => previewActive && version === generation,
-                () => view.followChanges && followPending, values, () => pendingCheck?.promise);
+                () => view.followChanges && followPending, comparisonValues, () => pendingCheck?.promise, rowSubmission);
         } finally {
             if (pendingCheck) await pendingCheck.promise;
             candidate = undefined;
@@ -231,7 +231,7 @@ export function createLivePreview(config, nativeEditor, { inlineLauncher, native
                     throw Object.assign(new Error(result.message || strings.failed), { code: result.code });
                 }
                 if (previewActive && version === generation) {
-                    await loadFrame(result.url, version, result.comparisonValues, result.stillMatches);
+                    await loadFrame(result.url, version, result);
                 }
             } catch (error) {
                 if (previewActive && !nativeEditor.saving) reportFailure(error);

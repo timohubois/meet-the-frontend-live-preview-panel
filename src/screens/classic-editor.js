@@ -49,11 +49,16 @@ export function initLivePreview(config, nativeEditor, inlineLauncher) {
         if (!response.ok) throw Object.assign(new Error(result.message || config.strings.failed), { code: result.code });
         const { rowDisplayText, ...preview } = result;
         const displayValues = { ...comparisonValues };
+        // Keep this local to scroll comparison. Preserve field occurrence order, including
+        // hidden values that do not supply comparison hints.
+        const rowSubmission = followChanges && Object.values(comparisonValues).some((hint) => hint?.type === 'row-order')
+            ? [...data].filter(([name]) => !['base', '_acf_nonce', 'mtflpp_row_text_fields'].includes(name))
+            : undefined;
         for (const name of rowFields) {
             const formatted = rowDisplayText?.[name];
             if (typeof formatted === 'string') displayValues[name] = { ...displayValues[name], formatted };
         }
-        return { ...preview, comparisonValues: displayValues, stillMatches: () => {
+        return { ...preview, comparisonValues: displayValues, rowSubmission, stillMatches: () => {
             const current = capturePreview(followChanges);
             return current.data.toString() === data.toString() && (!followChanges
                 || JSON.stringify(current.comparisonValues) === JSON.stringify(comparisonValues));

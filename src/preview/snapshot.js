@@ -11,8 +11,12 @@ export function sourceDocument(doc) {
     } catch { return null; } // Missing/invalid data or a restrictive Trusted Types policy uses the DOM fallback.
 }
 
+export function comparisonRoot(doc) {
+    return doc.querySelector('main, [role="main"]') || doc.querySelector('article') || doc.body;
+}
+
 // Compare content and presentation without theme/field knowledge or viewport-dependent geometry.
-export function contentSnapshot(doc, live, excludedSelectors, root = doc.querySelector('main, [role="main"]') || doc.querySelector('article') || doc.body) {
+export function contentSnapshot(doc, live, excludedSelectors, root = comparisonRoot(doc)) {
     if (!root) return null;
     // Validate CSS once per cached snapshot, not for every node. Bad extension selectors remain inert.
     const excluded = excludedSelectors.filter((selector) => {
@@ -29,10 +33,11 @@ export function contentSnapshot(doc, live, excludedSelectors, root = doc.querySe
             targets.set(key, targets.has(key) ? null : node);
         }
     }
-    let snapshot = subtreeSnapshot(root, excluded, targets);
-    if (!snapshot) return null;
+    const contentRoot = subtreeSnapshot(root, excluded, targets);
+    if (!contentRoot) return null;
     // Ancestor attributes can control layout; their unrelated siblings/text are not preview content.
-    const target = snapshot.node;
+    let snapshot = contentRoot;
+    const target = contentRoot.node;
     for (let node = root.parentElement; node; node = node.parentElement) {
         const parent = snapshotEntry(node, target, node.localName);
         parent.children = [snapshot];
@@ -40,6 +45,7 @@ export function contentSnapshot(doc, live, excludedSelectors, root = doc.querySe
         snapshot = parent;
     }
     snapshot.excluded = excluded;
+    snapshot.contentRoot = contentRoot;
     return snapshot;
 }
 
@@ -130,6 +136,15 @@ export function isFlowBoundary(tag) {
 
 export function childFlowText(tag, text) {
     return isFlowBoundary(tag) ? ` ${text} ` : text;
+}
+
+export function sameRowPosition(before, after) {
+    // Only comparable boxes can disprove a move. Native disclosures and display:contents can be boxless.
+    if (!before?.getClientRects().length || !after.getClientRects().length) return false;
+    const a = before.getBoundingClientRect(), b = after.getBoundingClientRect();
+    const from = before.ownerDocument.defaultView, to = after.ownerDocument.defaultView;
+    return Math.abs((a.top + from.scrollY) - (b.top + to.scrollY)) < 1
+        && Math.abs((a.left + from.scrollX) - (b.left + to.scrollX)) < 1;
 }
 
 export function containsEntry(parent, child) {

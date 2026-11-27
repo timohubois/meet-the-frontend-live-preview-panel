@@ -17,12 +17,21 @@ function checkAcf(config) {
     return true;
 }
 
+// Keep ordinary hint types intact; only the exact-text fallback uses this provenance.
+function markAcfPlainText(values) {
+    for (const [name, hint] of values) {
+        if (name.startsWith('acf[') && hint?.type === 'text') values.set(name, { ...hint, acfPlainText: true });
+    }
+    return values;
+}
+
 function setupBlockEditorAcf({ config, changed, hooks, onDestroy }) {
     if (!checkAcf(config)) return;
     const fields = createBlockEditorAcf(changed);
     onDestroy(() => fields.destroy());
     hooks.addAction('observePreviewInputs', namespace, () => fields.observe());
     hooks.addAction('nativeMetaboxSaveAcknowledged', namespace, () => fields.saved());
+    hooks.addFilter('previewComparisonValues', namespace, markAcfPlainText);
     hooks.addFilter('previewPauseReason', namespace, (reason) => reason || (fields.ready ? '' : config.strings.acfRefreshing));
     hooks.addFilter('previewFormBody', namespace, (body) => {
         for (const [name, value] of fields.capture()) {
@@ -37,6 +46,19 @@ function setupClassicEditorAcf({ config, form, changed, acfFieldChanged, watchEd
     if (!checkAcf(config)) return;
     const fields = initAcf(form, changed, watchEditor, cancelNativeSave, acfFieldChanged);
     onDestroy(() => fields.destroy());
+    const acf = window.acf;
+    if (typeof acf.didAction === 'function' && !acf.didAction('ready')) {
+        // Conditional logic disables controls during ACF's initial field setup.
+        // Wait for that setup so the first preview uses the same successful controls as later edits.
+        let ready = false;
+        const onReady = () => {
+            ready = true;
+            changed();
+        };
+        acf.addAction('ready', onReady, 100);
+        onDestroy(() => acf.removeAction('ready', onReady));
+        hooks.addFilter('previewPauseReason', namespace, (reason) => reason || (ready ? '' : config.strings.acfRefreshing));
+    }
     const onInput = (event) => { if (fields.isField(event.target)) changed(event); };
     form.addEventListener('input', onInput);
     form.addEventListener('change', onInput, true);
@@ -45,10 +67,10 @@ function setupClassicEditorAcf({ config, form, changed, acfFieldChanged, watchEd
         form.removeEventListener('change', onInput, true);
     });
     hooks.addFilter('nativeSaveValidationPending', namespace, (validating) => validating || fields.isValidating());
-    hooks.addFilter('previewComparisonValues', namespace, (values, body) => fields.layoutOrders(values, body));
+    hooks.addFilter('previewComparisonValues', namespace, (values, body) => fields.layoutOrders(markAcfPlainText(values), body));
     hooks.addFilter('previewFormBody', namespace, (body, values) => {
         for (const [name, value] of values) {
-            // ACF may not have disabled template rows when the eager preview starts.
+            // Template rows are never submitted, including on ACF versions without readiness tracking.
             if (typeof value === 'string' && fields.accepts(name) && !name.includes('[acfcloneindex]')) {
                 body.append(name, value);
             }

@@ -5,11 +5,12 @@ import { editorExtensionsFixture } from './helpers/editor-extensions.mjs';
 import { sourceForVm } from './helpers/modules.mjs';
 import vm from 'node:vm';
 
-function fixture({ acfEnabled = false, browserAcf = true } = {}) {
+function fixture({ acfEnabled = false, browserAcf = true, classicAcf } = {}) {
     const config = { acfEnabled, strings: { integrationFailed: 'Integration failed', acfUnavailable: 'ACF unavailable', acfRefreshing: 'ACF refreshing' } };
     const context = {
         URLSearchParams,
-        window: { jQuery() {}, ...(browserAcf ? { acf: { addAction() {}, removeAction() {} } } : {}) },
+        window: { jQuery: () => ({ on() {}, off() {} }),
+            ...(browserAcf ? { acf: classicAcf || { addAction() {}, removeAction() {} } } : {}) },
     };
     const fields = { ready: true, changes: 0, saves: 0, destroys: 0,
         observe() { this.changes++; }, saved() { this.saves++; }, destroy() { this.destroys++; },
@@ -66,6 +67,29 @@ for (const priority of [5, 20]) {
     });
 }
 
+for (const editor of ['classicEditor', 'blockEditor']) {
+    test(`only submitted ACF plain-text controls get exact-follow provenance: ${editor}`, () => {
+        const h = fixture({ acfEnabled: true });
+        const fields = [
+            { name: 'acf[field_heading]', type: 'text' },
+            { name: 'acf[field_copy]', localName: 'textarea', type: 'textarea', wysiwyg: true },
+            { name: 'vendor[title]', type: 'text' },
+        ].map((field) => ({ ...field, classList: { contains: (key) => key === 'wp-editor-area' && !!field.wysiwyg } }));
+        const form = { addEventListener() {}, removeEventListener() {}, querySelectorAll: () => fields };
+        const extensions = h.create(`mtflpp.${editor}.previewSetup`, { form });
+        const values = extensions.comparisonValues(new URLSearchParams(fields.map(({ name }) => [name, 'Sample'])), {
+            post_title: { type: 'text', value: 'Post' },
+        });
+        assert.equal(values['acf[field_heading]'].acfPlainText, true);
+        assert.equal(values['acf[field_heading]'].type, 'text');
+        assert.equal(values['acf[field_copy]'].type, 'html');
+        assert.equal(values['acf[field_copy]'].acfPlainText, undefined);
+        assert.equal(values['vendor[title]'].acfPlainText, undefined);
+        assert.equal(values.post_title.acfPlainText, undefined);
+        extensions.destroy();
+    });
+}
+
 test('multiple readiness contributors retain the first blocker and can release it', () => {
     const h = fixture({ acfEnabled: true });
     let blocked = true;
@@ -81,6 +105,26 @@ test('multiple readiness contributors retain the first blocker and can release i
     assert.equal(extensions.filter('previewPauseReason', ''), '');
     extensions.destroy();
 });
+
+for (const ready of [false, true]) {
+    test(`classic preview waits for ACF conditional field setup only if needed: ready=${ready}`, () => {
+        const callbacks = new Map();
+        const h = fixture({ acfEnabled: true, classicAcf: {
+            didAction: (action) => action === 'ready' && ready,
+            addAction(action, callback) { callbacks.set(action, callback); },
+            removeAction(action, callback) { if (callbacks.get(action) === callback) callbacks.delete(action); },
+        } });
+        let changes = 0;
+        const form = { addEventListener() {}, removeEventListener() {} };
+        const extensions = h.create('mtflpp.classicEditor.previewSetup', { form, changed: () => changes++ });
+        assert.equal(extensions.filter('previewPauseReason', ''), ready ? '' : 'ACF refreshing');
+        callbacks.get('ready')?.();
+        assert.equal(extensions.filter('previewPauseReason', ''), '');
+        assert.equal(changes, ready ? 0 : 1);
+        extensions.destroy();
+        assert.equal(callbacks.size, 0);
+    });
+}
 
 test('classic and block setup actions expose separate contexts and local contributions', () => {
     const h = fixture();
