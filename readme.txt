@@ -3,7 +3,7 @@ Contributors: timohubois
 Tags: preview, live preview, block editor
 Requires at least: 6.9
 Tested up to: 7.1
-Stable tag: 1.3.4
+Stable tag: 1.4.0
 Requires PHP: 8.3
 License: GPLv3 or later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
@@ -112,6 +112,14 @@ Report issues or contribute on [GitHub](https://github.com/timohubois/meet-the-f
 8. Keep the preview in a separate Picture-in-Picture window where supported.
 
 == Changelog ==
+
+= 1.4.0 =
+
+* Follow verified ACF Flexible Content row moves more reliably in the Classic Editor, including moves across disabled rows and Flynt components that render as multiple elements.
+* Follow uniquely identifiable ACF plain-text edits in the Classic Editor.
+* Preserve frontend click handlers in the preview, including links used by interactive components.
+* Avoid duplicate Classic Editor preview refreshes and reduce the work needed to capture large preview pages.
+* Breaking change for custom integrations: the previous `mtflpp_` PHP hooks and `mtflpp.` JavaScript setup actions are no longer called, and no aliases are provided. See the [integration guide](https://github.com/timohubois/meet-the-frontend-live-preview-panel/blob/1.4.0/docs/integrations.md) for the two supported filters. Built-in integrations need no changes.
 
 = 1.3.4 =
 
