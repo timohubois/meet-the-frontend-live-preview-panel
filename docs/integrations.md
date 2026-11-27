@@ -40,35 +40,66 @@ A theme or plugin that renders ACF Flexible Content rows can use
 change detection cannot identify the moved row. This only adds evidence for
 Classic Editor reorders; it does not add support for new kinds of unsaved data.
 
-After rendering a row, pass its HTML and the formatted ACF row array to a filter
-before outputting the HTML. Reuse a filter that already receives `($html, $row)`,
-or add one where the theme renders each row:
+Flynt sites use the built-in adapter directly and do not call this filter. On
+other sites, the filter starts at `null` (no custom renderer). Return one theme
+or plugin hook name to opt in. Reuse a hook with the signature `($html, $row)` or
+add one where you render each row.
 
-```php
-$html = apply_filters('ExampleTheme/renderRow', $html, $row);
-```
+### Example: a theme with an ACF sections field
 
-In your normal theme or plugin setup (not in an admin-only hook), tell the panel
-the name of that filter:
+In ACF, add a Flexible Content field with the field name `sections` to Pages.
+Give it a layout named `text` with a Text subfield named `heading` and a Text Area
+subfield named `body`. Add at least two rows with different headings on a page
+to try a reorder in the Classic Editor.
+
+In the theme's `functions.php`, register the hook name (not inside an admin-only hook):
 
 ```php
 add_filter('Mtflpp/previewRowRenderFilter', static fn (): string => 'ExampleTheme/renderRow');
 ```
 
-The panel attaches its own callback to that filter during eligible live previews.
-It reads a private marker it previously added to the formatted ACF row and puts
-that marker on the HTML's top-level elements. Pass the row through the filter
-**once**, using the original formatted array (or a copy that keeps all its keys).
-Passing only the fields used by the template drops the marker. A row can render
-several sibling elements; no wrapper is needed.
+In `page.php`, render each row to a string before passing it through the theme's filter:
 
-Only one renderer filter is selected. Flynt is supported automatically; its
-different callback signature is handled by the built-in adapter. Return the
-incoming selection to keep it, or return `null` to disable renderer evidence.
+```php
+<?php
+get_header();
 
-The panel still verifies the reorder, HTML mapping and on-screen placement before
-scrolling. Missing or ambiguous evidence falls back to normal change detection.
-Ordinary page renders are unchanged.
+while (have_posts()) {
+    the_post();
+    $rows = function_exists('get_field') ? get_field('sections', get_the_ID()) : [];
+    echo '<main>';
+    foreach ($rows ?: [] as $row) {
+        if (($row['acf_fc_layout'] ?? '') !== 'text') {
+            continue;
+        }
+
+        $html = sprintf(
+            '<h2>%s</h2><p>%s</p>',
+            esc_html($row['heading'] ?? ''),
+            esc_html($row['body'] ?? '')
+        );
+
+        echo apply_filters('ExampleTheme/renderRow', $html, $row);
+    }
+    echo '</main>';
+}
+
+get_footer();
+```
+
+- **`$html`** is the finished HTML string for **one row**. It can contain one
+  top-level element or several siblings, like the heading and paragraph above.
+  It is not the whole page, a template filename, or an already-printed result.
+- **`$row`** is the formatted associative array returned by ACF for that same row.
+  Here it contains `acf_fc_layout`, `heading`, and `body`. Pass the original array,
+  or a copy that keeps **all** its keys. Do not pass the row number, request data,
+  or a new array containing just the template fields.
+
+Call the render filter **once per row**. In an eligible live preview, the panel
+adds a private marker to the formatted ACF array and uses your render filter to
+copy it to the HTML's top-level elements. Your theme does not create the marker.
+The panel still verifies the reorder before scrolling; missing or ambiguous
+evidence falls back to normal change detection. Ordinary page renders are unchanged.
 
 The other built-in adaptations are wired directly to the preview owners. There
 is no public save or preview lifecycle hook. The former `mtflpp_` PHP hooks and

@@ -2,6 +2,7 @@
 
 namespace MeetTheFrontendLivePreviewPanel;
 
+use Closure;
 use MeetTheFrontendLivePreviewPanel\Compatibility\Flynt;
 use WP_HTML_Processor;
 use WP_HTML_Tag_Processor;
@@ -18,15 +19,19 @@ final class PreviewRowEvidence
 
     public function configureEditor(array &$config): void
     {
-        if ($this->renderFilter() !== null) {
+        if ($this->rowMarkerRegistration() !== null) {
             $config['previewRowEvidence'] = true;
         }
     }
 
-    private function renderFilter(): ?string
+    /** Select how to attach the internal (HTML, row) callback for this site. */
+    private function rowMarkerRegistration(): ?Closure
     {
         if (!function_exists('acf_get_field_type') || !acf_get_field_type('flexible_content')) {
             return null;
+        }
+        if (Flynt::isAvailable()) {
+            return Flynt::addRenderedRowFilter(...);
         }
         /**
          * Choose a filter that receives one ACF row's HTML and its formatted row array.
@@ -35,8 +40,13 @@ final class PreviewRowEvidence
          */
         // Mtflpp is the plugin's public hook prefix; Plugin Check does not infer slash-delimited prefixes.
         // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound
-        $filter = apply_filters('Mtflpp/previewRowRenderFilter', Flynt::defaultRowRenderFilter());
-        return is_string($filter) && $filter !== '' && trim($filter) === $filter ? $filter : null;
+        $filter = apply_filters('Mtflpp/previewRowRenderFilter', null);
+        if (!is_string($filter) || $filter === '' || trim($filter) !== $filter) {
+            return null;
+        }
+        return static function (callable $mark) use ($filter): void {
+            add_filter($filter, $mark, PHP_INT_MAX, 2);
+        };
     }
 
     public function clearSaveEvidence(): void
@@ -46,11 +56,16 @@ final class PreviewRowEvidence
 
     public function observeSave(int $sourceId, array $input): void
     {
-        if (!empty($input['acf']) && ($input['mtflpp_row_markers'] ?? '') === '1' && $this->renderFilter() !== null) {
-            $this->writing = $sourceId;
-            // Observe the actual rows and storage path just before ACF's native type update at priority 10.
-            add_filter('acf/update_value/type=flexible_content', [$this, 'savedField'], 9, 3);
+        if (
+            empty($input['acf']) || ($input['mtflpp_row_markers'] ?? '') !== '1'
+            || $this->rowMarkerRegistration() === null
+        ) {
+            return;
         }
+
+        $this->writing = $sourceId;
+        // Observe the actual rows and storage path just before ACF's native type update at priority 10.
+        add_filter('acf/update_value/type=flexible_content', [$this, 'savedField'], 9, 3);
     }
 
     public function stopObserving(): void
@@ -157,8 +172,8 @@ final class PreviewRowEvidence
 
     public function markPreview(int $sourceId): void
     {
-        $filter = $this->renderFilter();
-        if ($filter === null) {
+        $register = $this->rowMarkerRegistration();
+        if ($register === null) {
             return;
         }
         try {
@@ -179,14 +194,9 @@ final class PreviewRowEvidence
             return $rows;
         };
         add_filter('acf/format_value/type=flexible_content', $format, PHP_INT_MAX, 3);
-        $mark = function (mixed $html, mixed $row = null) use ($site): mixed {
+        $register(function (mixed $html, mixed $row = null) use ($site): mixed {
             return get_current_blog_id() === $site ? $this->markRow($html, $row) : $html;
-        };
-        if ($filter === Flynt::RENDER_FILTER) {
-            Flynt::addRenderedRowFilter($mark);
-        } else {
-            add_filter($filter, $mark, PHP_INT_MAX, 2);
-        }
+        });
         add_filter('wp_template_enhancement_output_buffer', [$this, 'discardDuplicates'], PHP_INT_MAX - 1);
     }
 

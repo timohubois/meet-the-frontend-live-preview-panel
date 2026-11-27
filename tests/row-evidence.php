@@ -18,6 +18,7 @@ $check = static function (bool $condition, string $message): void {
         throw new RuntimeException(esc_html($message));
     }
 };
+$check(!class_exists('Flynt\\Api'), 'Run the fixture without a Flynt theme so it can test both modes.');
 require_once ABSPATH . 'wp-admin/includes/user.php';
 $originalUser = get_current_user_id();
 $postId = $user = 0;
@@ -26,15 +27,12 @@ $text = 'field_mtflpp_renderer_text';
 $policy = 'Mtflpp/previewRowRenderFilter';
 $renderer = 'ExampleTheme/renderRow';
 $selection = $renderer;
-$select = static function () use (&$selection) {
+$selections = [];
+$select = static function ($default) use (&$selection, &$selections) {
+    $selections[] = $default;
     return $selection;
 };
 add_filter($policy, $select, 20);
-if (!class_exists('Flynt\\Api')) {
-    $flyntApi = new class () {
-    };
-    class_alias($flyntApi::class, 'Flynt\\Api');
-}
 $html = "<h2><span>Heading</span></h2>\n<p>Copy</p>";
 $flyntRenderer = 'Flynt/renderComponent';
 $renderFlynt = static function ($output, string $componentName, array $row) use ($html) {
@@ -87,6 +85,7 @@ try {
     $config = [];
     $evidence->configureEditor($config);
     $check(($config['previewRowEvidence'] ?? false) === true, 'A renderer can opt in through the public filter.');
+    $check($selections === [null], 'The public filter has no default renderer.');
     $check(apply_filters($renderer, $html, []) === $html, 'Ordinary renders are not marked.');
     $plain = $send(false);
     $check($plain->get_status() === 200 && !isset($plain->get_data()['rowMarkers']), 'No evidence without opt-in.');
@@ -94,7 +93,7 @@ try {
         $selection = $invalid;
         $config = [];
         $evidence->configureEditor($config);
-        $check(!isset($config['previewRowEvidence']), 'Null or invalid values disable evidence even on Flynt.');
+        $check(!isset($config['previewRowEvidence']), 'Null or invalid values do not enable custom evidence.');
         $plain = $send(true);
         $check(
             $plain->get_status() === 200 && !isset($plain->get_data()['rowMarkers']),
@@ -144,9 +143,12 @@ try {
     add_filter($flyntRenderer, $renderFlynt, 10, 3);
     $check(
         apply_filters($flyntRenderer, null, 'Fixture', $accepted[0]) === $html,
-        'An explicit hook selection takes precedence over built-in Flynt.'
+        'A custom renderer opt-in on a non-Flynt site does not attach to the Flynt hook.'
     );
-    remove_filter($policy, $select, 20);
+    $flyntApi = new class () {
+    };
+    class_alias($flyntApi::class, 'Flynt\\Api');
+    $selections = [];
     $config = [];
     $evidence = new PreviewRowEvidence();
     $evidence->configureEditor($config);
@@ -165,6 +167,7 @@ try {
         apply_filters($flyntRenderer, null, 'Fixture', $accepted[0]) === str_replace($marker, $flyntMarker, $expected),
         'The Flynt adapter marks the rendered HTML using the row in the third argument.'
     );
+    $check($selections === [], 'Built-in Flynt does not consult the public renderer filter.');
 } finally {
     remove_filter($policy, $select, 20);
     remove_filter($flyntRenderer, $renderFlynt, 10);
