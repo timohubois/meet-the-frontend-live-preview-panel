@@ -2,16 +2,23 @@
 
 namespace MeetTheFrontendLivePreviewPanel\Compatibility;
 
-/** Connect Flynt's existing component-render filter to the preview panel's row evidence. */
+/** Adapt Flynt's native (HTML, component name, row data) filter to the panel's row callback. */
 final class Flynt
 {
-    public function __construct()
+    public const RENDER_FILTER = 'Flynt/renderComponent';
+
+    public static function defaultRowRenderFilter(): ?string
     {
-        add_filter('Mtflpp/previewRowRenderFilter', [$this, 'previewRowRenderFilter']);
+        return class_exists('Flynt\\Api') ? self::RENDER_FILTER : null;
     }
 
-    public function previewRowRenderFilter(mixed $filter): mixed
+    public static function addRenderedRowFilter(callable $mark): void
     {
-        return $filter ?? (class_exists('Flynt\\Api') ? ['name' => 'Flynt/renderComponent', 'rowArgument' => 3] : null);
+        add_filter(
+            self::RENDER_FILTER,
+            static fn ($html, $componentName = null, $row = null) => $mark($html, $row),
+            PHP_INT_MAX,
+            3
+        );
     }
 }

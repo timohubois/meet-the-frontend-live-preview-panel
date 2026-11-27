@@ -5,7 +5,6 @@ namespace MeetTheFrontendLivePreviewPanel;
 use MeetTheFrontendLivePreviewPanel\Compatibility\Acf;
 use MeetTheFrontendLivePreviewPanel\Compatibility\AcfTerm;
 use MeetTheFrontendLivePreviewPanel\Compatibility\CoreBlocks;
-use MeetTheFrontendLivePreviewPanel\Compatibility\Flynt;
 use MeetTheFrontendLivePreviewPanel\Compatibility\Timber;
 use MeetTheFrontendLivePreviewPanel\Compatibility\Yoast;
 
@@ -18,7 +17,6 @@ final class Plugin
         $acf = new Acf();
         $acfTerm = new AcfTerm();
         $coreBlocks = new CoreBlocks();
-        new Flynt();
         $rowEvidence = new PreviewRowEvidence();
         $timber = new Timber();
         $yoast = new Yoast();

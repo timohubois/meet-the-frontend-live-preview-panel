@@ -2,6 +2,7 @@
 
 namespace MeetTheFrontendLivePreviewPanel;
 
+use MeetTheFrontendLivePreviewPanel\Compatibility\Flynt;
 use WP_HTML_Processor;
 use WP_HTML_Tag_Processor;
 
@@ -17,26 +18,25 @@ final class PreviewRowEvidence
 
     public function configureEditor(array &$config): void
     {
-        if ($this->renderFilter()) {
+        if ($this->renderFilter() !== null) {
             $config['previewRowEvidence'] = true;
         }
     }
 
-    private function renderFilter(): ?array
+    private function renderFilter(): ?string
     {
         if (!function_exists('acf_get_field_type') || !acf_get_field_type('flexible_content')) {
             return null;
         }
         /**
-         * Choose the theme or plugin's HTML filter for a single rendered row.
+         * Choose a filter that receives one ACF row's HTML and its formatted row array.
          *
-         * @param array{name: string, rowArgument: int}|null $filter Hook name and one-based position of the row.
+         * @param string|null $filter Hook name, or null to disable renderer evidence.
          */
         // Mtflpp is the plugin's public hook prefix; Plugin Check does not infer slash-delimited prefixes.
         // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound
-        $filter = apply_filters('Mtflpp/previewRowRenderFilter', null);
-        return is_array($filter) && is_string($filter['name'] ?? null) && trim($filter['name']) !== ''
-            && is_int($filter['rowArgument'] ?? null) && $filter['rowArgument'] >= 2 ? $filter : null;
+        $filter = apply_filters('Mtflpp/previewRowRenderFilter', Flynt::defaultRowRenderFilter());
+        return is_string($filter) && $filter !== '' && trim($filter) === $filter ? $filter : null;
     }
 
     public function clearSaveEvidence(): void
@@ -46,7 +46,7 @@ final class PreviewRowEvidence
 
     public function observeSave(int $sourceId, array $input): void
     {
-        if (!empty($input['acf']) && ($input['mtflpp_row_markers'] ?? '') === '1' && $this->renderFilter()) {
+        if (!empty($input['acf']) && ($input['mtflpp_row_markers'] ?? '') === '1' && $this->renderFilter() !== null) {
             $this->writing = $sourceId;
             // Observe the actual rows and storage path just before ACF's native type update at priority 10.
             add_filter('acf/update_value/type=flexible_content', [$this, 'savedField'], 9, 3);
@@ -157,7 +157,8 @@ final class PreviewRowEvidence
 
     public function markPreview(int $sourceId): void
     {
-        if (!($filter = $this->renderFilter())) {
+        $filter = $this->renderFilter();
+        if ($filter === null) {
             return;
         }
         try {
@@ -178,11 +179,14 @@ final class PreviewRowEvidence
             return $rows;
         };
         add_filter('acf/format_value/type=flexible_content', $format, PHP_INT_MAX, 3);
-        $argument = $filter['rowArgument'];
-        $mark = function ($html, ...$args) use ($argument, $site) {
-            return get_current_blog_id() === $site ? $this->markRow($html, $args[$argument - 2] ?? null) : $html;
+        $mark = function (mixed $html, mixed $row = null) use ($site): mixed {
+            return get_current_blog_id() === $site ? $this->markRow($html, $row) : $html;
         };
-        add_filter($filter['name'], $mark, PHP_INT_MAX, $argument);
+        if ($filter === Flynt::RENDER_FILTER) {
+            Flynt::addRenderedRowFilter($mark);
+        } else {
+            add_filter($filter, $mark, PHP_INT_MAX, 2);
+        }
         add_filter('wp_template_enhancement_output_buffer', [$this, 'discardDuplicates'], PHP_INT_MAX - 1);
     }
 

@@ -40,30 +40,35 @@ A theme or plugin that renders ACF Flexible Content rows can use
 change detection cannot identify the moved row. This only adds evidence for
 Classic Editor reorders; it does not add support for new kinds of unsaved data.
 
-Suppose your renderer already calls
-`apply_filters('ExampleTheme/renderRow', $html, $row)`. Point the panel at that
-filter:
+After rendering a row, pass its HTML and the formatted ACF row array to a filter
+before outputting the HTML. Reuse a filter that already receives `($html, $row)`,
+or add one where the theme renders each row:
 
 ```php
-add_filter('Mtflpp/previewRowRenderFilter', static function ($filter) {
-    return $filter ?? ['name' => 'ExampleTheme/renderRow', 'rowArgument' => 2];
-});
+$html = apply_filters('ExampleTheme/renderRow', $html, $row);
 ```
 
-The panel selects one renderer filter. Return a hook name and the one-based
-position of the row in its arguments (HTML is argument 1), or leave the incoming
-selection unchanged. Return `null` at a later priority to disable the selection.
-Register on editor, REST and frontend requests alike; the same rendering hook
-must apply on the site being previewed. Flynt uses this same contract with
-`Flynt/renderComponent` and argument 3.
+In your normal theme or plugin setup (not in an admin-only hook), tell the panel
+the name of that filter:
 
-Pass each row's HTML through the renderer filter **once**, with the original
-formatted row array (or a copy preserving all its keys). Multiple sibling roots
-in that HTML are fine. Do not construct a row from its index or recreate the
-panel's evidence. The panel marks eligible roots only in authorized live previews
-that request row evidence. It still verifies the reorder, HTML mapping and
-on-screen placement before scrolling. Missing or ambiguous evidence falls back
-to normal change detection. Ordinary page renders are unchanged.
+```php
+add_filter('Mtflpp/previewRowRenderFilter', static fn (): string => 'ExampleTheme/renderRow');
+```
+
+The panel attaches its own callback to that filter during eligible live previews.
+It reads a private marker it previously added to the formatted ACF row and puts
+that marker on the HTML's top-level elements. Pass the row through the filter
+**once**, using the original formatted array (or a copy that keeps all its keys).
+Passing only the fields used by the template drops the marker. A row can render
+several sibling elements; no wrapper is needed.
+
+Only one renderer filter is selected. Flynt is supported automatically; its
+different callback signature is handled by the built-in adapter. Return the
+incoming selection to keep it, or return `null` to disable renderer evidence.
+
+The panel still verifies the reorder, HTML mapping and on-screen placement before
+scrolling. Missing or ambiguous evidence falls back to normal change detection.
+Ordinary page renders are unchanged.
 
 The other built-in adaptations are wired directly to the preview owners. There
 is no public save or preview lifecycle hook. The former `mtflpp_` PHP hooks and
