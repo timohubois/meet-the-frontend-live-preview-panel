@@ -56,7 +56,7 @@ try {
         );
         $flynt = $screen === 'classic-editor' && class_exists('Flynt\\Api') && function_exists('acf_get_field_type')
             && acf_get_field_type('flexible_content');
-        $check(isset($config['flyntRows']) === $flynt, 'Flynt row evidence is a Classic Editor capability.');
+        $check(isset($config['previewRowEvidence']) === $flynt, 'Flynt row evidence is a Classic Editor capability.');
         $check(
             $screen === 'block-editor' || !isset($config['yoastPrimaryTaxonomies']),
             'Only Block Editor config carries Yoast controls.'

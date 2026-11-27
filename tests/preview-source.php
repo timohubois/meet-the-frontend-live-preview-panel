@@ -4,7 +4,6 @@
 
 namespace MeetTheFrontendLivePreviewPanel;
 
-use MeetTheFrontendLivePreviewPanel\Compatibility\Flynt;
 use ReflectionClass;
 use ReflectionProperty;
 use RuntimeException;
@@ -64,7 +63,7 @@ $makePreview = static function (bool $requested) use ($file): FrontendPreview {
         'previewSiteId' => get_current_blog_id(),
         'previewToken' => 'source-token',
         'sourceRequested' => $requested,
-        'flynt' => new Flynt(),
+        'rowEvidence' => new PreviewRowEvidence(),
         'source' => new WP_Post((object) ['ID' => 123]),
     ];
     foreach ($properties as $name => $value) {

@@ -18,14 +18,15 @@ final class Plugin
         $acf = new Acf();
         $acfTerm = new AcfTerm();
         $coreBlocks = new CoreBlocks();
-        $flynt = new Flynt();
+        new Flynt();
+        $rowEvidence = new PreviewRowEvidence();
         $timber = new Timber();
         $yoast = new Yoast();
 
         new PublicRedirect();
-        $livePreview = new LivePreview($acf, $flynt, $yoast);
-        $frontendPreview = new FrontendPreview($file, $livePreview, $acf, $coreBlocks, $flynt, $timber, $yoast);
-        $panel = new Panel($file, $acf, $acfTerm, $flynt, $yoast);
+        $livePreview = new LivePreview($acf, $rowEvidence, $yoast);
+        $frontendPreview = new FrontendPreview($file, $livePreview, $acf, $coreBlocks, $rowEvidence, $timber, $yoast);
+        $panel = new Panel($file, $acf, $acfTerm, $rowEvidence, $yoast);
         new ClassicEditor($livePreview, $panel);
         new BlockEditor($livePreview, $panel);
         new TermEditor(new TermPreview($file, $acfTerm, $coreBlocks, $timber, $yoast), $panel);

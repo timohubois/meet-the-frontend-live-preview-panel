@@ -1,7 +1,7 @@
 import { browserBundle, runChromiumTests, testInChromium } from './helpers/chromium.mjs';
 
 async function checkCases() {
-    const { createPreviewComparison, createPreviewScroll, resolveFlyntRegions } = window.previewScroll;
+    const { createPreviewComparison, createPreviewScroll, resolveRowRegions } = window.previewScroll;
     const excluded = ['meta', 'script', 'style', 'input[type="hidden"]'];
     const titles = {
         A: 'First authored heading', B: 'Second authored heading', C: 'Third authored heading',
@@ -44,7 +44,7 @@ async function checkCases() {
     function markup(order, changed, scenario) {
         const marked = scenario.startsWith('marked ');
         const useText = scenario === 'marked stale snapshot uses text';
-        const rowMarker = (letter, index) => marked ? ' data-mtflpp-evidence-flynt-row="' + marker(letter, changed) + ':' + index + '"' : '';
+        const rowMarker = (letter, index) => marked ? ' data-mtflpp-evidence-row="' + marker(letter, changed) + ':' + index + '"' : '';
         return (
             '<div style="height:1000px">Above</div><div id="rows">' +
             [...order]
@@ -217,7 +217,7 @@ async function checkCases() {
                     if (name !== 'marked stale snapshot uses text') {
                         values[field].fieldsByRow = Object.fromEntries([...from].map((letter) => [layout(letter), []]));
                     }
-                    values[field].flyntMarkers = Object.fromEntries([...from].map((letter) =>
+                    values[field].rowMarkers = Object.fromEntries([...from].map((letter) =>
                         [layout(letter), marker(letter, changed && !name.startsWith('marked stale snapshot'))]));
                 }
             }
@@ -289,7 +289,7 @@ async function checkCases() {
                 const selector = `[data-row=${letter}]`;
                 return [layout(letter), [[sourceDocument.querySelector(selector), document.querySelector(selector)]]];
             }));
-            const comparison = createPreviewComparison(excluded, name === 'resolved vendor row' ? vendorRegions : resolveFlyntRegions),
+            const comparison = createPreviewComparison(excluded, name === 'resolved vendor row' ? vendorRegions : resolveRowRegions),
                 scrolling = createPreviewScroll();
             const { submission: oldRequest, ...oldHints } = beforeValues;
             const { submission: nextRequest, ...nextHints } = afterValues;

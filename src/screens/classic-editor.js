@@ -1,6 +1,6 @@
 import { guardPreviewInputs, submittedValues } from './preview-inputs.js';
 import { setupClassicEditorAcf } from '../compatibility/acf-editor.js';
-import { addFlyntRowMarkers, requestFlyntRowMarkers, resolveFlyntRegions } from '../compatibility/flynt-editor.js';
+import { addRowMarkers, requestRowMarkers, resolveRowRegions } from '../preview/row-evidence.js';
 import { createLivePreview } from '../preview/live-preview.js';
 
 // Classic fields and native form controls stay outside the shared preview lifecycle.
@@ -48,7 +48,7 @@ export function initLivePreview(config, nativeEditor, inlineLauncher) {
         const rowSubmission = followChanges && Object.values(comparisonValues).some((hint) => hint?.type === 'row-order')
             ? [...data].filter(([name]) => !['base', '_acf_nonce', 'mtflpp_row_text_fields'].includes(name))
             : undefined;
-        if (followChanges && config.flyntRows) requestFlyntRowMarkers(data);
+        if (followChanges && config.previewRowEvidence) requestRowMarkers(data);
         return { data, comparisonValues, rowFields, rowSubmission };
     }
     nativeEditor.preparePreview = async (followChanges) => {
@@ -64,7 +64,7 @@ export function initLivePreview(config, nativeEditor, inlineLauncher) {
             const formatted = result.rowDisplayText?.[name];
             if (typeof formatted === 'string') displayValues[name] = { ...displayValues[name], formatted };
         }
-        if (followChanges && config.flyntRows) addFlyntRowMarkers(displayValues, result.rowMarkers);
+        if (followChanges && config.previewRowEvidence) addRowMarkers(displayValues, result.rowMarkers);
         return { url: result.url, comparisonValues: displayValues, rowSubmission, stillMatches: () => {
             const current = capturePreview(followChanges);
             return current.data.toString() === data.toString() && (!followChanges
@@ -73,7 +73,7 @@ export function initLivePreview(config, nativeEditor, inlineLauncher) {
     };
     const preview = createLivePreview(config, nativeEditor, {
         inlineLauncher,
-        resolveRenderedRegions: config.flyntRows ? resolveFlyntRegions : undefined,
+        resolveRenderedRegions: config.previewRowEvidence ? resolveRowRegions : undefined,
     });
     function handleChange(notify) {
         if (capturing || destroyed) return;

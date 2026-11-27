@@ -4,7 +4,6 @@ namespace MeetTheFrontendLivePreviewPanel;
 
 use MeetTheFrontendLivePreviewPanel\Compatibility\Acf;
 use MeetTheFrontendLivePreviewPanel\Compatibility\AcfTerm;
-use MeetTheFrontendLivePreviewPanel\Compatibility\Flynt;
 use MeetTheFrontendLivePreviewPanel\Compatibility\Yoast;
 use WP_Post;
 
@@ -22,7 +21,7 @@ final class Panel
         private readonly string $file,
         private readonly Acf $acf = new Acf(),
         private readonly AcfTerm $acfTerm = new AcfTerm(),
-        private readonly Flynt $flynt = new Flynt(),
+        private readonly PreviewRowEvidence $rowEvidence = new PreviewRowEvidence(),
         private readonly Yoast $yoast = new Yoast()
     ) {
     }
@@ -33,7 +32,7 @@ final class Panel
             $this->acf->configureEditor($config, $dependencies);
         }
         if ($entry === 'classic-editor') {
-            $this->flynt->configureEditor($config);
+            $this->rowEvidence->configureEditor($config);
         } elseif ($entry === 'block-editor') {
             $this->yoast->configureEditor($config);
         } elseif ($entry === 'term-editor') {

@@ -4,7 +4,6 @@ namespace MeetTheFrontendLivePreviewPanel;
 
 use MeetTheFrontendLivePreviewPanel\Compatibility\Acf;
 use MeetTheFrontendLivePreviewPanel\Compatibility\CoreBlocks;
-use MeetTheFrontendLivePreviewPanel\Compatibility\Flynt;
 use MeetTheFrontendLivePreviewPanel\Compatibility\Timber;
 use MeetTheFrontendLivePreviewPanel\Compatibility\Yoast;
 use WP_Post;
@@ -19,6 +18,7 @@ final class FrontendPreview
     private bool $isolated = false;
     private bool $saved = false;
     private bool $sourceRequested = false;
+    private bool $rowMarkersRequested = false;
     private bool $postsPage = false;
     private ?string $savedPostsPageTitle = null;
 
@@ -27,7 +27,7 @@ final class FrontendPreview
         private readonly LivePreview $livePreview,
         private readonly Acf $acf = new Acf(),
         private readonly CoreBlocks $coreBlocks = new CoreBlocks(),
-        private readonly Flynt $flynt = new Flynt(),
+        private readonly PreviewRowEvidence $rowEvidence = new PreviewRowEvidence(),
         private readonly Timber $timber = new Timber(),
         private readonly Yoast $yoast = new Yoast()
     ) {
@@ -132,6 +132,7 @@ final class FrontendPreview
         $this->source = sanitize_post($source);
         $this->saved = $saved;
         $this->sourceRequested = isset($_GET['mtflpp_source']) && $_GET['mtflpp_source'] === '1';
+        $this->rowMarkersRequested = isset($_GET['mtflpp_row_markers']) && $_GET['mtflpp_row_markers'] === '1';
         $this->postsPage = self::isConfiguredPostsPage(get_post($postId));
         add_action('template_redirect', [$this, 'checkPreviewTarget'], -1);
         if (!$this->postsPage) {
@@ -274,9 +275,9 @@ final class FrontendPreview
         // Editors have already authorized this preview. Leave other posts and later site policies alone.
         add_filter('post_password_required', [$this, 'requirePostPassword'], 0, 2);
 
-        if (!$this->saved && $this->sourceRequested) {
-            // Rendering adapters may decorate this matched, authorized following document only.
-            $this->flynt->markPreview($this->source->ID);
+        if (!$this->saved && $this->sourceRequested && $this->rowMarkersRequested) {
+            // Row evidence may decorate this matched, authorized following document only.
+            $this->rowEvidence->markPreview($this->source->ID);
         }
         (new PreviewDocument($this->file, $this->previewToken))->enhance($this->isolated, $this->sourceRequested);
     }

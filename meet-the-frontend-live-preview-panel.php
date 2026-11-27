@@ -24,6 +24,7 @@ require_once __DIR__ . '/classes/Compatibility/CoreBlocks.php';
 require_once __DIR__ . '/classes/Compatibility/Flynt.php';
 require_once __DIR__ . '/classes/Compatibility/Timber.php';
 require_once __DIR__ . '/classes/Compatibility/Yoast.php';
+require_once __DIR__ . '/classes/PreviewRowEvidence.php';
 require_once __DIR__ . '/classes/LivePreview.php';
 require_once __DIR__ . '/classes/PreviewDocument.php';
 require_once __DIR__ . '/classes/FrontendPreview.php';

@@ -1,21 +1,21 @@
-const attribute = 'data-mtflpp-evidence-flynt-row';
+const attribute = 'data-mtflpp-evidence-row';
 
-export function requestFlyntRowMarkers(body) {
+export function requestRowMarkers(body) {
     for (const name of body.keys()) if (name.startsWith('acf[') && name.endsWith('[acf_fc_layout]')) {
         body.set('mtflpp_row_markers', '1');
         return;
     }
 }
 
-export function addFlyntRowMarkers(values, markers) {
+export function addRowMarkers(values, markers) {
     if (!markers) return;
     for (const [key, hint] of Object.entries(values)) {
-        if (hint?.type === 'row-order' && markers[key]) values[key] = { ...hint, flyntMarkers: markers[key] };
+        if (hint?.type === 'row-order' && markers[key]) values[key] = { ...hint, rowMarkers: markers[key] };
     }
 }
 
-export function resolveFlyntRegions({ sourceDocument, document, values, subject, order }) {
-    const markers = values[subject]?.flyntMarkers;
+export function resolveRowRegions({ sourceDocument, document, values, subject, order }) {
+    const markers = values[subject]?.rowMarkers;
     if (!markers || order.some((row) => !/^[a-f0-9]{64}$/.test(markers[row]))) return null;
     const rows = new Map(order.map((row) => [markers[row], row]));
     if (rows.size !== order.length) return null;

@@ -54,7 +54,7 @@ test('submission hints preserve core field types supplied by the screen owner', 
 
 const classicSource = await sourceForVm(new URL('../src/screens/classic-editor.js', import.meta.url));
 
-function classicFixture({ entries = [], controls = [], flyntRows = false, response = {}, ready = true, acfEnabled = true,
+function classicFixture({ entries = [], controls = [], previewRowEvidence = false, response = {}, ready = true, acfEnabled = true,
     browserAcf = true, fields: overrides = {} } = {}) {
     const calls = [], requests = [], actions = new Map();
     let destroyed = 0, acfDestroyed = 0, resolveRegions;
@@ -64,7 +64,7 @@ function classicFixture({ entries = [], controls = [], flyntRows = false, respon
         addEventListener() {},
         removeEventListener() {},
     };
-    const config = { base: 'baseline', acfEnabled, flyntRows,
+    const config = { base: 'baseline', acfEnabled, previewRowEvidence,
         strings: { integrationFailed: 'Integration failed', acfUnavailable: 'ACF unavailable', acfRefreshing: 'ACF refreshing' } };
     const context = {
         URLSearchParams, document: { getElementById: (id) => id === 'post' ? form : null },
@@ -146,7 +146,7 @@ test('missing Classic ACF APIs pause the panel without starting preview writes',
     assert.equal(h.destroyed, 1);
 });
 
-test('Classic Flynt following adds optional evidence after native form data and the baseline', async () => {
+test('Classic rendered row evidence adds optional evidence after native form data and the baseline', async () => {
     const path = 'acf[field_rows]', row = `${path}[row-0][acf_fc_layout]`, name = `${path}[row-0][field_body]`;
     const label = `${path}[row-0][field_label]`, other = 'acf[field_unrelated]', key = 'acf-layout-order:' + path;
     const raw = "The editor's options...", formatted = '<p>The editor&#8217;s options&#8230;</p>';
@@ -155,7 +155,7 @@ test('Classic Flynt following adds optional evidence after native form data and 
     }));
     const markers = { [row]: 'a'.repeat(64) };
     const h = classicFixture({
-        flyntRows: true, controls,
+        previewRowEvidence: true, controls,
         entries: [[row, 'text'], [name, raw], [label, 'Label'], [other, 'Unrelated']],
         fields: { layoutOrders: (values) => values.set(key, { type: 'row-order', fieldsByRow: { [row]: [name, label, 'missing'] } }) },
         response: { rowDisplayText: { [name]: formatted, [other]: '<p>Unrelated</p>' }, rowMarkers: { [key]: markers } },
@@ -168,12 +168,12 @@ test('Classic Flynt following adds optional evidence after native form data and 
     assert.equal(comparisonValues[name].value, raw);
     assert.equal(comparisonValues[name].formatted, formatted);
     assert.equal(comparisonValues[other].formatted, undefined);
-    assert.equal(comparisonValues[key].flyntMarkers, markers);
+    assert.equal(comparisonValues[key].rowMarkers, markers);
     assert.equal(rowSubmission.some(([field]) => field === 'mtflpp_row_markers'), false);
     const disabled = await h.native.preparePreview(false);
     assert.equal(h.requests[1].has('mtflpp_row_text_fields'), false);
     assert.equal(h.requests[1].has('mtflpp_row_markers'), false);
-    assert.equal(disabled.comparisonValues[key].flyntMarkers, undefined);
+    assert.equal(disabled.comparisonValues[key].rowMarkers, undefined);
     assert.equal(disabled.comparisonValues[name].formatted, undefined);
     assert.equal(h.requests.length, 2);
     h.native.destroy();

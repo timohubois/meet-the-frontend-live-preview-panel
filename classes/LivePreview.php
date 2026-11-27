@@ -3,7 +3,6 @@
 namespace MeetTheFrontendLivePreviewPanel;
 
 use MeetTheFrontendLivePreviewPanel\Compatibility\Acf;
-use MeetTheFrontendLivePreviewPanel\Compatibility\Flynt;
 use MeetTheFrontendLivePreviewPanel\Compatibility\Yoast;
 use WP_Error;
 use WP_Post;
@@ -32,7 +31,7 @@ final class LivePreview
 
     public function __construct(
         private readonly Acf $acf = new Acf(),
-        private readonly Flynt $flynt = new Flynt(),
+        private readonly PreviewRowEvidence $rowEvidence = new PreviewRowEvidence(),
         private readonly Yoast $yoast = new Yoast()
     ) {
         $this->httpPostRequests = new \WeakMap();
@@ -447,7 +446,7 @@ final class LivePreview
         try {
             return $this->preparePreviewWrite($request);
         } finally {
-            $this->flynt->clearSaveEvidence();
+            $this->rowEvidence->clearSaveEvidence();
             $_FILES = $originalFiles;
             self::$preparingPreview = false;
         }
@@ -524,10 +523,11 @@ final class LivePreview
         if ($rowText) {
             $result['rowDisplayText'] = $rowText;
         }
-        // Evidence describes the accepted snapshot; the adapter cannot replace the destination.
-        $rowMarkers = $this->flynt->rowMarkers($revisionId, $input);
-        if ($rowMarkers) {
+        // Evidence describes the accepted snapshot and opts this destination into marking.
+        $rowMarkers = $this->rowEvidence->rowMarkers($revisionId, $input);
+        if ($rowMarkers && $result['url']) {
             $result['rowMarkers'] = $rowMarkers;
+            $result['url'] = add_query_arg('mtflpp_row_markers', '1', $result['url']);
         }
         return new WP_REST_Response($result);
     }
@@ -689,7 +689,7 @@ final class LivePreview
                         return;
                     }
                     $this->acf->beginRevisionWrite($revisionId);
-                    $this->flynt->observeSave($revisionId, $input);
+                    $this->rowEvidence->observeSave($revisionId, $input);
                     $this->yoast->savePrimaryTerms($revisionId, $postId);
                     if ($this->ownsRevision($postId, $revisionId)) {
                         $this->writePreviewFields($revisionId, $fields);
@@ -723,7 +723,7 @@ final class LivePreview
         } finally {
             $_POST = $originalPost;
             $this->yoast->resetSave();
-            $this->flynt->stopObserving();
+            $this->rowEvidence->stopObserving();
         }
     }
 
