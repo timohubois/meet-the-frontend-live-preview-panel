@@ -99,14 +99,14 @@ export function createPreviewPanel(strings, {
     function presentation() {
         const { text, state, hasPreview, reason } = current;
         if (state === 'handover') {
-            return { heading: strings.switchingPreview, description: text, note: strings.tabEdits };
+            return { heading: text, description: '', note: strings.tabEdits };
         }
         if (state === 'conflict') {
             const description = {
                 'handed-off': strings.handedOffHelp,
                 busy: strings.takeoverTimeoutHelp,
                 manual: strings.closeOtherHelp,
-            }[reason] || strings.conflictHelp;
+            }[reason] || '';
             const note = reason === 'manual' ? strings.manualSwitchHint : strings.tabEdits;
             return { heading: text, description, note };
         }
@@ -131,21 +131,22 @@ export function createPreviewPanel(strings, {
             const heading = reason === 'unavailable' ? strings.unavailableTitle : strings.browserTitle;
             return { heading, description: text, note: '' };
         }
-        const reloadHelp = {
-            reload: strings.reviewBeforeReload,
-            'reload-before-save': strings.nativePreviewAcfReload,
-        }[reason];
-        if (!hasPreview) {
-            let description = text;
-            if (text === strings.failed) description = canRetry ? strings.failedHelp : '';
-            if (reloadHelp) description += ` ${reloadHelp}`;
-            return { heading: strings.failed, description, note: '' };
+        if (reason === 'reload') {
+            return { heading: hasPreview ? strings.stopped : strings.couldNotStart, description: strings.reloadEditor, note: '' };
         }
-        return {
-            heading: text === strings.failed ? strings.refreshFailed : text,
-            description: reloadHelp || strings.previousPreview,
-            note: '',
-        };
+        if (reason === 'reload-before-save' || reason === 'unconfirmed') {
+            const description = reason === 'reload-before-save' ? strings.nativePreviewAcfReload : strings.reloadEditor;
+            return { heading: text, description, note: '' };
+        }
+        if (hasPreview) {
+            return {
+                heading: canRetry || text === strings.failed ? strings.refreshFailed : text,
+                description: strings.previousPreview,
+                note: '',
+            };
+        }
+        if (canRetry) return { heading: strings.failed, description: strings.failedHelp, note: '' };
+        return { heading: strings.failed, description: text === strings.failed ? '' : text, note: '' };
     }
 
     function restoreFocus(focused, wasInside) {
@@ -156,6 +157,7 @@ export function createPreviewPanel(strings, {
     }
 
     function retryLabel() {
+        if (current.reason === 'manual') return strings.startPreview;
         if (!takeOverAction) return strings.retry;
         return current.state === 'handover' ? strings.takingOver : strings.takeOver;
     }
@@ -210,7 +212,7 @@ export function createPreviewPanel(strings, {
             status: noticeSeverity(problem),
             dismissible: !problem,
             retry: problem && (takeOverAction || (canRetry && ['error', 'conflict'].includes(state))),
-            close: problem && state === 'error' && !canRetry && !['reload', 'reload-before-save'].includes(reason),
+            close: problem && state === 'error' && !canRetry && !['reload', 'reload-before-save', 'unconfirmed'].includes(reason),
             disabled: state === 'handover',
             action: retryLabel(),
         };
@@ -249,7 +251,8 @@ export function createPreviewPanel(strings, {
         if (resetEmptyScroll) empty.scrollTop = 0;
         const redirect = state === 'ready' && !windowNotice ? redirectMessage() : '';
         // Placeholder announces its instructions; the live region supplies the heading without repeating them.
-        status.textContent = hasPreview ? [heading, description, note, redirect].filter(Boolean).join(' ') : heading;
+        const announcement = hasPreview ? [heading, description, note, redirect].filter(Boolean).join(' ') : heading;
+        if (status.textContent !== announcement) status.textContent = announcement;
         syncControls();
         if (previewChanged) responsiveViewport.layout();
         restoreFocus(focused, wasInside);
@@ -356,7 +359,7 @@ export function createPreviewPanel(strings, {
         controls.update({
             inPage, inPip: !!pipWindow, movable, dock: geometry.dock,
             canRememberVisibility, rememberVisibility, rememberPosition, followChanges, device: responsiveViewport.device,
-            busy: current.hasPreview && ['stale', 'loading', 'handover'].includes(current.state) && current.text !== strings.saving,
+            busy: current.hasPreview && ['stale', 'loading'].includes(current.state) && current.text !== strings.saving,
             empty: current.hasPreview ? null : {
                 ...presentation(), busy: ['loading', 'stale', 'ready', 'handover'].includes(current.state),
                 icon: ['paused', 'conflict'].includes(current.state) || ['unavailable', 'browser', 'origin-mismatch'].includes(current.reason) ? 'info' : 'warning',

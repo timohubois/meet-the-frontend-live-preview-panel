@@ -444,12 +444,14 @@ test('closing a ready panel clears its frame without changing the launcher into 
 });
 
 test('pending, loading, ready and problem states keep refresh activity and accessible status in sync', () => {
-    const h = fixture(true);
+    const h = fixture(true, { labels: panelStrings });
     const status = h.node('mtflpp-panel [role="status"]');
     h.view.report('Loading preview…', 'loading', { hasPreview: false });
     assert.equal(status.textContent, 'Loading preview…');
-    h.view.report(panelStrings.stale, 'stale', { hasPreview: true });
-    assert.equal(status.textContent, 'Waiting to update preview…');
+    assert.equal(h.state.empty.busy, true);
+    assert.equal(h.state.busy, false, 'The first load shows only the placeholder spinner.');
+    h.view.report(panelStrings.updating, 'stale', { hasPreview: true });
+    assert.equal(status.textContent, 'Updating preview…');
     assert.equal(h.state.busy, true, 'Show activity while changes wait for the debounced refresh.');
     assert.equal(h.state.canRefresh, false);
     assert.equal(h.state.empty, null, 'Keep the previous frame visible.');
@@ -460,10 +462,11 @@ test('pending, loading, ready and problem states keep refresh activity and acces
     h.view.report(panelStrings.current, 'ready', { hasPreview: true, canRefresh: true });
     assert.equal(status.textContent, 'Preview updated');
     assert.equal(h.state.busy, false);
-    h.view.report('Could not refresh', 'error', { hasPreview: true, canRetry: true });
-    assert.match(status.textContent, /Could not refresh/);
+    h.view.report('Technical server error', 'error', { hasPreview: true, canRetry: true, canRefresh: true });
+    assert.equal(status.textContent, `${panelStrings.refreshFailed} ${panelStrings.previousPreview}`);
     assert.equal(h.state.busy, false, 'A failed refresh must not leave the spinner running.');
-    assert.equal(h.state.notice.heading, 'Could not refresh');
+    assert.equal(h.state.notice.retry, true);
+    assert.equal(h.state.canRefresh, true);
 });
 
 test('enabling following refreshes its baseline once without following, while disabling only saves the preference', () => {
@@ -1234,7 +1237,7 @@ for (const hasPreview of [false, true]) {
         h.view.report(text, 'error', { hasPreview, reason: 'origin-mismatch', canRetry: false });
         const content = hasPreview ? h.state.notice : h.state.empty;
         assert.equal(content.heading, 'Preview uses a different website address');
-        assert.equal(content.description, hasPreview ? `${text} Showing the last preview.` : text);
+        assert.equal(content.description, hasPreview ? `${text} ${panelStrings.previousPreview}` : text);
         assert.equal(content.retry, false);
         assert.equal(content.close, true);
         assert.equal(h.state.canRefresh, false);
@@ -1259,55 +1262,54 @@ test('a blocked preview URL uses the generic error without suggesting a retry', 
     assert.equal(h.state.empty.close, true);
 });
 
-// Exercise complete messages, not just individual strings: server errors must not repeat the reload warning.
-const reloadDetails = [panelStrings.nativePreviewFailed, blockEditorStrings.nativeSaveFailed,
-    panelStrings.integrationFailed, acfStrings.acfUnavailable];
-for (const path of ['classes/LivePreview.php', 'classes/Compatibility/Acf.php']) {
-    const php = await readFile(new URL(`../${path}`, import.meta.url), 'utf8');
-    const sharedConflict = php.match(/function conflictMessage\(\): string\s*\{\s*return __\(\s*'([^']+)'/);
-    if (sharedConflict) reloadDetails.push(sharedConflict[1]);
-    for (const [, code, message] of php.matchAll(/new WP_Error\(\s*'(mtflpp_[^']+)',\s*__\(\s*'([^']+)'/g)) {
-        if (['mtflpp_invalid_nonce', 'mtflpp_preview_conflict', 'mtflpp_source_changed', 'mtflpp_acf_unavailable'].includes(code)) {
-            reloadDetails.push(message);
-        }
-    }
-}
-assert.equal(reloadDetails.length, 8, 'Cover every plugin-owned error that uses the generic reload instruction.');
 for (const hasPreview of [false, true]) {
-    test(`reload errors explain how to keep changes once with ${hasPreview ? 'a retained preview' : 'no preview'}`, () => {
+    test(`reload guidance is about live preview with ${hasPreview ? 'a retained preview' : 'no preview'}`, () => {
         const h = fixture(true, { labels: panelStrings });
-        for (const message of reloadDetails) {
-            assert.equal(typeof message, 'string');
-            h.view.report(message, 'error', { hasPreview, reason: 'reload', canRetry: false });
-            const content = hasPreview ? h.state.notice : h.state.empty;
-            const text = `${content.heading} ${content.description}`;
-            assert.ok(text.includes(message));
-            assert.equal((text.match(/Copy any unsaved changes you want to keep/g) || []).length, 1);
-            assert.equal((text.match(/reload the editor/gi) || []).length, 1);
-            assert.match(text, /Copy any unsaved changes you want to keep, then reload the editor to resume live preview\./);
-            assert.equal(content.retry, false);
-            assert.equal(content.close, !hasPreview, 'Keep the existing close action for errors without a preview.');
-        }
+        h.view.report(acfStrings.acfUnavailable, 'error', { hasPreview, reason: 'reload', canRetry: false });
+        const content = hasPreview ? h.state.notice : h.state.empty;
+        assert.equal(content.heading, hasPreview ? 'Live preview stopped updating.' : 'Live preview couldn’t start.');
+        assert.equal(content.description, 'Reload this editor page to restart live preview.');
+        assert.equal(content.retry, false);
+        assert.equal(content.close, !hasPreview, 'Keep the close action when no preview has loaded.');
     });
 
-    test(`stale Classic ACF rows explain how to keep changes before saving with ${hasPreview ? 'a retained preview' : 'no preview'}`, () => {
+    test(`stale Classic Editor rows warn against saving again with ${hasPreview ? 'a retained preview' : 'no preview'}`, () => {
         const h = fixture(true, { labels: { ...panelStrings, ...acfStrings } });
         h.view.report(acfStrings.nativePreviewAcf, 'error', { hasPreview, reason: 'reload-before-save', canRetry: false });
         const content = hasPreview ? h.state.notice : h.state.empty;
-        const text = `${content.heading} ${content.description}`;
-        assert.ok(text.includes(acfStrings.nativePreviewAcf));
-        assert.match(text, /Copy any unsaved changes you want to keep, then reload the editor before saving again\./);
-        assert.equal((text.match(/reload the editor/gi) || []).length, 1);
+        assert.equal(content.heading, 'Some rows in the editor are out of date after using WordPress Preview.');
+        assert.equal(content.description, 'Reload this editor page before saving again.');
         assert.equal(content.retry, false);
         assert.equal(content.close, !hasPreview);
     });
 }
 
-test('uncertain saves do not claim failure or success, and ACF recovery identifies what WordPress already saved', () => {
-    assert.equal(blockEditorStrings.nativeSaveFailed, 'We couldn’t check whether WordPress saved your latest changes.');
-    assert.match(acfStrings.nativePreviewAcf, /WordPress Preview saved repeating field changes/);
-    assert.match(acfStrings.nativePreviewAcf, /rows in this editor are still out of date/);
-    assert.doesNotMatch(acfStrings.nativePreviewAcf, /all changes|all edits|reload/i);
+test('an unconfirmed save or WordPress Preview points to the native status without claiming failure', () => {
+    const h = fixture(true, { labels: panelStrings });
+    for (const [message, heading] of [
+        [blockEditorStrings.nativeSaveFailed, 'Live preview couldn’t confirm the save. Check the editor for your save status.'],
+        [panelStrings.nativePreviewFailed, 'Live preview couldn’t tell if WordPress Preview was ready. Check the preview tab.'],
+    ]) {
+        h.view.report(message, 'error', { hasPreview: true, reason: 'unconfirmed', canRetry: false });
+        assert.equal(h.state.notice.heading, heading);
+        assert.equal(h.state.notice.description, panelStrings.reloadEditor);
+        assert.equal(h.state.notice.retry, false);
+    }
+});
+
+test('switching tabs offers a separate action without a second progress indicator', () => {
+    const h = fixture(true, { labels: panelStrings });
+    h.view.report(panelStrings.conflict, 'conflict', { reason: 'other-tab', canTakeOver: true });
+    assert.equal(h.state.empty.heading, 'Live preview is active in another tab');
+    assert.equal(h.state.empty.description, '');
+    assert.equal(h.state.empty.action, 'Use preview here');
+    assert.equal(h.state.canRefresh, false);
+    h.view.report(panelStrings.switchingPreview, 'handover', { hasPreview: true, canTakeOver: true });
+    assert.equal(h.state.notice.heading, 'Switching live preview to this tab…');
+    assert.equal(h.state.busy, false);
+    h.view.report(panelStrings.closeOther, 'conflict', { reason: 'manual' });
+    assert.equal(h.state.empty.action, 'Start preview');
+    assert.equal(h.state.canRefresh, false);
 });
 
 test('ordinary updates and native saving never replace a retained frame with a placeholder or success notice', () => {

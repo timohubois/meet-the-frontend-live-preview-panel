@@ -41,7 +41,7 @@ function fixture({ ready = true, loaded = true, available = true, route = '/wp/v
         postId: 123, postType: 'post', postRoute: route, restRoot: 'http://site.test/wp-json/',
         postFormUrl: 'http://site.test/wp-admin/post.php',
         endpoint: 'http://site.test/wp-json/meet-the-frontend-live-preview-panel/v1/posts/123/preview',
-        base: 'a'.repeat(64), available, acfEnabled, taxonomies, yoastPrimaryTaxonomies, adminCookiePath: '/wp-admin/', strings: { loading: 'Loading preview…', nativeSaveFailed: 'Save not confirmed', savedPostConflict: 'The saved post changed', postOnly: 'Return to post', acfRefreshing: 'Waiting for ACF fields', integrationFailed: 'Integration failed', acfUnavailable: 'ACF unavailable' },
+        base: 'a'.repeat(64), available, acfEnabled, taxonomies, yoastPrimaryTaxonomies, adminCookiePath: '/wp-admin/', strings: { loading: 'Loading preview…', nativeSaveFailed: 'Save not confirmed', savedPostConflict: 'The saved post changed', postOnly: 'Return to post', updating: 'Updating preview…', integrationFailed: 'Integration failed', acfUnavailable: 'ACF unavailable' },
     };
     let notifyRevisionDom;
     const editorRoot = { getElementsByClassName(name) {
@@ -429,8 +429,8 @@ test('ACF native row reload pauses capture and resumes only after field replacem
     await h.emit();
     assert.equal(h.acfFields.saved, 1);
     assert.equal(h.native.ready, false);
-    assert.equal(h.native.notReady, 'Waiting for ACF fields');
-    assert.equal(h.calls.pauseStates.at(-1), 'paused');
+    assert.equal(h.native.notReady, h.config.strings.updating);
+    assert.equal(h.calls.pauseStates.at(-1), 'input-wait');
     const resumes = h.calls.resumes.length;
     await h.acfChanged();
     assert.equal(h.calls.resumes.length, resumes);
@@ -445,7 +445,7 @@ test('unacknowledged ACF saves never assume native row reload succeeded', async 
     await h.request({ url: 'http://site.test/wp-admin/post.php?post=123&meta-box-loader=1', method: 'POST', body: h.metaBody(), parse: false }, async () => ({}));
     await h.emit();
     assert.equal(h.acfFields.saved, 0);
-    assert.equal(h.calls.resumes.at(-1)?.code, 'mtflpp_source_changed');
+    assert.equal(h.calls.resumes.at(-1)?.code, 'mtflpp_native_save_unconfirmed');
 });
 
 test('block references and raw code edits schedule capture without serializing', async () => {
@@ -514,7 +514,7 @@ for (const bad of ['missing', 'request', 'before', 'after', 'available']) {
         await flush();
         assert.equal(result.id, 123, 'WordPress still receives its saved record');
         assert.equal(h.config.base, 'a'.repeat(64));
-        assert.equal(h.calls.resumes.at(-1)?.code, 'mtflpp_source_changed');
+        assert.equal(h.calls.resumes.at(-1)?.code, 'mtflpp_native_save_unconfirmed');
     });
 }
 
@@ -526,6 +526,7 @@ test('a confirmed conflict reports that the saved post changed, without withhold
     await flush();
     assert.deepEqual(JSON.parse(JSON.stringify(result)), { id: 123 });
     assert.equal(h.config.base, 'a'.repeat(64));
+    assert.equal(h.calls.resumes.at(-1)?.code, 'mtflpp_source_changed');
     assert.equal(h.calls.resumes.at(-1)?.message, h.config.strings.savedPostConflict);
 });
 
@@ -545,7 +546,7 @@ for (const parse of [true, false]) {
             assert.equal((await response.json()).id, 123, 'receipt inspection must not consume the native response');
         }
         assert.equal(h.config.base, 'a'.repeat(64));
-        assert.equal(h.calls.resumes.at(-1)?.code, 'mtflpp_source_changed');
+        assert.equal(h.calls.resumes.at(-1)?.code, 'mtflpp_native_save_unconfirmed');
     });
 }
 
@@ -628,7 +629,7 @@ test('a missing meta-box receipt cannot silently accept metadata changes', async
     const h = fixture();
     await h.request({ url: 'http://site.test/wp-admin/post.php?post=123&meta-box-loader=1', method: 'POST', body: h.metaBody(), parse: false }, async () => ({}));
     await flush();
-    assert.equal(h.calls.resumes.at(-1)?.code, 'mtflpp_source_changed');
+    assert.equal(h.calls.resumes.at(-1)?.code, 'mtflpp_native_save_unconfirmed');
 });
 
 for (const [error, uncertain] of [
@@ -648,7 +649,7 @@ for (const [error, uncertain] of [
         await assert.rejects(h.request({ path: h.config.postRoute, method: 'PUT' }, async () => { throw error; }), (received) => received === error);
         await flush();
         assert.equal(h.config.base, 'a'.repeat(64), 'a rejection never advances the saved fingerprint');
-        assert.equal(h.calls.resumes.at(-1)?.code, uncertain ? 'mtflpp_source_changed' : undefined);
+        assert.equal(h.calls.resumes.at(-1)?.code, uncertain ? 'mtflpp_native_save_unconfirmed' : undefined);
     });
 }
 
@@ -665,7 +666,7 @@ for (const bad of [null, 'request', 'before', 'after', 'available']) {
         await flush();
         assert.equal('_mtflpp_receipt' in error, false, 'private receipts never reach core');
         assert.equal(h.config.base, 'a'.repeat(64), 'a rejected request never advances the baseline');
-        assert.equal(h.calls.resumes.at(-1)?.code, bad ? 'mtflpp_source_changed' : undefined);
+        assert.equal(h.calls.resumes.at(-1)?.code, bad ? 'mtflpp_native_save_unconfirmed' : undefined);
         if (!bad) {
             const edits = { id: 123, title: 'Retry' };
             assert.equal(await h.beforeSave(edits), edits);
@@ -690,7 +691,7 @@ for (const immutable of ['frozen', 'non-configurable']) {
         }), (received) => received === error);
         await flush();
         assert.equal(h.config.base, 'a'.repeat(64));
-        assert.equal(h.calls.resumes.at(-1)?.code, 'mtflpp_source_changed');
+        assert.equal(h.calls.resumes.at(-1)?.code, 'mtflpp_native_save_unconfirmed');
         assert.equal(await h.beforeSave({ id: 123 }).then((edits) => edits.id), 123, 'native retry remains available');
     });
 }
@@ -704,7 +705,7 @@ test('a post update followed by a metadata 403 cannot resume against the old bas
     }), (received) => received === error);
     await flush();
     assert.equal(h.config.base, 'a'.repeat(64));
-    assert.equal(h.calls.resumes.at(-1)?.code, 'mtflpp_source_changed');
+    assert.equal(h.calls.resumes.at(-1)?.code, 'mtflpp_native_save_unconfirmed');
     const edits = { id: 123, title: 'Native retry remains available' };
     assert.equal(await h.beforeSave(edits), edits);
 });

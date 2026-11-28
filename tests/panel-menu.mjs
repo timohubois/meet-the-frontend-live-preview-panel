@@ -308,11 +308,13 @@ async function nativeNoticeTests(strings) {
         try {
             let state = {
                 inPage: mode === 'in-page', inPip: mode === 'PiP', hasPreview: true, device: 'desktop', fit: 'window', orientation: 'landscape',
+                canRefresh: true,
                 notice: { heading: 'Could not update preview.', description: 'Showing the previous preview.', status: 'warning', dismissible: false, retry: true, action: strings.retry },
             };
-            let retries = 0, dismissals = 0;
+            let retries = 0, refreshes = 0, dismissals = 0;
             controls = createPreviewControls(panel, strings, {
                 retry() { retries++; },
+                refresh() { refreshes++; },
                 dismissNotice() { dismissals++; state = { ...state, notice: null }; controls.update(state); },
             });
             controls.update(state);
@@ -328,6 +330,10 @@ async function nativeNoticeTests(strings) {
             const retry = [...notice.querySelectorAll('button')].find((button) => button.textContent === strings.retry);
             retry.click();
             check(retries === 1, 'Invoke recovery once through the native action.');
+            const refresh = panel.querySelector('[data-action="refresh"]');
+            check(refresh && !refresh.disabled && refresh.getAttribute('aria-disabled') !== 'true', 'Keep Update preview available alongside Try again.');
+            refresh.click();
+            check(refreshes === 1, 'The toolbar action also starts a refresh.');
             retry.focus();
             controls.update({ ...state, device: 'mobile', notice: { ...state.notice } });
             await pause();

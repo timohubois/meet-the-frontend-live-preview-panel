@@ -65,7 +65,7 @@ function classicFixture({ entries = [], controls = [], previewRowEvidence = fals
         removeEventListener() {},
     };
     const config = { base: 'baseline', acfEnabled, previewRowEvidence,
-        strings: { integrationFailed: 'Integration failed', acfUnavailable: 'ACF unavailable', acfRefreshing: 'ACF refreshing' } };
+        strings: { integrationFailed: 'Integration failed', acfUnavailable: 'ACF unavailable', updating: 'Updating preview…' } };
     const context = {
         URLSearchParams, document: { getElementById: (id) => id === 'post' ? form : null },
         window: { addEventListener() {}, removeEventListener() {}, jQuery: () => ({ on() {}, off() {} }),
@@ -92,7 +92,7 @@ function classicFixture({ entries = [], controls = [], previewRowEvidence = fals
             resolveRegions = resolveRenderedRegions;
             return {
                 start() { calls.push(['start', native.ready]); },
-                pause(reason) { calls.push(['pause', reason]); },
+                pause(reason, state) { calls.push(['pause', reason, state]); },
                 changed() { calls.push(['changed', native.ready]); },
                 resume(error) { calls.push(error ? ['error', error.message] : ['resume', native.ready]); },
             };
@@ -128,7 +128,7 @@ test('Classic captures the native form once, preserving ACF entries and excludin
 test('Classic ACF waits for conditional controls, then resumes and releases readiness listeners', () => {
     const h = classicFixture({ ready: false });
     assert.equal(h.native.ready, false);
-    assert.deepEqual(h.calls[0], ['pause', 'ACF refreshing']);
+    assert.deepEqual(h.calls[0], ['pause', 'Updating preview…', 'input-wait']);
     h.actions.get('ready')();
     assert.equal(h.native.ready, true);
     assert.deepEqual(h.calls.at(-1), ['resume', true]);

@@ -47,7 +47,7 @@ final class BlockEditor
             }
         }
         $config['strings']['nativeSaveFailed'] = __(
-            'We couldn’t check whether WordPress saved your latest changes.',
+            'Live preview couldn’t confirm the save. Check the editor for your save status.',
             'meet-the-frontend-live-preview-panel'
         );
         $config['strings']['postOnly'] = __(

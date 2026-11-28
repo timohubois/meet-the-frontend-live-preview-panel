@@ -36,7 +36,7 @@ export function createBlockEditor(config) {
         && editor()?.getCurrentPostType() === config.postType;
     const fail = (conflict = false) => {
         const message = conflict ? config.strings.savedPostConflict : config.strings.nativeSaveFailed;
-        failure = Object.assign(new Error(message), { code: 'mtflpp_source_changed' });
+        failure = Object.assign(new Error(message), { code: conflict ? 'mtflpp_source_changed' : 'mtflpp_native_save_unconfirmed' });
     };
     const token = () => Array.from(window.crypto.getRandomValues(new Uint8Array(16)),
         (byte) => byte.toString(16).padStart(2, '0')).join('');
@@ -90,11 +90,11 @@ export function createBlockEditor(config) {
         const postLoaded = !!state?.getCurrentPost()?.id;
         const postReady = postLoaded && ownsPost();
         if (postReady) inputs.run(() => acf?.observe());
-        const waiting = inputs.run(() => acf && !acf.ready);
-        const pauseReason = waiting ? config.strings.acfRefreshing : '';
-        const canPreview = postReady && !pauseReason && !inputs.error;
-        native.notReady = notReadyReason(postLoaded, postReady, pauseReason);
-        native.notReadyState = postLoaded ? 'paused' : 'loading';
+        const waiting = postReady && inputs.run(() => acf && !acf.ready);
+        const canPreview = postReady && !waiting && !inputs.error;
+        native.notReady = notReadyReason(postLoaded, postReady, waiting ? config.strings.updating : '');
+        if (waiting) native.notReadyState = 'input-wait';
+        else native.notReadyState = postLoaded ? 'paused' : 'loading';
         const saving = postReady && (state.isSavingPost() || requests > 0);
         const becameReady = canPreview && !ready;
         ready = canPreview;

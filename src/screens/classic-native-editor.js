@@ -42,7 +42,8 @@ export function createNativeEditor(config, form) {
                 finish();
             } else if (receipt || Date.now() >= deadline) {
                 const message = value === 'conflict' ? config.strings.savedPostConflict : config.strings.nativePreviewFailed;
-                finish(Object.assign(new Error(message), { code: 'mtflpp_source_changed' }));
+                const code = value === 'conflict' ? 'mtflpp_source_changed' : 'mtflpp_native_preview_unconfirmed';
+                finish(Object.assign(new Error(message), { code }));
             } else timer = setTimeout(check, 100);
         };
         nativePreview = { done, check };

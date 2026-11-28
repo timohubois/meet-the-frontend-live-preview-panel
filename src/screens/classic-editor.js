@@ -78,13 +78,13 @@ export function initLivePreview(config, nativeEditor, inlineLauncher) {
     function handleChange(notify) {
         if (capturing || destroyed) return;
         const waiting = inputs.run(() => acf && !acf.ready);
-        const reason = inputs.error?.message || (waiting ? config.strings.acfRefreshing : '');
-        const becameReady = nativeEditor.ready === false && !reason;
-        nativeEditor.ready = !reason;
-        nativeEditor.notReady = reason;
-        nativeEditor.notReadyState = 'paused';
+        const ready = !waiting && !inputs.error;
+        const becameReady = nativeEditor.ready === false && ready;
+        nativeEditor.ready = ready;
+        nativeEditor.notReady = waiting ? config.strings.updating : '';
+        nativeEditor.notReadyState = 'input-wait';
         if (inputs.error) preview.resume(inputs.error);
-        else if (reason) preview.pause(reason, 'paused');
+        else if (waiting) preview.pause(nativeEditor.notReady, nativeEditor.notReadyState);
         else if (becameReady) preview.resume();
         else notify();
     }

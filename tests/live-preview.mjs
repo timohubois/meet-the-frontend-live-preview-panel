@@ -15,7 +15,7 @@ function fixture(t) {
     const endpoint = `/ownership-test-${process.pid}-${++nextSite}`;
     return ({
         site = endpoint, userId = 1, broadcast = true, pending = false, error, hasPreview = false, followChanges = true,
-        excludedSelectors = [], prepare, frameError, holdFrame = false, secureContext = true,
+        excludedSelectors = [], prepare, frameError, holdFrame = false, secureContext = true, inputsReady = true,
     } = {}) => {
         const write = Promise.withResolvers(), started = Promise.withResolvers();
         const reports = [], timers = new Map();
@@ -64,6 +64,7 @@ function fixture(t) {
             },
         })({ endpoint: site, postId: 12, userId, available: true, strings: panelStrings, comparisonExcludedSelectors: excludedSelectors }, {
             idle: Promise.resolve(), saving: false,
+            get ready() { return inputsReady; }, notReady: panelStrings.updating, notReadyState: 'input-wait',
             preparePreview() {
                 writes++; started.resolve();
                 if (prepare) return prepare();
@@ -87,6 +88,8 @@ function fixture(t) {
                 for (const [callback, deadline] of [...timers]) if (deadline <= now && timers.delete(callback)) callback();
             },
             frameReady: () => frameReport('', 'ready'),
+            pauseForInputs() { inputsReady = false; session.pause(panelStrings.updating, 'input-wait'); },
+            inputsArrived() { inputsReady = true; session.resume(); },
             release: () => write.resolve({ url: '/preview' }), get writes() { return writes; },
         };
     };
@@ -275,6 +278,77 @@ for (const failedEdit of [false, true]) {
         assert.equal(h.frames.lastLoad[3].content.value, text);
     });
 }
+
+test('the first preview waits for its fields without making a partial write', async (t) => {
+    const h = fixture(t)({ inputsReady: false });
+    h.session.start();
+    assert.equal(h.reports.at(-1).state, 'loading');
+    assert.equal(h.reports.at(-1).hasPreview, false);
+    assert.equal(h.writes, 0);
+    h.inputsArrived(); await h.started; await h.session.pending;
+    assert.equal(h.writes, 1);
+    h.frameReady();
+    h.advance(30000);
+    assert.equal(h.reports.at(-1).state, 'ready', 'Readiness cancels the old wait deadline.');
+});
+
+for (const stalled of [false, true]) {
+    test(`field reload ${stalled ? 'shows recovery if it stalls' : 'uses only progress until it finishes'}`, async (t) => {
+        const h = fixture(t)({ hasPreview: true });
+        h.session.start(); await h.started; await h.session.pending;
+        h.pauseForInputs();
+        assert.equal(h.reports.at(-1).text, panelStrings.updating);
+        assert.equal(h.reports.at(-1).state, 'loading');
+        assert.equal(h.reports.at(-1).canRefresh, false);
+        assert.equal(h.reports.at(-1).hasPreview, true);
+        h.advance(15000);
+        h.session.changed(); h.pauseForInputs();
+        if (stalled) {
+            h.advance(15000);
+            assert.equal(h.reports.at(-1).state, 'error', 'Field events must not extend the deadline.');
+            assert.equal(h.reports.at(-1).reason, 'reload');
+            assert.equal(h.reports.at(-1).canRetry, false);
+            h.session.changed(); h.pauseForInputs();
+            assert.equal(h.reports.at(-1).state, 'error', 'Do not replace recovery guidance until fields are ready.');
+        }
+        assert.equal(h.writes, 1, 'Old field rows must not be captured.');
+        h.inputsArrived(); h.advance(275); await h.session.pending;
+        assert.equal(h.writes, 2);
+        h.frameReady(); h.advance(30000);
+        assert.equal(h.reports.at(-1).state, 'ready', 'Even late fields can still resume preview safely.');
+    });
+}
+
+test('closing the panel cancels a pending field wait', async (t) => {
+    const h = fixture(t)({ inputsReady: false });
+    h.session.start();
+    h.callbacks.onClose();
+    const reports = h.reports.length;
+    h.advance(30000);
+    assert.equal(h.reports.length, reports);
+    assert.equal(h.writes, 0);
+    h.callbacks.onOpen();
+    assert.equal(h.reports.at(-1).state, 'loading');
+});
+
+test('Try again and the toolbar both retry a temporary preview failure', async (t) => {
+    let attempts = 0;
+    const h = fixture(t)({ hasPreview: true, prepare: () => {
+        if (++attempts < 3) throw new Error('Temporary failure');
+        return Promise.resolve({ url: '/preview' });
+    } });
+    h.session.start(); await h.started; await h.session.pending;
+    assert.equal(h.reports.at(-1).state, 'error');
+    assert.equal(h.reports.at(-1).canRetry, true);
+    assert.equal(h.reports.at(-1).canRefresh, true);
+    h.callbacks.onRetry(false); await h.session.pending;
+    assert.equal(h.reports.at(-1).state, 'error');
+    assert.equal(h.reports.at(-1).canRetry, true);
+    assert.equal(h.reports.at(-1).canRefresh, true);
+    h.callbacks.onRefresh(); await h.session.pending;
+    assert.equal(h.writes, 3);
+    assert.equal(h.frames.loads, 1);
+});
 
 test('live comparison receives the complete PHP exclusion policy, including an empty list', async (t) => {
     const open = fixture(t);
