@@ -110,11 +110,7 @@ final class Panel
         return [
             'takeOver' => __('Use preview here', 'meet-the-frontend-live-preview-panel'),
             'takingOver' => __('Switching…', 'meet-the-frontend-live-preview-panel'),
-            'switchingPreview' => __('Switching preview…', 'meet-the-frontend-live-preview-panel'),
-            'waiting' => __(
-                'Waiting for the other preview to finish updating.',
-                'meet-the-frontend-live-preview-panel'
-            ),
+            'switchingPreview' => __('Switching live preview to this tab…', 'meet-the-frontend-live-preview-panel'),
             'handedOff' => __('Preview is paused here', 'meet-the-frontend-live-preview-panel'),
             'handedOffHelp' => __(
                 'Live preview is active elsewhere. If you use it here, the other preview will stop updating.',
@@ -122,24 +118,20 @@ final class Panel
             ),
             'takeoverTimeout' => __('The other preview is still busy', 'meet-the-frontend-live-preview-panel'),
             'takeoverTimeoutHelp' => __(
-                'Try again, or close the other preview.',
+                'You can close the other preview or wait for it to finish.',
                 'meet-the-frontend-live-preview-panel'
             ),
             'tabEdits' => __('Your edits stay where you made them.', 'meet-the-frontend-live-preview-panel'),
             'bootFailed' => __(
-                'Couldn’t start live preview. Use WordPress Preview, or copy any changes you want to keep and reload the editor.', // phpcs:ignore Generic.Files.LineLength.TooLong -- Keep the translatable message intact.
+                'Live preview couldn’t start. Reload this editor page to restart it, or use WordPress Preview.',
                 'meet-the-frontend-live-preview-panel'
             ),
             'savedPostConflict' => LivePreview::conflictMessage(),
-            'reviewBeforeReload' => __(
-                'Copy any unsaved changes you want to keep, then reload the editor to resume live preview.',
-                'meet-the-frontend-live-preview-panel'
-            ),
-            'conflict' => __('Live preview is already in use', 'meet-the-frontend-live-preview-panel'),
-            'conflictHelp' => __(
-                'If you use the preview here, the other preview will stop updating.',
-                'meet-the-frontend-live-preview-panel'
-            ),
+            'stopped' => __('Live preview stopped updating.', 'meet-the-frontend-live-preview-panel'),
+            'couldNotStart' => __('Live preview couldn’t start.', 'meet-the-frontend-live-preview-panel'),
+            'reloadEditor' => __('Reload this editor page to restart live preview.', 'meet-the-frontend-live-preview-panel'),
+            'conflict' => __('Live preview is active in another tab', 'meet-the-frontend-live-preview-panel'),
+            'startPreview' => __('Start preview', 'meet-the-frontend-live-preview-panel'),
             'closeOther' => __('Close the other preview first', 'meet-the-frontend-live-preview-panel'),
             'closeOtherHelp' => __(
                 'Close the other preview, then start it here.',
@@ -166,7 +158,7 @@ final class Panel
                 'meet-the-frontend-live-preview-panel'
             ),
             'nativePreviewFailed' => __(
-                'We couldn’t check whether WordPress finished preparing its preview. Check the preview tab before continuing.', // phpcs:ignore Generic.Files.LineLength.TooLong -- Keep the translatable message intact.
+                'Live preview couldn’t tell if WordPress Preview was ready. Check the preview tab.',
                 'meet-the-frontend-live-preview-panel'
             ),
         ];
@@ -242,11 +234,10 @@ final class Panel
             'redirected' => __('Followed a redirect to:', 'meet-the-frontend-live-preview-panel'),
             'publicRedirected' => __('Public URL redirects to:', 'meet-the-frontend-live-preview-panel'),
             'pausedTitle' => __('Preview paused', 'meet-the-frontend-live-preview-panel'),
-            'stale' => __('Waiting to update preview…', 'meet-the-frontend-live-preview-panel'),
             'failed' => __('Couldn’t load preview', 'meet-the-frontend-live-preview-panel'),
             'failedHelp' => __('Try loading the preview again.', 'meet-the-frontend-live-preview-panel'),
-            'refreshFailed' => __('Couldn’t update preview', 'meet-the-frontend-live-preview-panel'),
-            'previousPreview' => __('Showing the last preview.', 'meet-the-frontend-live-preview-panel'),
+            'refreshFailed' => __('The preview couldn’t update.', 'meet-the-frontend-live-preview-panel'),
+            'previousPreview' => __('You’re seeing the last version that loaded.', 'meet-the-frontend-live-preview-panel'),
             'originMismatchTitle' => __(
                 'Preview uses a different website address',
                 'meet-the-frontend-live-preview-panel'

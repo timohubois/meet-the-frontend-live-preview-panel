@@ -3,6 +3,7 @@ import { createPreviewFrame } from '../preview/frame.js';
 import { createPreviewScroll } from '../preview/scroll.js';
 
 const refreshDelay = 275;
+const inputWaitLimit = 30000;
 
 // Share preview writes, frames and ownership, not editor-specific fields or save controls.
 export function createLivePreview(config, nativeEditor, { inlineLauncher, nativeLauncher, resolveRenderedRegions } = {}) {
@@ -36,6 +37,7 @@ export function createLivePreview(config, nativeEditor, { inlineLauncher, native
     let candidate;
     let pendingCheck;
     let previewError;
+    let inputWaitTimer;
     // Native saves drain only the server write, never a refresh waiting for that same native save.
     let writeTask;
     // Covers queued acquisition, active ownership and draining the final refresh before release.
@@ -63,10 +65,12 @@ export function createLivePreview(config, nativeEditor, { inlineLauncher, native
 
     function report(text, state = 'loading', { canRetry = true, reason = '' } = {}) {
         if (state === 'ready') followPending = false;
+        const canUpdate = !nativeEditor.saving && nativeEditor.ready !== false;
+        const retryableError = state === 'error' && canRetry && canUpdate;
         view.report(text, state, {
-            canTakeOver: !!channel, hasPreview: frames.hasPreview, canRetry, reason,
+            canTakeOver: !!channel, hasPreview: frames.hasPreview, canRetry: state === 'error' ? retryableError : canRetry, reason,
             hasHtmlPreview: frames.hasHtmlPreview, redirectDestination: frames.redirectDestination,
-            canRefresh: previewActive && !nativeEditor.saving && ['ready', 'error'].includes(state) && (state !== 'error' || canRetry),
+            canRefresh: retryableError || (state === 'ready' && previewActive && canUpdate),
         });
     }
 
@@ -74,6 +78,7 @@ export function createLivePreview(config, nativeEditor, { inlineLauncher, native
         const code = error?.code;
         if (code === 'mtflpp_post_locked') return 'post-locked';
         if (code === 'mtflpp_acf_rows_stale') return 'reload-before-save';
+        if (code === 'mtflpp_native_save_unconfirmed' || code === 'mtflpp_native_preview_unconfirmed') return 'unconfirmed';
         if ([
             'mtflpp_invalid_nonce', 'rest_cookie_invalid_nonce', 'mtflpp_preview_conflict',
             'mtflpp_source_changed', 'mtflpp_acf_unavailable', 'mtflpp_integration_failed',
@@ -160,25 +165,44 @@ export function createLivePreview(config, nativeEditor, { inlineLauncher, native
     }
 
     function markChanged(delay) {
-        if (!previewActive) return;
+        if (!previewActive || inputWaitTimer !== undefined) return;
         generation += 1;
         followPending = true;
         finishCheck();
         frames.cancel();
-        if (!nativeEditor.saving) report(strings.stale, 'stale');
+        if (!nativeEditor.saving) report(strings.updating, 'stale');
         if (nativeEditor.saving || nativeEditor.previewing) cancelScheduledRefresh();
         else scheduleRefresh(delay);
+    }
+
+    function showNotReady(text, state) {
+        if (state !== 'input-wait') {
+            report(text, state, { canRetry: false });
+            return;
+        }
+        if (inputWaitTimer !== undefined) return;
+        report(text, 'loading', { canRetry: false });
+        // Don’t capture incomplete fields. If they never arrive, replace progress with a way forward.
+        // Keep the timer marker until readiness changes so further field events don’t restart the wait.
+        inputWaitTimer = setTimeout(() => report(strings.stopped, 'error', { canRetry: false, reason: 'reload' }), inputWaitLimit);
+    }
+
+    function clearInputWait() {
+        clearTimeout(inputWaitTimer);
+        inputWaitTimer = undefined;
     }
 
     function pause(text = strings.saving, state = 'loading') {
         generation += 1;
         cancelScheduledRefresh();
         frames.cancel();
-        if (previewActive || (view.visible && state === 'paused')) report(text, state, { canRetry: false });
+        if (state !== 'input-wait') clearInputWait();
+        if (previewActive || (view.visible && ['paused', 'input-wait'].includes(state))) showNotReady(text, state);
         return writeTask;
     }
 
     function resume(error) {
+        clearInputWait();
         previewError = error;
         if (error) {
             if (view.visible) reportFailure(error);
@@ -253,6 +277,7 @@ export function createLivePreview(config, nativeEditor, { inlineLauncher, native
         view.setVisible(keepVisible);
         previewActive = false;
         cancelScheduledRefresh();
+        clearInputWait();
         discardFrames();
         clearTimeout(takeoverTimer);
         takeoverTimer = null;
@@ -280,7 +305,7 @@ export function createLivePreview(config, nativeEditor, { inlineLauncher, native
             return;
         }
         if (nativeEditor.ready === false) {
-            report(nativeEditor.notReady, nativeEditor.notReadyState ?? 'paused', { canRetry: false });
+            showNotReady(nativeEditor.notReady, nativeEditor.notReadyState ?? 'paused');
             return;
         }
         if (!config.available) {
@@ -295,7 +320,7 @@ export function createLivePreview(config, nativeEditor, { inlineLauncher, native
         let timedOut = false;
         takeoverRequest = controller;
         if (controller) {
-            report(strings.waiting, 'handover');
+            report(strings.switchingPreview, 'handover');
             takeoverTimer = setTimeout(() => {
                 timedOut = true;
                 controller.abort();

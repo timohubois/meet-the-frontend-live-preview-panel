@@ -33,16 +33,12 @@ final class Acf
             $dependencies[] = 'acf-input';
         }
         $config['acfEnabled'] = true;
-        $config['strings']['acfRefreshing'] = __(
-            'Waiting for ACF to reload repeating fields. If the fields don’t finish loading, reload the editor.',
-            'meet-the-frontend-live-preview-panel'
-        );
         $config['strings']['nativePreviewAcf'] = __(
-            'WordPress Preview saved repeating field changes, but the rows in this editor are still out of date.',
+            'Some rows in the editor are out of date after using WordPress Preview.',
             'meet-the-frontend-live-preview-panel'
         );
         $config['strings']['nativePreviewAcfReload'] = __(
-            'Copy any unsaved changes you want to keep, then reload the editor before saving again.',
+            'Reload this editor page before saving again.',
             'meet-the-frontend-live-preview-panel'
         );
         $config['strings']['acfUnavailable'] = __(

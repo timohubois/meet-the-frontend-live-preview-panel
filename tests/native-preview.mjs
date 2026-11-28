@@ -163,7 +163,7 @@ for (const value of ['conflict', 'malformed', `${'f'.repeat(64)}.${'b'.repeat(64
         await h.nativeEditor.idle;
         assert.equal(h.config.base, 'a'.repeat(64));
         assert.equal(h.nativeEditor.previewing, false);
-        assert.equal(h.outcomes[0].code, 'mtflpp_source_changed');
+        assert.equal(h.outcomes[0].code, value === 'conflict' ? 'mtflpp_source_changed' : 'mtflpp_native_preview_unconfirmed');
         assert.equal(h.outcomes[0].message, value === 'conflict' ? h.config.strings.savedPostConflict : h.config.strings.nativePreviewFailed);
         assert.equal(h.fields.length, 0);
         assert.equal(h.cookies.size, 0);
@@ -175,7 +175,7 @@ test('missing native acknowledgement expires without an infinite pause or anothe
     const h = await fixture();
     h.click(); await h.tick(30001); await h.nativeEditor.idle;
     assert.equal(h.nativeEditor.previewing, false);
-    assert.equal(h.outcomes[0].code, 'mtflpp_source_changed');
+    assert.equal(h.outcomes[0].code, 'mtflpp_native_preview_unconfirmed');
     assert.equal(h.config.base, 'a'.repeat(64));
     assert.equal(h.fields.length, 0);
     assert.equal(h.posts, 1);

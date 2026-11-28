@@ -89,7 +89,7 @@ export function initRevisionPreview(config, model, backLink) {
         frames.cancel();
         clearTimeout(timer);
         if (!view.visible) return;
-        report(strings.stale, 'stale');
+        report(strings.updating, 'stale');
         timer = setTimeout(refresh, 250);
     }
 

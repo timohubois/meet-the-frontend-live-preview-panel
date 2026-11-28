@@ -62,7 +62,7 @@ Historical content and supported stored fields use your current theme and settin
 
 No. Use WordPress's normal **Save**, **Update** or **Publish** controls. Native autosaves continue independently, and previewing does not replace WordPress's recovery autosave. Closing the panel does not discard your edits, but the preview is not a backup or recovery tool.
 
-Live updates pause during native saving or Preview, then resume. If the panel asks you to reload, copy any unsaved edits first. In the classic editor, also reload after using native Preview if it saved additions, removals or reordering in a paginated ACF repeater; copy any later edits first.
+Live updates pause during native saving or Preview, then resume. If the panel offers **Try again**, you can also use **Update preview** in the toolbar. If the panel asks you to reload, it means reloading the WordPress editor page to restart live preview. In the classic editor, reload the editor page before saving again if native Preview saved additions, removals or reordering in a paginated ACF repeater.
 
 = How do I adjust the preview? =
 
