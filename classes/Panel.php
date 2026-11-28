@@ -129,7 +129,10 @@ final class Panel
             'savedPostConflict' => LivePreview::conflictMessage(),
             'stopped' => __('Live preview stopped updating.', 'meet-the-frontend-live-preview-panel'),
             'couldNotStart' => __('Live preview couldn’t start.', 'meet-the-frontend-live-preview-panel'),
-            'reloadEditor' => __('Reload this editor page to restart live preview.', 'meet-the-frontend-live-preview-panel'),
+            'reloadEditor' => __(
+                'Reload this editor page to restart live preview.',
+                'meet-the-frontend-live-preview-panel'
+            ),
             'conflict' => __('Live preview is active in another tab', 'meet-the-frontend-live-preview-panel'),
             'startPreview' => __('Start preview', 'meet-the-frontend-live-preview-panel'),
             'closeOther' => __('Close the other preview first', 'meet-the-frontend-live-preview-panel'),
@@ -237,7 +240,10 @@ final class Panel
             'failed' => __('Couldn’t load preview', 'meet-the-frontend-live-preview-panel'),
             'failedHelp' => __('Try loading the preview again.', 'meet-the-frontend-live-preview-panel'),
             'refreshFailed' => __('The preview couldn’t update.', 'meet-the-frontend-live-preview-panel'),
-            'previousPreview' => __('You’re seeing the last version that loaded.', 'meet-the-frontend-live-preview-panel'),
+            'previousPreview' => __(
+                'You’re seeing the last version that loaded.',
+                'meet-the-frontend-live-preview-panel'
+            ),
             'originMismatchTitle' => __(
                 'Preview uses a different website address',
                 'meet-the-frontend-live-preview-panel'
